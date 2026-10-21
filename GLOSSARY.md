@@ -1,0 +1,17 @@
+# Glossary
+
+Terms Pod uses. Orca's words keep Orca's meaning.
+
+- **Story**: the unit of work a tracker holds. One story, one run.
+- **Run**: Orca's run for one story. A run pins one revision each of crew, process, and policy.
+- **Task**: Orca's task. One step of a process for one story. A completed task is never reopened; rework is a new task.
+- **Dispatch**: Orca's worker attempt on a task. One dispatch, one launch receipt.
+- **Seat**: a configured place a role runs: runtime, model, host, credentials. Crew maps roles to seats.
+- **Role**: what a seat does in a process: developer, reviewer, planner, decider, auditor, and so on. Pod knows roles; names of people and bots live in a crew profile.
+- **Gate**: a point in a process that needs a verdict before the run continues. A gate kept by a person is a human gate; by an agent, an automated gate.
+- **Gate receipt**: the recorded verdict on a gate, bound to its source, the candidate revision, and the time it was read back.
+- **Decision**: a request to choose between options, its rounds, and its outcome. A decision authorizes the next step in a stated scope; it is not a gate verdict.
+- **Evidence manifest**: the fixed list of sources a dispatch or decision may cite, each with its version, read time, and coverage.
+- **Revision**: an immutable, content-addressed version of a crew, process, or policy spec. Activation chooses which revision a scope uses.
+- **Snapshot**: the three revision ids and the effective gate map a run pinned at start.
+- **Reserved**: policy classes a decision cannot settle on its own: deny, needs a human, needs an existing authorization.
