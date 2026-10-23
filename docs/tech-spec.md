@@ -104,7 +104,7 @@ The connection string is read from the environment variable that the host profil
 
 A Revision id is the sha256 of the canonical JSON of `kind`, `name`, `schema_version`, `scope`, `scope_ref`, `parent`, and `value`. `scope_ref` is in the hash so that two project Revisions with the same value get distinct ids. Canonical JSON has sorted keys, no whitespace, and UTF-8 encoding, in the style of RFC 8785. The same input always gives the same id, so applying an unchanged file returns the existing Revision.
 
-`rev` is a sequence per kind, name, scope, and `scope_ref`, assigned at apply as the previous highest plus one. `kind.name@rev` resolves to one `id` through that unique key. Two Revisions with different content never share a `rev`, and applying an unchanged file returns the existing `rev` and `id`. `rev` stays out of the hash.
+`rev` is a sequence per kind and name across all scopes, assigned at apply as the previous highest plus one, so `kind.name@rev` names exactly one Revision whatever its scope. The Revision row and its activation keep `scope` and `scope_ref`. `pod config export kind.name@rev` and `pod run create --process name@rev`, whose kind is always `process`, therefore need no scope. Two Revisions with different content never share a `rev`, and applying an unchanged file returns the existing `rev` and `id`. `rev` stays out of the hash.
 
 A Snapshot hash is the sha256 of the canonical JSON of the three Revision ids plus the effective gate map. An Evidence manifest id is the sha256 of the canonical JSON of its references.
 
@@ -121,12 +121,12 @@ create table config.revision (
   schema_version  int  not null,
   rev             int  not null,
   scope           text not null check (scope in ('global', 'project', 'host', 'run')),
-  scope_ref       text not null default '',   -- empty for global scope, so the unique key below holds
+  scope_ref       text not null default '',   -- empty for global scope
   value           jsonb not null,
   actor           text not null,
   reason          text not null,
   created_at      timestamptz not null default now(),
-  unique (kind, name, scope, scope_ref, rev)
+  unique (kind, name, rev)
 )
 ```
 
@@ -286,7 +286,8 @@ Each event type has one kind of producer. A verb that is not listed records no e
 | `pod check` on a delivery with a stale `dispatchId` or owner generation | `ignored` |
 | every runtime call and every tracker call through a port, and each bypass test run | `receipt` |
 | `pod config apply --activate` on every activation change | `activation` |
-| `pod decide` when a Decision closes, a Reserved deny hits, or a human ruling is verified | `decision` |
+| `pod decide` when a Decision closes, a Reserved deny hits, a human ruling is verified, or an evidence exchange records a child manifest | `decision` |
+| `pod check` or `pod decide` when a Decision's adoption state changes | `decision` |
 | `pod decide` with category `self`, below the escalation threshold | `self_decision` |
 | `pod check` reading a push, a PR, or a deploy from a delivery or an `external_action` event | `push`, `pr`, `deploy` |
 | `pod release` | `release` |
@@ -305,7 +306,9 @@ Each event type has one kind of producer. A verb that is not listed records no e
 ```sql
 create table ledger.operation (
   op_key            text primary key,
-  intent            text not null,
+  intent            text not null check (intent in (
+                      'run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide',
+                      'config_apply', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning')),
   status            text not null check (status in ('pending', 'unknown', 'done', 'refused')),
   owner_generation  int  not null,
   result_ref        jsonb null,
@@ -372,8 +375,8 @@ create table ledger.decision (
   spent                   jsonb not null,
   supersedes_decision_id  text null references ledger.decision(id),
   adoption                text not null default 'pending'
-                            check (adoption in ('pending', 'adopted', 'reworked', 'reversed')),
-  adoption_evidence       jsonb null,          -- event ids of the rework or the superseding Decision
+                            check (adoption in ('pending', 'adopted', 'reworked', 'reversed')),   -- current state, history is in events
+  adoption_evidence       jsonb not null default '[]',   -- appended on every change, event ids of each rework or the superseding Decision
   created_at              timestamptz not null,
   closed_at               timestamptz null
 )
@@ -389,7 +392,7 @@ create table ledger.decision_round (
   auditor_dispatch_id  text not null references ledger.dispatch,
   proposal             jsonb not null,
   audit                jsonb not null,
-  stance               text not null check (stance in ('agree', 'disagree', 'escalate', 'needs_evidence')),
+  stance               text not null check (stance in ('agree', 'disagree', 'escalate')),
   manifest_id          text not null references ledger.evidence_manifest,   -- the manifest this round cited
   ts                   timestamptz not null,
   primary key (decision_id, round)
@@ -399,6 +402,8 @@ create table ledger.decision_round (
 `ledger.evidence_manifest` holds the fixed list of sources a Dispatch or Decision may cite.
 
 A manifest never changes. When the auditor asks for evidence, Pod records a child manifest whose references are the parent's plus the new ones, with `parent_id` set. `ledger.decision.manifest_id` stays the round 1 pin, and each `ledger.decision_round` row cites the manifest that round used.
+
+A round may have several evidence exchanges. Each one records a `decision` event carrying the child manifest id. Pod writes the `decision_round` row once, when the auditor records a stance other than `needs_evidence`, with `manifest_id` set to the last child. On recovery inside a round, Pod reads the latest child manifest from those events, so no round is spent.
 
 ```sql
 create table ledger.evidence_manifest (
@@ -460,7 +465,7 @@ The table below states who writes each table, what never changes, what a reader 
 | `ledger.evidence_manifest` | S4 | `pod dispatch`, `pod decide` | every row, new evidence makes a child manifest | the same sources give the same id |
 | `ledger.learning` | S10 | `pod learning add` | `text`, `evidence_refs`, `source_story` | never mirrored to the docs tool |
 | `ledger.usage_observation` | S11 | `pod check` only | every row | a null `value` means unknown |
-| `ledger.decision` | S12 | `pod decide` | id, category, question, `manifest_id`, `binding` | `spent` only increases, `binding` is always `run`, `adoption` moves forward from `pending` once |
+| `ledger.decision` | S12 | `pod decide`, and `pod check` for `adoption` | id, category, question, `manifest_id`, `binding` | `spent` only increases, `binding` is always `run`, `adoption` moves along `pending` to `adopted`, `adopted` to `reworked` or `reversed`, and `reworked` to `reversed`, every change appends to `adoption_evidence` and records a `decision` event with the new state and its evidence, and the full history is the ordered `decision` events |
 | `ledger.decision_round` | S12 | `pod decide` | every row | at most three rounds per Decision |
 
 ### CLI framework, verb list, and error shape
@@ -576,7 +581,9 @@ Identifiers and flags come from argv. A body comes from a file path or stdin, as
 
 #### Op keys
 
-Every side-effect verb takes `--op-key` or derives one from the intent, which is the verb, Run, Task, Seat, and attempt number. The verb inserts a `ledger.operation` row with status `pending` before it calls Orca or the tracker. The same key returns the recorded result, or it reconciles when the status is `unknown`. A retry is a new key with `retry_of`. A content hash is a fingerprint only and never stands in for an op key.
+Every side-effect verb takes `--op-key` or derives one from the intent, the Run, the Task, the Seat, and the attempt number. The intent is one of a closed list, which is `run_create`, `project`, `dispatch`, `retry`, `decide_seat`, `decide`, `config_apply`, `verdict`, `hqa`, `release`, `takeover`, `drain`, and `learning`. `run_create` is the Orca Run creation inside `pod run create`. `project` is one Task projection through `task-create`, inside `pod run create` or `pod check`. `decide` is the Decision request itself. `db migrate` records no operation row, because `config.migration` is its own record. `dispatch`, `retry`, and `decide_seat` are the three launch intents, and each one calls `worker-start` exactly once. `pod decide` records one `decide_seat` operation for each Decision Seat launch.
+
+The verb inserts a `ledger.operation` row with status `pending` before it calls Orca or the tracker. The same key returns the recorded result, or it reconciles when the status is `unknown`. A retry is a new key with `retry_of`. A content hash is a fingerprint only and never stands in for an op key.
 
 #### Owner generation
 
@@ -761,6 +768,7 @@ A process spec is a YAML file. zod parses it into the process schema.
 - Every step is reachable from the first step.
 - Every step has an outgoing edge for each outcome its type allows, as the outcome table below lists.
 - No edge points to an unknown step. `hold` and `done` are reserved edge targets.
+- A `FAIL` edge targets `hold` or has `new_task: true`.
 - Every Role has an authorized Seat in the active crew.
 - The reviewer is independent of the developer.
 - Every gate id exists in the active policy.
@@ -863,7 +871,7 @@ It applies four precedence rules in order.
 | Rule | Condition | Result |
 | --- | --- | --- |
 | 1 | `--process` and the Story's `Kickoff:` line are both present and differ | refuse with `selector_conflict` |
-| 2 | one of them names a Revision | check that Revision's selector against stage and points, and refuse with `selector_conflict` when it does not apply |
+| 2 | one of them names a Revision | check that Revision's selector against stage and points, and check that the Revision is active at the Story's project scope or at global scope. Refuse with `selector_conflict` when the selector does not apply or the Revision is active at neither |
 | 3 | neither is present | match the project activations, then the global activations, by selector. Zero matches refuse with `selector_none`, several refuse with `selector_many` |
 | 4 | any case | no override changes the effective gate map. Gates come only from policy |
 
@@ -876,6 +884,7 @@ A table-driven test enumerates stage, points, `Kickoff:` line, and `--process` o
 The projector is a scribe, not a judge. It turns each step into an Orca Task through `taskCreate`, with `deps` from the step's `needs`. The edge table drives transitions on verified outcomes, and a Gate receipt is the verified outcome for a gated step. A completed Orca Task is never a PASS.
 
 - `new_task: true` creates a Task in the same lineage and counts it against `rework_per_lineage`. At the limit, the lineage goes to `hold`.
+- A FAIL edge either creates a rework Task (`new_task: true`) or sends the Task to `hold`. The edge decides, and the Task table follows it.
 - A `human_wait` step starts no worker.
 - An `external_action` step waits for its event with the listed `event_fields`.
 - A step with no Gate treats its recorded delivery as outcome `done`.
@@ -901,12 +910,16 @@ A dependency is satisfied when it is `passed`, or `done`, which a Task reaches o
 | `dispatched` | `blocked` | Orca reports the Task `blocked` after `worker-stop` |
 | `blocked` | `dispatched` | `pod retry` starts a new Dispatch with `retry_of` |
 | `delivered` | `passed` | a PASS Gate receipt for a gated step, or the matching delivery for an ungated step |
-| `delivered` | `failed` | a FAIL Gate receipt |
+| `delivered` | `failed` | a FAIL Gate receipt whose edge has `new_task: true` |
+| `delivered` | `hold` | a FAIL Gate receipt whose edge targets `hold`. The receipt stays recorded, and the operator resumes after reconcile |
 | `passed` | `done` | the projector records the outgoing edge |
 | `failed` | `failed` | none. A failed Task is terminal. The rework Task in the same lineage replaces it, and the projector repoints the dependents' `deps` to the rework Task |
 | any state except `done`, `failed`, and `superseded` | `hold` | a `timeout`, `cancel`, or `unknown` outcome, a cancel event, or a lineage at its rework limit |
 | `hold` | `ready` | the operator resumes after reconcile, with no automatic retry |
 | `pending`, `ready`, or `hold` | `superseded` | a Decision outcome applies a new Task spec Revision, and the replacement Task inherits the dependents |
+| `dispatched` or `delivered` | `superseded` | a Decision outcome applies a new Task spec Revision to the escalating Task. Pod stops its Dispatch first, so the worker never resumes on the old spec |
+
+When the outcome of a Decision applies a new Task spec Revision to a Task whose Dispatch is `waiting` on that Decision, Pod runs `worker-stop` on that Dispatch, records its settlement as `superseded` with `activity` `settled`, moves the Task to `superseded`, and creates the replacement Task `ready` in the same lineage with the new Revision. The replacement's task view carries the worktree's `git status`, because the stopped worker's uncommitted edits stay in the worktree. `pod retry` refuses a Dispatch whose Task is `superseded` with `task_not_ready`.
 
 `superseded` is terminal and never satisfies `deps`. A replacement Task for a `superseded` Task does not count against `rework_per_lineage`.
 
@@ -914,7 +927,7 @@ A `human_wait` or `external_action` step has no Dispatch, so its readiness rule 
 
 ### The decision layer seats
 
-The decider and the auditor are Roles in the crew Revision. They share the host quota with worker Seats and start in sequence, so capacity 1 never deadlocks. There is no quota table. The quota is the host profile's `capacity` minus the slots in use. A slot is in use for each Dispatch on the host with `activity` `running`, worker and Decision Seats counted alike, and for each `ledger.operation` row with intent `dispatch` and status `pending` or `unknown`. That operation row is the reservation. It holds a slot until the launch result is known. S3 may add a table if the count proves too slow.
+The decider and the auditor are Roles in the crew Revision. They share the host quota with worker Seats and start in sequence, so capacity 1 never deadlocks. There is no quota table. The quota is the host profile's `capacity` minus the slots in use. A slot is in use for each Dispatch on the host with `activity` `running`, worker and Decision Seats counted alike, and for each `ledger.operation` row with a launch intent (`dispatch`, `retry`, or `decide_seat`) and status `pending` or `unknown`, which is a reservation. When the start receipt arrives, the same transaction sets the operation to `done` and inserts the Dispatch row with `activity` `running`, so the slot moves from the reservation to the Dispatch and is never counted twice. An operation left `unknown` keeps its slot until `pod check` reconciles it through `requestShow` or the worker list. S3 may add a table if the count proves too slow.
 
 A Dispatch is `waiting` when its Seat has delivered and waits on a message. That covers a worker blocked on `pod decide` and a Decision Seat between rounds. A `waiting` Dispatch holds no slot. A Dispatch is `settled` once its settlement is recorded. `pod check` and `pod decide` record each `activity` change.
 
@@ -923,7 +936,7 @@ At capacity 1 a blocking Decision runs in four steps.
 1. The worker escalates through `pod decide` and goes `waiting`, which frees the slot.
 2. The decider starts in the free slot, proposes, and goes `waiting`.
 3. The auditor starts in the free slot, audits, and goes `waiting`.
-4. Round 2 wakes one Seat at a time, and each Seat goes `waiting` again before the other wakes. The worker goes `running` again only after the Decision closes.
+4. Round 2 wakes one Seat at a time, and each Seat goes `waiting` again before the other wakes. The worker's Dispatch is stopped once the outcome applies a new Task spec Revision, and the replacement Task takes the next free slot through `pod dispatch`.
 
 #### What `pod decide` does
 
@@ -949,7 +962,6 @@ type DecisionState =
   | { kind: 'reserved_needs_human' }
   | { kind: 'round', n: 1 | 2 | 3 }
   | { kind: 'awaiting_evidence', n: 1 | 2 | 3 }
-  | { kind: 'suspended', n: 1 | 2 | 3 }
   | { kind: 'agreed' }
   | { kind: 'needs_human', reason: 'policy-required' | 'disagreement' | 'context-missing' | 'runtime-failure' }
   | { kind: 'cancelled' }
@@ -963,7 +975,7 @@ type DecisionState =
 | `requested` | Reserved needs_existing_authorization hit, and the Story or an infrastructure Story authorizes it | `round(1)` |
 | `requested` | Reserved needs_existing_authorization hit, and nothing authorizes it | `needs_human` with reason `policy-required` |
 | `requested` | no Reserved hit | `round(1)` |
-| `round(n)` | both agree | dependencies re-checked, then `agreed` |
+| `round(n)` | both agree | dependencies re-checked, then `agreed`, and the outcome applies as "Task states" describes |
 | `round(n)` | both agree, but a dependency's source Revision changed | `needs_human` with reason `context-missing`, and the outcome is not executable |
 | `round(n)` | one side escalates | affected actions stop first, the other side evaluates, and continued disagreement counts as a round |
 | `round(n)` | auditor answers needs_evidence | `awaiting_evidence(n)`, which is not a round and counts against `tool_calls` |
@@ -973,13 +985,13 @@ type DecisionState =
 | any open state | deadline, missing data, or an identity Pod cannot verify | `needs_human` with reason `runtime-failure` or `context-missing`, with no rounds spent |
 | any open state | budget exhausted | `needs_human` with reason `runtime-failure` |
 | any open state | cancel by the escalating actor or the human | `cancelled`, the affected Task goes to `hold`, with no automatic reopen |
-| `round(n)` or `awaiting_evidence(n)` | Seat failure or coordinator interruption | `suspended(n)`, with no round spent |
-| `suspended(n)` | a relaunch within the `relaunches` budget, after the owner generation check | `round(n)`, with the same Decision id, rounds, and manifest, and no human needed |
-| `suspended(n)` | the `relaunches` budget is exhausted or the deadline passed | `needs_human` with reason `runtime-failure` |
+| `round(n)` or `awaiting_evidence(n)` | Seat failure or coordinator interruption | `needs_human` with reason `runtime-failure`, with no round spent |
+| `needs_human` with reason `runtime-failure` | a source-verified human ruling that says resume, within the `relaunches` budget, after the owner generation check | `round(n)` for the interrupted round, with the same Decision id, rounds, and manifest, and the failed Seat's Dispatch reopened with a summary of earlier positions |
+| `needs_human` with reason `runtime-failure` | a resume ruling when `relaunches` is spent | Pod refuses the ruling with `decision_budget_exhausted`, and the Decision stays `needs_human` |
 | `needs_human` | a human ruling comment that passes source verification and readback | `agreed` or `cancelled`, as the ruling says |
 | `agreed` | a later Decision cites this id | `superseded` |
 
-A relaunch from `suspended(n)` reopens the failed Seat's Dispatch with a summary of earlier positions, and the reopen counts against `relaunches`. The only exit from `needs_human` is a human ruling.
+The human ruling authorizes recovery from a Seat failure, and Pod never relaunches a Decision Seat on its own. A resume ruling reopens the failed Seat's Dispatch with a summary of earlier positions, and the relaunch counts against `relaunches`. The only exits from `needs_human` are a human ruling that resumes, decides, or cancels.
 
 #### Budgets
 
@@ -995,7 +1007,7 @@ The author, proposer, auditor, and gatekeeper of one artifact are distinct Seats
 
 #### Binding
 
-Binding is `run` only. A project or global change is a recommendation that goes to needs-human. It takes effect only as a policy Revision the human gatekeeper authorizes. A Decision can be overruled, never rewritten. A new Decision cites the old id in `supersedes_decision_id`.
+Binding is `run` only. A project or global change is a recommendation that goes to needs-human. It takes effect only as a policy Revision the human gatekeeper authorizes. A Decision can be overruled, never rewritten. A new Decision cites the old id in `supersedes_decision_id`. A reversal records a new Decision that cites the old id, and the old Decision's `adoption` moves to `reversed` with that id in `adoption_evidence`.
 
 #### Policy schema
 
@@ -1147,7 +1159,7 @@ The order is S1, then S2, then S3 with S4, then S5 with S6, then S7 with S8, the
 | 7 | S9 Remaining reference process specs | TPC-1121 | 3 | `specs/process/prd.yaml`, `design.yaml`, `impl-3pt.yaml`, `impl-planned.yaml` | none, apply tests only | S5 |
 | 7 | S11 State view | TPC-1123 | 1 | `src/adapters/notion`, `ledger.usage_observation`, verb `state` with the seven state view sections, each with `source_revision` and `observed_at`, the 30-day in-force Decision rule, and the 3k word budget | `docs-section-read` | S4, S10 |
 | 7 | S12 Minimal decision loop | TPC-1124 | 3 | `src/core/decide`, `ledger.decision`, `ledger.decision_round`, verb `decide` | `decision-happy-path`, `decision-fallback` | S3, S4, S11 |
-| 8 | S13 Decision failures and authorization | TPC-1125 | 3 | Reserved checks, the policy schema with `profiles`, `suspended(n)` and Decision recovery, every Flow 2 transition replayed, the mixed auditor case set (correct proposal, wrong citation, stale roadmap, out-of-scope proposal, true citation with wrong inference) with misses and false refusals recorded per case, a dependency change between rounds, gate-lift refusals, and a budget kept across relaunch | one scenario per Decision state table row, `gate-lift-refused` | S12 |
+| 8 | S13 Decision failures and authorization | TPC-1125 | 3 | Reserved checks, the policy schema with `profiles`, Decision recovery through needs-human, every Flow 2 transition replayed, the mixed auditor case set (correct proposal, wrong citation, stale roadmap, out-of-scope proposal, true citation with wrong inference) with misses and false refusals recorded per case, a dependency change between rounds, gate-lift refusals, and a budget kept across relaunch | one scenario per Decision state table row, `gate-lift-refused` | S12 |
 | 9 | S14 Dogfood B, decision measurement | TPC-1126 | 2 | one real 5 or 8 point Story through `impl-planned@1` with the Decision pair, escalations reported by reason with a natural sample reported as such, adoption, rework, and reversal per Decision, the pair's context size and cold-start time per Run, and the reviewer and human receipts bound to the final candidate SHA and the deployed revision with keepers that are not the Decision Seats | `dogfood-b` | S9, S12, S13 |
 
 The points total 35. In position 7, S11 merges before S12 because the Decision manifest reads the state view.
