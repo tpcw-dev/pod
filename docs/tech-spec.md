@@ -871,7 +871,7 @@ It applies four precedence rules in order.
 | Rule | Condition | Result |
 | --- | --- | --- |
 | 1 | `--process` and the Story's `Kickoff:` line are both present and differ | refuse with `selector_conflict` |
-| 2 | one of them names a Revision | check that Revision's selector against stage and points, and check that the Revision is active at the Story's project scope or at global scope. Refuse with `selector_conflict` when the selector does not apply or the Revision is active at neither |
+| 2 | one of them names a Revision | check that Revision's selector against stage and points only. A named Revision needs no activation. Refuse with `selector_conflict` when the selector does not apply, and with `selector_none` when no Revision has that `kind.name@rev` |
 | 3 | neither is present | match the project activations, then the global activations, by selector. Zero matches refuse with `selector_none`, several refuse with `selector_many` |
 | 4 | any case | no override changes the effective gate map. Gates come only from policy |
 
