@@ -517,7 +517,7 @@ The evidence each side-effect verb requires before it acts:
 | `db migrate` | a reachable database and a `db/migrations/` journal that matches the applied-migrations table |
 | `config apply` | a file that passes its schema, every Role filled and every gate id present when the kind is process, and `expected_revision` equal to the active Revision when `--activate` is set |
 | `run create` | a groomed Story with a size and a stage, and exactly one selected process Revision |
-| `dispatch` | Task state `ready`, every dependency satisfied as "Task states" defines, a free quota slot, an authorized Seat for the Role, reviewer independent of developer, no drain in force |
+| `dispatch` | Task state `ready`, every dependency satisfied as "Task states" defines, a free quota slot, which on an xl Run counts the coordinator's slot as released by the dispatch transaction, an authorized Seat for the Role, reviewer independent of developer, no drain in force |
 | `check` | the delivery's `payload.dispatchId` matches a recorded Dispatch, and its owner generation matches the Run |
 | `retry` | Task state `blocked`, the original placement in `ledger.dispatch`, the worktree `git status` in the task view |
 | `release` | the Dispatch is settled or the caller gives a retain reason, and this host owns the terminal |
@@ -837,9 +837,9 @@ escalation: { to: decision-pair }
 | `impl-small@1` | stage impl, size xs or s | implement, review, pr, merge, deploy, `hqa_after_deploy` | `hqa_after_deploy` |
 | `impl-medium@1` | stage impl, size m | plan (planner), plan review (Decision pair, automated Gate), implement, story QA (qa), pr, merge, deploy, `hqa_after_deploy` | `hqa_after_deploy` |
 | `impl-large@1` | stage impl, size l | plan (planner), plan review (Decision pair, automated Gate) in place of a tech review, implement (several Tasks), review per Task, review of the integrated candidate SHA, pr, merge, deploy, `hqa_after_deploy` | `hqa_after_deploy` |
-| `impl-xlarge@1` | stage impl, size xl | the same steps as `impl-large@1`, driven by the coordinator pair | `hqa_after_deploy` |
+| `impl-xlarge@1` | stage impl, size xl | the same steps as `impl-large@1`, driven by the coordinator pair. Its plan review is a Decision round of the pair, and the `agreed` outcome advances the plan step with no Gate receipt | `hqa_after_deploy` |
 
-A Story of size xs or s has no plan step. `story-full@1`, which chains and splits across stages, is phase 2.
+A Story of size xs or s has no plan step. In `impl-medium@1` and `impl-large@1` the plan review is an automated Gate kept by the Decision pair, and a PASS Gate receipt advances the plan step. In `impl-xlarge@1` the plan review step is a `worker` step for the planner followed by a `pod decide` request whose scope is the plan Revision. The evidence that advances the plan step is the `decision` event with outcome `agreed` bound to that plan Revision, and the projector reads it where other specs read a Gate receipt. `story-full@1`, which chains and splits across stages, is phase 2.
 
 #### Selector
 
@@ -945,15 +945,15 @@ At capacity 1 a blocking Decision runs in four steps.
 
 #### Coordinator pair for xl
 
-For an xl Run the decider Seat is the Run's coordinator. It runs the `pod` verbs for the Run and holds the owner generation. The auditor Seat is resident from Run start and audits the plan, each Task's result, and the integrated candidate SHA. Escalations inside the Run use the same pair, and no further Decision Seats open. The pair's audits are Decision rounds, not Gate receipts. Each Task's PR review therefore stays with an independent reviewer Seat, and the human Gates stay with the human gatekeeper.
+For an xl Run the decider Seat is the Run's coordinator. It runs the `pod` verbs for the Run and holds the owner generation. The auditor Seat is resident from Run start and audits the plan, each Task's result, and the integrated candidate SHA. Escalations inside the Run use the same pair, and no further Decision Seats open. The pair's audits are Decision rounds, not Gate receipts. The plan review in `impl-xlarge@1` is therefore a Decision round of the pair, and its `agreed` outcome advances the plan step. The plan step's evidence is the `decision` event with outcome `agreed` bound to the plan Revision, and no Gate receipt is written for it. Each Task's PR review stays with an independent reviewer Seat, and the human Gates stay with the human gatekeeper.
 
 `pod run create` for an xl Story opens both Dispatches at Run start, in sequence, and records each launch as a `decide_seat` operation. It records the decider Dispatch id as the Run's coordinator in `ledger.run.coordinator`. The decider's session passes `--generation` like any coordinator. `pod takeover` treats the decider Dispatch as the old coordinator. It requires evidence that the decider Dispatch stopped, increments the owner generation, and opens a new decider Dispatch as the new coordinator with the restore view. The resident auditor keeps its Dispatch across a takeover.
 
-Capacity 1 does not deadlock, because a waiting Seat holds no slot. At capacity 1 an xl Run moves in four steps.
+Capacity 1 does not deadlock, because a waiting Seat holds no slot and the coordinator's slot passes to the worker before any external call. When the coordinator runs `pod dispatch`, one transaction marks the coordinator Dispatch `waiting` on the new Task and writes the launch reservation. The free-slot precondition of `dispatch` counts the coordinator's slot as released by that transaction, so the reservation takes the slot the coordinator held. Only then does Pod call `worker-start`. When the launch fails, the reconcile path that releases the reservation returns the coordinator Dispatch to `running` in the same transaction. The auditor wake in step 3 follows the same order. The transaction that marks the delivering Seat `waiting` writes the auditor's wake message, and the auditor's slot is counted from that transaction. At capacity 1 an xl Run moves in four steps.
 
-1. The coordinator dispatches a worker and goes `waiting`, which frees the slot.
-2. The worker runs in the free slot, delivers, and goes `waiting` or settles.
-3. The auditor wakes in the free slot, audits the result, and goes `waiting`.
+1. The coordinator runs `pod dispatch`. One transaction marks the coordinator Dispatch `waiting` and reserves the slot for the worker, and the worker then starts in that slot.
+2. The worker runs in the slot, delivers, and goes `waiting` or settles, which frees the slot.
+3. The auditor wakes in the free slot in the same transaction that recorded the worker's delivery, audits the result, and goes `waiting`.
 4. The coordinator wakes in the free slot to act on the audit.
 
 Sizes other than xl keep the Decision Seats opened on first need, as "What `pod decide` does" describes.
