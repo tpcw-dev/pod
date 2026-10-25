@@ -6,10 +6,31 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pod
+          POSTGRES_PASSWORD: pod
+          POSTGRES_DB: pod
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pod -d pod"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POD_DB_TEST_URL: postgres://pod:pod@localhost:5432/pod
+      POD_DB_URL: postgres://pod:pod@localhost:5432/pod
+      POD_DB_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v5.2.2
+      - run: pg_dump --version
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      - run: pnpm exec tsx src/cli/index.ts db migrate
+      - run: pnpm exec tsx src/cli/index.ts db migrate

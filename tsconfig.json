@@ -14,5 +14,5 @@
     "types": ["node"],
     "rootDir": "."
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "tsup.config.ts", "vitest.config.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "drizzle.config.ts", "tsup.config.ts", "vitest.config.ts"]
 }

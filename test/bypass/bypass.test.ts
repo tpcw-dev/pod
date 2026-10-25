@@ -53,8 +53,31 @@ const payloadSchema = z.object({
     })
     .nullable()
     .optional(),
-  errors: z.array(z.object({ message: z.string() }).passthrough()).optional(),
+  errors: z
+    .array(
+      z
+        .object({
+          message: z.string(),
+          path: z.array(z.union([z.string(), z.number()])).optional(),
+        })
+        .passthrough(),
+    )
+    .optional(),
 });
+
+type Payload = z.infer<typeof payloadSchema>;
+
+function isCreateAsUserRejection(payload: Payload): boolean {
+  const comment = payload.data?.commentCreate?.comment ?? null;
+  return (
+    comment === null &&
+    (payload.errors ?? []).some(
+      (item) =>
+        item.message.includes("createAsUser") ||
+        (item.path ?? []).includes("createAsUser"),
+    )
+  );
+}
 
 const mutation = `mutation ($input: CommentCreateInput!) {
   commentCreate(input: $input) {
@@ -70,6 +93,34 @@ function redact(text: string, token: string): string {
 function report(result: "pass" | "fail"): void {
   process.stdout.write(`${JSON.stringify({ host: hostname(), result })}\n`);
 }
+
+test("a rejection names createAsUser in its message or its path", () => {
+  const rejection = (error: { message: string; path?: string[] }): Payload => ({
+    data: { commentCreate: null },
+    errors: [error],
+  });
+  expect(
+    isCreateAsUserRejection(
+      rejection({ message: "createAsUser is not allowed for this token" }),
+    ),
+  ).toBe(true);
+  expect(
+    isCreateAsUserRejection(
+      rejection({
+        message: "Argument Validation Error",
+        path: ["commentCreate", "input", "createAsUser"],
+      }),
+    ),
+  ).toBe(true);
+  expect(
+    isCreateAsUserRejection(
+      rejection({
+        message: "Argument Validation Error",
+        path: ["commentCreate"],
+      }),
+    ),
+  ).toBe(false);
+});
 
 test.skipIf(ready === undefined)(
   "worker posts land as the worker and the relay posts no PASS",
@@ -131,12 +182,8 @@ async function post(
       redact("tracker response did not match the comment payload", token),
     );
   }
+  if (isCreateAsUserRejection(parsed.data)) return;
   const comment = parsed.data.data?.commentCreate?.comment ?? null;
-  const errors = parsed.data.errors ?? [];
-  const rejected =
-    comment === null &&
-    errors.some((item) => item.message.includes("createAsUser"));
-  if (rejected) return;
   if (comment !== null && comment.user.id === env.POD_BYPASS_WORKER_ACTOR)
     return;
   const actor = comment?.user.id ?? "none";

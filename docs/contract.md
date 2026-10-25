@@ -6,6 +6,7 @@ Spec clarification: Verification item 3's 17-verb check is the todo table in tes
 Spec clarification: pod --help prints one JSON object with ok true, result.verbs an array of name, sideEffect, cancelBy, and evidenceRequired, and meta.pod the package version. An empty registry prints result.verbs as an empty array and meta.pod 0.1.0.
 Spec clarification: a Cancel by cell holds only operator, coordinator, and nobody. The rest of the spec's cancel-by wording is the Note cell. dispatch and retry use coordinator, operator. decide uses operator, and its Note is the escalating actor.
 Spec clarification: the bypass paragraphs are lines 744, 746, and 748 of docs/tech-spec.md at 6a7fec0. Lines 745, 747, and 749 are blank. The contract test pins 744, 746, and 748.
+Spec clarification: S2 enforces the config apply envelope and CAS; the Role and gate id checks land with S5, S8, and S13.
 
 ## Authority
 

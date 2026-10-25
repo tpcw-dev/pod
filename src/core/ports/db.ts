@@ -1,0 +1,70 @@
+import type {
+  ActivateInput,
+  ActivateResult,
+  Activation,
+  ActivationKey,
+  Kind,
+  NewRevision,
+  Revision,
+  Snapshot,
+} from "../domain/config.ts";
+import type { Json } from "../domain/json.ts";
+import type {
+  Dispatch,
+  Event,
+  EventType,
+  NewEvent,
+  NewOperation,
+  Operation,
+  OperationStatus,
+  Run,
+  Story,
+  Task,
+} from "../domain/ledger.ts";
+
+export interface Repo {
+  insertRevision(
+    row: NewRevision,
+  ): Promise<{ revision: Revision; created: boolean }>;
+  getRevision(id: string): Promise<Revision | null>;
+  getRevisionByRef(
+    kind: Kind,
+    name: string,
+    rev: number,
+  ): Promise<Revision | null>;
+  getActivation(key: ActivationKey): Promise<Activation | null>;
+  activate(input: ActivateInput): Promise<ActivateResult>;
+  insertSnapshot(row: Snapshot): Promise<void>;
+  getSnapshot(runId: string): Promise<Snapshot | null>;
+  upsertStory(row: Story): Promise<void>;
+  getStory(provider: string, externalId: string): Promise<Story | null>;
+  insertRun(row: Run): Promise<void>;
+  getRun(runId: string): Promise<Run | null>;
+  insertTask(row: Task): Promise<void>;
+  getTask(taskId: string): Promise<Task | null>;
+  insertDispatch(row: Dispatch): Promise<void>;
+  getDispatch(dispatchId: string): Promise<Dispatch | null>;
+  appendEvent(row: NewEvent): Promise<Event>;
+  firstEvent(runId: string, types: readonly EventType[]): Promise<Event | null>;
+  insertOperation(
+    row: NewOperation,
+  ): Promise<{ operation: Operation; created: boolean }>;
+  getOperation(opKey: string): Promise<Operation | null>;
+  moveOperation(
+    opKey: string,
+    to: OperationStatus,
+    resultRef: Json | null,
+    at: Date,
+  ): Promise<Operation>;
+}
+
+export type BundleResult =
+  { ok: true } | { ok: false; index: number; active: string | null };
+
+export interface Db extends Repo {
+  transaction<T>(work: (tx: Repo) => Promise<T>): Promise<T>;
+  activateBundle(
+    items: readonly Omit<ActivateInput, "bundle_id">[],
+    bundleId: string,
+  ): Promise<BundleResult>;
+}
