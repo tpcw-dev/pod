@@ -31,7 +31,7 @@ const parsed = (() => {
   }
 })();
 
-if (parsed.values.help !== true) usage();
+if (parsed.positionals.length > 0 || parsed.values.help !== true) usage();
 
 write({
   ok: true,
