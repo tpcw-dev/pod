@@ -926,7 +926,7 @@ A dependency is satisfied when it is `passed`, or `done`, which a Task reaches o
 | any state except `done`, `failed`, and `superseded` | `hold` | a `timeout`, `cancel`, or `unknown` outcome, a cancel event, or a lineage at its rework limit |
 | `hold` | `ready` | the operator resumes after reconcile with `pod check --resume`, with no automatic retry |
 | `pending`, `ready`, or `hold` | `superseded` | a `change_spec` Decision outcome applies a new Task spec Revision, and the replacement Task inherits the dependents |
-| `dispatched` or `delivered` | `superseded` | a `change_spec` Decision outcome applies a new Task spec Revision to the escalating Task, or a plan-change outcome applies a new plan Revision to a `decision: plan` Task. Pod stops its Dispatch first, so the worker never resumes on the old spec. An `accept_plan` outcome never supersedes |
+| `dispatched` or `delivered` | `superseded` | a `change_spec` Decision outcome applies a new Task spec Revision to the escalating Task, or a new plan Revision to a `decision: plan` Task. Pod stops its Dispatch first, so the worker never resumes on the old spec. An `accept_plan` outcome never supersedes |
 
 When the outcome of a `change_spec` Decision applies a new Task spec Revision to a Task whose Dispatch is `waiting` on that Decision, Pod runs `worker-stop` on that Dispatch, records its settlement as `superseded` with `activity` `settled`, moves the Task to `superseded`, and creates the replacement Task `ready` in the same lineage with the new Revision. The replacement's task view carries the worktree's `git status`, because the stopped worker's uncommitted edits stay in the worktree. `pod retry` refuses a Dispatch whose Task is `superseded` with `task_not_ready`.
 
@@ -982,7 +982,7 @@ Every Decision request names its `effect`, and `ledger.decision.effect` records 
 | `accept_plan` | the projector, when a `decision: plan` step's Task is `delivered` | records the `decision` event bound to the plan Revision, and the plan Task moves `delivered` to `passed`. No Task spec Revision is applied and no Task is superseded |
 | `change_spec` | a worker through `pod decide`, the lead, or the claim authority | applies a new Task spec Revision bound to the Run, and the affected Task moves to `superseded` with a replacement created, as "Task states" describes |
 
-A Decision on a `decision: plan` step carries `accept_plan`. When the pair proposes a plan change inside that Decision, the agreed outcome is not a plain acceptance. The Decision closes `agreed` with a new plan Revision in its outcome, the projector treats that outcome as `change_spec` on the plan Task, the plan Task moves to `superseded`, and the replacement plan Task is created `delivered` on the new plan Revision with a new `accept_plan` Decision opened for it. `pod decide` refuses `accept_plan` for a Task whose step has no `decision`, and refuses `change_spec` from the projector, both with `usage`.
+A Decision on a `decision: plan` step carries `accept_plan`, and `effect` never changes. When the pair proposes a plan change inside an `accept_plan` Decision, that Decision ends `superseded`, with `by` set to a new `change_spec` Decision that the coordinator opens on the same Run through `pod decide --effect change_spec`, carrying the proposed plan Revision. The new Decision cites the old id in `supersedes_decision_id` and runs its own rounds on the lineage budget, as "Budgets" describes. On `agreed` it applies the new plan Revision and supersedes the plan Task through the `change_spec` path, and the projector creates the replacement plan Task `delivered` on the new plan Revision and opens a new `accept_plan` Decision for it. The `accept_plan` Decision itself never supersedes a Task. `pod decide` refuses `accept_plan` for a Task whose step has no `decision`, and refuses `change_spec` from the projector, both with `usage`.
 
 #### Round protocol
 
@@ -1011,6 +1011,7 @@ type DecisionState =
 | `requested` | Reserved needs_existing_authorization hit, and nothing authorizes it | `needs_human` with reason `policy-required` |
 | `requested` | no Reserved hit | `round(1)` |
 | `round(n)` | both agree | dependencies re-checked, then `agreed`, and the outcome applies by its `effect` as "Decision effects" describes |
+| `round(n)` or `awaiting_evidence(n)` | the pair proposes a plan change on an `accept_plan` Decision | `superseded`, with `by` the new `change_spec` Decision the coordinator opens, and no rounds spent on the old Decision after that |
 | `round(n)` | both agree, but a dependency's source Revision changed | `needs_human` with reason `context-missing`, and the outcome is not executable |
 | `round(n)` | one side escalates | affected actions stop first, the other side evaluates, and continued disagreement counts as a round |
 | `round(n)` | auditor answers needs_evidence | `awaiting_evidence(n)`, which is not a round and counts against `tool_calls` |
@@ -1024,13 +1025,13 @@ type DecisionState =
 | `needs_human` with reason `runtime-failure` | a source-verified human ruling that says resume, within the `relaunches` budget, after the owner generation check | `round(n)` for the interrupted round, with the same Decision id, rounds, and manifest, and the failed Seat's Dispatch reopened with a summary of earlier positions |
 | `needs_human` with reason `runtime-failure` | a resume ruling when `relaunches` is spent | Pod refuses the ruling with `decision_budget_exhausted`, and the Decision stays `needs_human` |
 | `needs_human` | a human ruling comment that passes source verification and readback | `agreed` or `cancelled`, as the ruling says |
-| `agreed` | a later Decision cites this id | `superseded` |
+| `agreed` | a later Decision cites this id | `superseded`, with `by` that Decision |
 
 The human ruling authorizes recovery from a Seat failure, and Pod never relaunches a Decision Seat on its own. A resume ruling reopens the failed Seat's Dispatch with a summary of earlier positions, and the relaunch counts against `relaunches`. The only exits from `needs_human` are a human ruling that resumes, decides, or cancels.
 
 #### Budgets
 
-The budget lives on the `ledger.decision` row. It has four fields, which are wall clock, relaunches, tool calls, and context tokens. `spent` decrements the remaining budget across relaunches and never resets. An injected timeout and relaunch keep the lineage budget.
+The budget lives on the `ledger.decision` row. It has four fields, which are wall clock, relaunches, tool calls, and context tokens. `spent` decrements the remaining budget across relaunches and never resets. An injected timeout and relaunch keep the lineage budget. A Decision that supersedes another through `supersedes_decision_id` is in the same lineage and inherits its remaining budget.
 
 #### Escalation threshold
 
