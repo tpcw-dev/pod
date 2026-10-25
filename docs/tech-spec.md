@@ -758,7 +758,7 @@ A process spec is a YAML file. zod parses it into the process schema.
 | `summary` | string |
 | `selector` | `{ stage, size[] }` |
 | `roles` | list of Role names |
-| `steps[]` | `id`, `type` in `worker`, `external_action`, `human_wait`, `role`, `needs[]`, `produces[]`, `gate`, `adapter`, `event_fields`, `binds` |
+| `steps[]` | `id`, `type` in `worker`, `external_action`, `human_wait`, `role`, `needs[]`, `produces[]`, `gate`, `decision`, `adapter`, `event_fields`, `binds` |
 | `edges[]` | `from`, `on` (string or list), `to`, `new_task`, `then` |
 | `limits` | `{ attempts_per_task, rework_per_lineage }` |
 | `escalation` | `{ to }` |
@@ -771,6 +771,7 @@ A process spec is a YAML file. zod parses it into the process schema.
 - Every step has an outgoing edge for each outcome its type allows, as the outcome table below lists.
 - No edge points to an unknown step. `hold` and `done` are reserved edge targets.
 - A `FAIL` edge targets `hold` or has `new_task: true`.
+- A step has `gate` or `decision`, never both. A `decision` step is a `worker` step, and its `cancelled` edge targets `hold`.
 - Every Role has an authorized Seat in the active crew.
 - The reviewer is independent of the developer.
 - Every gate id exists in the active policy.
@@ -779,7 +780,7 @@ A policy or crew Revision validates against its own schema only. A process Revis
 
 | Step type | Allowed outcomes |
 | --- | --- |
-| `worker` | `done`, `timeout`, `cancel`, `unknown`, with `PASS` and `FAIL` in place of `done` when the step has a `gate` |
+| `worker` | `done`, `timeout`, `cancel`, `unknown`, with `PASS` and `FAIL` in place of `done` when the step has a `gate`, and with `agreed` and `cancelled` in place of `done` when the step has a `decision` |
 | `human_wait` | `PASS`, `FAIL`, `cancel` |
 | `external_action` | `done`, `unknown`, `cancel` |
 
@@ -839,7 +840,7 @@ escalation: { to: decision-pair }
 | `impl-large@1` | stage impl, size l | plan (planner), plan review (Decision pair, automated Gate) in place of a tech review, implement (several Tasks), review per Task, review of the integrated candidate SHA, pr, merge, deploy, `hqa_after_deploy` | `hqa_after_deploy` |
 | `impl-xlarge@1` | stage impl, size xl | the same steps as `impl-large@1`, driven by the coordinator pair. Its plan review is a Decision round of the pair, and the `agreed` outcome advances the plan step with no Gate receipt | `hqa_after_deploy` |
 
-A Story of size xs or s has no plan step. In `impl-medium@1` and `impl-large@1` the plan review is an automated Gate kept by the Decision pair, and a PASS Gate receipt advances the plan step. In `impl-xlarge@1` the plan review step is a `worker` step for the planner followed by a `pod decide` request whose scope is the plan Revision. The evidence that advances the plan step is the `decision` event with outcome `agreed` bound to that plan Revision, and the projector reads it where other specs read a Gate receipt. `story-full@1`, which chains and splits across stages, is phase 2.
+A Story of size xs or s has no plan step. In `impl-medium@1` and `impl-large@1` the plan review is an automated Gate kept by the Decision pair, and a PASS Gate receipt advances the plan step. In `impl-xlarge@1` the plan step is a `worker` step for the planner with `decision: plan` and no `gate`. The planner's delivery moves its Task to `delivered` and opens a `pod decide` request whose scope is the plan Revision. The verified outcome of the step is the `decision` event with outcome `agreed` bound to that plan Revision, and a delivery alone never advances it. The projector, the dependency rule, and the Task transition table under "Task states" all wait for that event. `story-full@1`, which chains and splits across stages, is phase 2.
 
 #### Selector
 
@@ -892,7 +893,8 @@ The projector is a scribe, not a judge. It turns each step into an Orca Task thr
 - A FAIL edge either creates a rework Task (`new_task: true`) or sends the Task to `hold`. The edge decides, and the Task table follows it.
 - A `human_wait` step starts no worker.
 - An `external_action` step waits for its event with the listed `event_fields`.
-- A step with no Gate treats its recorded delivery as outcome `done`.
+- A step with no Gate and no `decision` treats its recorded delivery as outcome `done`.
+- A step with a `decision` treats the `decision` event with outcome `agreed` bound to its plan Revision as its verified outcome. Its recorded delivery moves the Task to `delivered` and fires no edge. A `cancelled` outcome fires the `cancelled` edge to `hold`.
 - Each projection carries its own op key, so replaying an event creates no Task twice.
 - `needs` sets the Orca `deps` of each projected Task. Edges decide which step the projector creates next. A downstream Task is created only when its edge fires, and its `deps` name the Tasks that must be `passed`.
 
@@ -904,7 +906,7 @@ The projector is a scribe, not a judge. It turns each step into an Orca Task thr
 type TaskState = 'pending' | 'ready' | 'dispatched' | 'delivered' | 'passed' | 'failed' | 'blocked' | 'hold' | 'done' | 'superseded'
 ```
 
-A dependency is satisfied when it is `passed`, or `done`, which a Task reaches only through `passed`. `passed` means a PASS Gate receipt for a gated step, or a recorded delivery with outcome `done` that matches the Dispatch and the owner generation for an ungated step. An ungated `external_action` step has no Dispatch, so its recorded event with outcome `done` stands in for the delivery. `failed` and `superseded` never satisfy `deps`. The `dispatch` evidence row and `task_not_ready` use this definition.
+A dependency is satisfied when it is `passed`, or `done`, which a Task reaches only through `passed`. `passed` means a PASS Gate receipt for a gated step, the `decision` event with outcome `agreed` bound to the plan Revision for a step with a `decision`, or a recorded delivery with outcome `done` that matches the Dispatch and the owner generation for a step with neither. A delivery never satisfies a dependency on a step with a `gate` or a `decision`. An ungated `external_action` step has no Dispatch, so its recorded event with outcome `done` stands in for the delivery. `failed` and `superseded` never satisfy `deps`. The `dispatch` evidence row and `task_not_ready` use this definition.
 
 | From | To | Trigger |
 | --- | --- | --- |
@@ -914,7 +916,8 @@ A dependency is satisfied when it is `passed`, or `done`, which a Task reaches o
 | `dispatched` | `delivered` | `pod check` records a delivery that matches the Dispatch and the owner generation |
 | `dispatched` | `blocked` | Orca reports the Task `blocked` after `worker-stop` |
 | `blocked` | `dispatched` | `pod retry` starts a new Dispatch with `retry_of` |
-| `delivered` | `passed` | a PASS Gate receipt for a gated step, or the matching delivery for an ungated step |
+| `delivered` | `passed` | a PASS Gate receipt for a gated step, the `decision` event with outcome `agreed` bound to the plan Revision for a step with a `decision`, or the matching delivery for a step with neither |
+| `delivered` | `hold` | a `cancelled` Decision outcome on a step with a `decision`. The operator resumes after reconcile |
 | `delivered` | `failed` | a FAIL Gate receipt whose edge has `new_task: true` |
 | `delivered` | `hold` | a FAIL Gate receipt whose edge targets `hold`. The receipt stays recorded, and the operator resumes after reconcile |
 | `passed` | `done` | the projector records the outgoing edge |
@@ -945,7 +948,7 @@ At capacity 1 a blocking Decision runs in four steps.
 
 #### Coordinator pair for xl
 
-For an xl Run the decider Seat is the Run's coordinator. It runs the `pod` verbs for the Run and holds the owner generation. The auditor Seat is resident from Run start and audits the plan, each Task's result, and the integrated candidate SHA. Escalations inside the Run use the same pair, and no further Decision Seats open. The pair's audits are Decision rounds, not Gate receipts. The plan review in `impl-xlarge@1` is therefore a Decision round of the pair, and its `agreed` outcome advances the plan step. The plan step's evidence is the `decision` event with outcome `agreed` bound to the plan Revision, and no Gate receipt is written for it. Each Task's PR review stays with an independent reviewer Seat, and the human Gates stay with the human gatekeeper.
+For an xl Run the decider Seat is the Run's coordinator. It runs the `pod` verbs for the Run and holds the owner generation. The auditor Seat is resident from Run start and audits the plan, each Task's result, and the integrated candidate SHA. Escalations inside the Run use the same pair, and no further Decision Seats open. The pair's audits are Decision rounds, not Gate receipts. The plan review in `impl-xlarge@1` is therefore a Decision round of the pair, and its `agreed` outcome advances the plan step. The plan step carries `decision: plan`, its evidence is the `decision` event with outcome `agreed` bound to the plan Revision, no Gate receipt is written for it, and the planner's delivery alone leaves the Task `delivered`, as "Task states" describes. Each Task's PR review stays with an independent reviewer Seat, and the human Gates stay with the human gatekeeper.
 
 `pod run create` for an xl Story opens both Dispatches at Run start, in sequence, and records each launch as a `decide_seat` operation. It records the decider Dispatch id as the Run's coordinator in `ledger.run.coordinator`. The decider's session passes `--generation` like any coordinator. `pod takeover` treats the decider Dispatch as the old coordinator. It requires evidence that the decider Dispatch stopped, increments the owner generation, and opens a new decider Dispatch as the new coordinator with the restore view. The resident auditor keeps its Dispatch across a takeover.
 
