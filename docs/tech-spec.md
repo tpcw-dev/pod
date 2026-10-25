@@ -1,0 +1,1238 @@
+# Pod v1 tech spec
+
+This document is the technical specification for Pod v1. An implementation lead grooms the fifteen candidate stories from it. It is reference material with short explanation paragraphs where a choice needs its reason.
+
+The DDL, TypeScript, YAML, JSON, and directory blocks in this document are sketches, not code. They fix names, shapes, and constraints. The stories write the real files.
+
+## Goal
+
+Pod is a thin coordination layer over Orca. Orca keeps execution. Pod adds four things a full Story on Orca showed were missing:
+
+1. A ledger that records every launch receipt, delivery, push, PR, release, and Gate receipt without a hand-written entry.
+2. Gate receipts bound to the candidate SHA and synced to the tracker with readback, so no Story reaches Done on a stale or forged PASS.
+3. Reconcile and recovery as commands, so an unknown launch result, a stale delivery, or a second coordinator never causes a double launch.
+4. A Decision layer where a decider Seat proposes and an auditor Seat checks against one Evidence manifest, and a person rules only when the policy or the loop requires it.
+
+v1 is a set of `pod` verbs that wrap Orca, one Postgres database with a `config` schema of append-only Revisions and an event `ledger` schema, one Evidence manifest projected into a task view, a state view, and a brief, and a two-Seat Decision loop. v1 runs on one execution host. It has no daemon and no second host.
+
+Every v1 choice keeps the end state in view. That end state is an operator who manages multi-project, multi-host agent work through two entry points. One is a long-running agent of the operator's choice that operates and monitors through the `pod` CLI and brings escalations to the operator. The other is a UI for standups, intake, project kick-off, and project feedback. Both read the same ledger. v1 chooses no agent product.
+
+## Constraints
+
+These constraints come from the PRD and the tech spec ticket, and they bind every story.
+
+- The `pod` CLI, the daemon, and the adapters are TypeScript, the language of the runtime they wrap. An operator's existing scripts in another language may stay beside Pod while they are independent, and each one is ported when it becomes a Pod verb.
+- The CLI is a deep module over the runtime. It has a small verb set, JSON in and out, and every error carries `code`, `message`, and `nextSteps[]`.
+- The runtime adapter is tested by fixture replay of recorded runtime receipts. No unit test calls a live runtime.
+- Postgres holds two logical schemas, `config` for append-only Revisions and `ledger` for events, with the migrations in the repo.
+- Pod knows Roles, never names. No person, bot, host, team, or product name of any adopter appears in Pod's schema, process specs, fixtures, or docs. A crew profile maps Roles to Seats.
+- The database is the authority for configuration, process, mapping, and Decisions. Orca is the authority for execution state. The tracker is the authority for intake, human priority, cancel, and human verdicts. The ledger holds sourced, timestamped projections. It never decides work.
+- Each execution binding has one owner. The host that starts a Dispatch is the only host that stops and releases it.
+- Pod does not schedule. The operator's claim authority decides claim and dispatch. Pod executes that authorization and refuses a second crew for the same Story.
+- A Revision is immutable. No verb and no admin path updates an existing Revision.
+- A completed Task is not a PASS. A Gate passes only on a verified Gate receipt.
+- No secret and no transcript enters a table, an Evidence manifest, a fixture, or a view. Connection strings and tokens are read from environment variables that a profile names.
+- v1 does not rely on `LISTEN/NOTIFY`. Connection mode, CAS conflicts, atomic bundle reads, disconnect recovery, and backup and restore are tested on a test database before any story relies on them.
+- Linear is the only v1 tracker adapter. Notion is the only v1 docs adapter, and it is read-only.
+- Pod does not wrap or duplicate the operator's existing grooming, planning, kickoff, or docs commands.
+- Pod never builds an IDE, terminal, diff, browser, or mobile surface, and never adds a second scheduler, an exactly-once promise, or agent authority over production, money, or credentials.
+
+## Design
+
+### Repo layout and packages
+
+Pod is one npm package named `pod`. It is not a monorepo. Directories carry the layers, and an import-boundary lint enforces them.
+
+```
+pod/
+  package.json            name pod, bin pod, type module, Node 22 LTS, pnpm
+  tsconfig.json           strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes
+  drizzle.config.ts       drizzle-kit config, schema and migrations paths
+  src/
+    cli/                  the pod binary: argv parsing, verb registry, JSON envelope, exit codes
+    core/
+      domain/             branded ids, typed models, state machines (Task, Dispatch, Decision, Operation)
+      config/             Revision, activation, Snapshot, canonical JSON and content hashing
+      ledger/             event, operation, outbox, Gate receipt, Decision, manifest, learning repositories
+      process/            spec schema (zod), selector, projector, edges table
+      decide/             Decision loop state machine and round protocol
+      manifest/           manifest builder, task view, state view, brief render
+      ports/              OrcaPort, TrackerPort, DocsPort, Clock, Db interfaces
+    adapters/
+      orca/               OrcaPort over `orca orchestration <verb> --json`, receipt recorder, fixture replayer
+      linear/             TrackerPort, source verification of comments
+      notion/             DocsPort, read-only, by section
+      postgres/           Db over Drizzle and the `postgres` driver, wraps the Drizzle migrator
+    db/schema/            Drizzle schema, config.ts and ledger.ts
+  db/migrations/          drizzle-kit output, forward-only SQL and its journal
+  specs/
+    process/              prd.yaml, design.yaml, impl-small.yaml, impl-medium.yaml, impl-large.yaml, impl-xlarge.yaml
+    policy/               policy.yaml reference
+    crew/                 crew.example.yaml (Roles to Seats, placeholder runtimes)
+  fixtures/orca/          recorded receipts, one directory per scenario
+  test/                   vitest: unit over core, replay over adapters, contract tests over the registry
+  docs/                   tech-spec.md (this file), contract.md (story S1), adr/0001-drizzle-owns-schema-and-migrations.md
+```
+
+#### Import boundaries
+
+dependency-cruiser runs in CI and refuses an import that crosses a layer the wrong way.
+
+| Layer | May import | Must not import |
+| --- | --- | --- |
+| `src/cli` | `src/core`, `src/adapters` | nothing else in `src` |
+| `src/db/schema` | Drizzle only | `src/core`, `src/adapters`, `src/cli` |
+| `src/core` | `src/core` only, plus zod | `src/adapters`, `src/cli`, any driver or HTTP client |
+| `src/adapters/<name>` | `src/core/ports`, `src/core/domain`, and `src/db/schema` for the postgres adapter only | `src/cli`, another adapter |
+
+`core` holds every rule. Adapters translate between a port and one external system. `cli` wires adapters into `core` and prints the envelope. A daemon (`podd`, phase 2) and a UI (later) become more entry points over the same `core`. Pod splits into packages when a second entry point exists, not before. A pnpm workspace with five packages now was the alternative, and it lost because v1 is fifteen stories, none larger than size l, and the daemon does not exist.
+
+#### Toolchain
+
+Pod runs on Node 22 LTS and TypeScript in strict mode, with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` on. pnpm manages packages. tsx runs sources in development, and tsup builds the single `pod` bin. vitest runs the unit, replay, and contract tests. zod parses every boundary, which covers argv, stdin JSON, YAML, Orca stdout, HTTP bodies, and `jsonb` rows. The Db adapter uses Drizzle over the `postgres` driver. dependency-cruiser enforces the import boundaries, and eslint and prettier lint and format.
+
+Drizzle owns the schema and the migrations. The schema is TypeScript in `src/db/schema/config.ts` and `src/db/schema/ledger.ts`, and it uses Drizzle's `pgSchema` for the two schemas. `drizzle-kit generate` writes the SQL migration files and their journal into `db/migrations/`. Drizzle's migrator runs them over the `postgres` driver and keeps its own applied-migrations table. `pod db migrate` wraps that migrator and stays idempotent. Queries use Drizzle's query builder over the same driver, with raw SQL only for the append-only triggers. zod still parses every boundary. Hand-written numbered SQL with a `config.migration` table was the alternative, and `docs/adr/0001-drizzle-owns-schema-and-migrations.md` records why it lost. The `postgres` driver holds under Drizzle, and `pg` was the alternative.
+
+### Config schema and ledger schema sketch
+
+Pod uses two Postgres schemas, `config` and `ledger`, in one database. `pod db migrate` runs the Drizzle migrator over `db/migrations/`, and Drizzle tracks each applied migration in its own applied-migrations table. Migrations are forward-only. There are no down migrations. The DDL blocks below are the shapes the Drizzle schema declares, shown as SQL for reading.
+
+S2 may create one database project and one test branch on the existing database account's current plan. No plan upgrade and no new spend. Anything beyond that is a needs-human decision.
+
+The connection string is read from the environment variable that the host profile names in `db.url_env`. Pod never stores it.
+
+`config.revision` and `ledger.event` are append-only. A trigger on each raises on UPDATE and DELETE. The triggers live in a custom SQL migration. `config.activation` is the one `config` table a row replaces, under CAS, and every replacement records an event. Other ledger tables accept the state updates their state machines allow and nothing else.
+
+#### Canonical JSON and content hashing
+
+A Revision id is the sha256 of the canonical JSON of `kind`, `name`, `schema_version`, `scope`, `scope_ref`, `parent`, and `value`. `scope_ref` is in the hash so that two project Revisions with the same value get distinct ids. Canonical JSON has sorted keys, no whitespace, and UTF-8 encoding, in the style of RFC 8785. The same input always gives the same id, so applying an unchanged file returns the existing Revision.
+
+`rev` is a sequence per kind and name across all scopes, assigned at apply as the previous highest plus one, so `kind.name@rev` names exactly one Revision whatever its scope. The Revision row and its activation keep `scope` and `scope_ref`. `pod config export kind.name@rev` and `pod run create --process name@rev`, whose kind is always `process`, therefore need no scope. Two Revisions with different content never share a `rev`, and applying an unchanged file returns the existing `rev` and `id`. `rev` stays out of the hash.
+
+A Snapshot hash is the sha256 of the canonical JSON of the three Revision ids plus the effective gate map. An Evidence manifest id is the sha256 of the canonical JSON of its references.
+
+#### Config tables
+
+`config.revision` holds one immutable version of a crew, process, policy, or Task spec.
+
+```sql
+create table config.revision (
+  id              text primary key,            -- sha256 of canonical JSON
+  parent          text null references config.revision(id),
+  kind            text not null check (kind in ('crew', 'process', 'policy', 'task')),
+  name            text not null,
+  schema_version  int  not null,
+  rev             int  not null,
+  scope           text not null check (scope in ('global', 'project', 'host', 'run')),
+  scope_ref       text not null default '',   -- empty for global scope
+  value           jsonb not null,
+  actor           text not null,
+  reason          text not null,
+  created_at      timestamptz not null default now(),
+  unique (kind, name, rev)
+)
+```
+
+A Task spec Revision has kind `task`, scope `run`, `scope_ref` the Run id, and `name` the lineage id. The agreed outcome of a Decision with effect `change_spec` applies one, and the pinned process Snapshot does not change. A Decision with effect `accept_plan` applies no Revision, as "Decision effects" describes. A Task's `spec_revision_id` is immutable, so the projector creates a replacement Task in the same lineage with the new Revision, and the replaced Task moves to `superseded`. "Task states" lists that transition.
+
+`config.activation` chooses which Revision a scope uses for one kind and name.
+
+```sql
+create table config.activation (
+  scope                 text not null,
+  scope_ref             text not null default '',
+  kind                  text not null,
+  name                  text not null,
+  revision_id           text not null references config.revision(id),
+  bundle_id             text null,
+  activated_by          text not null,
+  activated_at          timestamptz not null,
+  previous_revision_id  text null references config.revision(id),
+  primary key (scope, scope_ref, kind, name)
+)
+```
+
+An apply that activates carries `expected_revision`. The current row's `revision_id` must equal it, or Pod refuses the apply with `revision_conflict`. `--expected-revision none` is the sentinel for a first activation. It succeeds only when no activation row exists for that scope, kind, and name, and otherwise Pod refuses it with `revision_conflict`. A bundle activates several rows in one transaction and stamps them with one `bundle_id`. A project activation overrides a global one. Every activation change also records an `activation` event, so the activation history survives the row replacement.
+
+`config.snapshot` pins the three Revision ids a Run uses and the gate map they resolve to.
+
+```sql
+create table config.snapshot (
+  run_id               text primary key,
+  crew_revision_id     text not null references config.revision(id),
+  process_revision_id  text not null references config.revision(id),
+  policy_revision_id   text not null references config.revision(id),
+  effective_gate_map   jsonb not null,
+  hash                 text not null,
+  pinned_at            timestamptz not null
+)
+```
+
+A Snapshot copies no values. The pinned Revisions are immutable, so the ids rebuild the exact configuration later. An activation change never changes an existing Run's Snapshot hash.
+
+#### Ledger tables
+
+`ledger.story` mirrors the tracker fields Pod reads.
+
+```sql
+create table ledger.story (
+  provider      text not null,
+  external_id   text not null,
+  size          text not null check (size in ('xs', 's', 'm', 'l', 'xl')),
+  stage         text not null,
+  run_id        text null,
+  dependencies  jsonb not null,
+  synced_at     timestamptz not null,
+  primary key (provider, external_id)
+)
+```
+
+`ledger.run` maps one Story to one Orca Run. Its `state` is `active`, `hold`, `drained`, or `done`. A Run in `hold` sends every open Task to `hold` and blocks new Dispatches until the operator reconciles and resumes it with `pod check --resume`. Its `coordinator` is the coordinator session, or the decider Dispatch id on an xl Run.
+
+```sql
+create table ledger.run (
+  run_id               text primary key,         -- Orca run id
+  story_provider       text not null,
+  story_external_id    text not null,
+  host                 text not null,
+  coordinator          text not null,
+  owner_generation     int  not null,
+  snapshot_hash        text not null,
+  state                text not null check (state in ('active', 'hold', 'drained', 'done')),
+  created_at           timestamptz not null,
+  foreign key (story_provider, story_external_id) references ledger.story
+)
+```
+
+`ledger.task` maps one process step instance to one Orca Task.
+
+```sql
+create table ledger.task (
+  task_id           text primary key,            -- Orca task id
+  run_id            text not null references ledger.run,
+  step_id           text not null,
+  lineage_id        text not null,
+  role              text not null,
+  deps              jsonb not null,
+  spec_revision_id  text not null references config.revision(id),
+  state             text not null,
+  created_at        timestamptz not null
+)
+```
+
+`ledger.dispatch` records one Orca worker attempt and its launch receipt.
+
+```sql
+create table ledger.dispatch (
+  dispatch_id            text primary key,       -- Orca ctx id
+  task_id                text not null references ledger.task,
+  run_id                 text not null references ledger.run,
+  seat                   text not null,
+  role                   text not null,
+  requested_launch       jsonb not null,
+  effective_launch       jsonb null,
+  model_attribution      text not null check (model_attribution in ('receipt', 'unknown')),
+  retry_of               text null references ledger.dispatch(dispatch_id),
+  op_key                 text not null references ledger.operation,
+  settlement             text not null,
+  terminal_handle        text null,
+  created_at             timestamptz not null,
+  settled_at             timestamptz null,
+  activity               text not null check (activity in ('running', 'waiting', 'settled')),
+  manifest_id            text null references ledger.evidence_manifest,   -- added by S4
+  -- reserved for phase 3, always null in v1
+  execution_backend      text null,
+  owner_host             text null,
+  external_execution_id  text null,
+  auth_ref               text null,
+  output_ref             text null
+)
+```
+
+`ledger.event` is the append-only record of everything that happened.
+
+```sql
+create table ledger.event (
+  id           bigserial primary key,
+  type         text not null check (type in (
+                 'start', 'delivery', 'receipt', 'activation', 'decision', 'self_decision',
+                 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel',
+                 'stop', 'drain', 'hold', 'resume', 'ignored', 'unknown_launch', 'learning')),
+  ts           timestamptz not null,
+  host         text not null,
+  run_id       text null,
+  task_id      text null,
+  dispatch_id  text null,
+  op_key       text null,
+  payload      jsonb not null,
+  source       jsonb not null           -- receipt, comment, or command that produced it
+)
+create index event_run_ts on ledger.event (run_id, ts)
+```
+
+Each event type has one kind of producer. A verb that is not listed records no event of its own.
+
+| Producer | Event type |
+| --- | --- |
+| `pod dispatch`, `pod retry`, each Decision Seat launch inside `pod decide`, and the coordinator pair launch inside `pod run create` and `pod takeover` on an xl Run | `start` |
+| `pod check` on a delivery that matches the Dispatch and the owner generation | `delivery` |
+| `pod check` on a delivery with a stale `dispatchId` or owner generation | `ignored` |
+| every runtime call and every tracker call through a port, and each bypass test run | `receipt` |
+| `pod config apply --activate` on every activation change | `activation` |
+| `pod decide` when a Decision closes, a Reserved deny hits, a human ruling is verified, or an evidence exchange records a child manifest | `decision` |
+| `pod check` or `pod decide` when a Decision's adoption state changes | `decision` |
+| `pod decide` with category `self`, below the escalation threshold | `self_decision` |
+| `pod check` reading a push, a PR, or a deploy from a delivery or an `external_action` event | `push`, `pr`, `deploy` |
+| `pod release` | `release` |
+| `pod takeover` | `takeover` |
+| `pod decide` when a Seat, the lead, or the claim authority escalates, and when a Decision enters `needs_human` | `escalate` |
+| `pod check` reading a tracker Canceled, and a cancel of a Decision | `cancel` |
+| `pod check` reconciling a `worker-stop` | `stop` |
+| `pod drain` and `pod drain --end` | `drain` |
+| a Run or a Task entering `hold` | `hold` |
+| `pod check --resume`, an operator resume of a Run or a Task from `hold` | `resume` |
+| `pod check` finding a worker the ledger does not know | `unknown_launch` |
+| `pod learning add` | `learning` |
+
+The PRD lists the event types `start`, `delivery`, `decision`, `push`, `pr`, `deploy`, `release`, `takeover`, `escalate`, and `cancel`. Pod keeps the types beyond that list, which are `receipt`, `activation`, `self_decision`, `stop`, `drain`, `hold`, `resume`, `ignored`, `unknown_launch`, and `learning`. `self_decision` is the PRD's `self` decision event.
+
+`ledger.operation` holds one row per side-effect intent.
+
+```sql
+create table ledger.operation (
+  op_key            text primary key,
+  intent            text not null check (intent in (
+                      'run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide',
+                      'config_apply', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning')),
+  status            text not null check (status in ('pending', 'unknown', 'done', 'refused')),
+  owner_generation  int  not null,
+  result_ref        jsonb null,
+  created_at        timestamptz not null,
+  updated_at        timestamptz not null
+)
+```
+
+The status `refused` records a precondition refusal, so the op key is never reused.
+
+`ledger.outbox` queues tracker writes until a readback confirms them.
+
+```sql
+create table ledger.outbox (
+  id          bigserial primary key,
+  op_key      text not null references ledger.operation,
+  target      text not null check (target in ('tracker')),
+  payload     jsonb not null,
+  tries       int  not null default 0,
+  last_error  text null,
+  acked_at    timestamptz null,
+  readback    jsonb null
+)
+```
+
+`ledger.gate_receipt` records one verdict on one Gate, bound to its source and its candidate.
+
+```sql
+create table ledger.gate_receipt (
+  id                 bigserial primary key,
+  gate_id            text not null,
+  run_id             text not null references ledger.run,
+  task_id            text not null references ledger.task,
+  scope              text not null,
+  spec_revision_id   text not null references config.revision(id),
+  candidate_sha      text not null,
+  deployed_revision  text null,
+  keeper             text not null,
+  outcome            text not null check (outcome in ('PASS', 'FAIL')),
+  source             jsonb not null,
+    -- provider, workspace, issue, comment_id, author_id, relayed_by (null unless relayed),
+    -- content_hash, readback_at
+  sync_state         text not null check (sync_state in ('pending', 'synced', 'voided')),
+  created_at         timestamptz not null
+)
+```
+
+`ledger.decision` records one Decision lineage, its budget, and its outcome.
+
+```sql
+create table ledger.decision (
+  id                      text primary key,     -- dec_ op key
+  run_id                  text not null references ledger.run,
+  task_id                 text null references ledger.task,   -- null when the lead or the claim authority escalates with no Task
+  category                text not null,
+  effect                  text not null check (effect in ('accept_plan', 'change_spec')),   -- named by the request, see "Decision effects"
+  question                text not null,
+  options                 jsonb not null,
+  manifest_id             text not null references ledger.evidence_manifest,
+  state                   text not null,
+  outcome                 jsonb null,
+  reason                  text null check (reason in (
+                            'policy-required', 'disagreement', 'context-missing',
+                            'runtime-failure', 'agreed', 'cancelled', 'denied')),
+  binding                 text not null check (binding = 'run'),
+  budget                  jsonb not null,
+  spent                   jsonb not null,
+  supersedes_decision_id  text null references ledger.decision(id),
+  adoption                text not null default 'pending'
+                            check (adoption in ('pending', 'adopted', 'reworked', 'reversed')),   -- current state, history is in events
+  adoption_evidence       jsonb not null default '[]',   -- appended on every change, event ids of each rework or the superseding Decision
+  created_at              timestamptz not null,
+  closed_at               timestamptz null
+)
+```
+
+`ledger.decision_round` records each round's proposal and audit.
+
+```sql
+create table ledger.decision_round (
+  decision_id          text not null references ledger.decision,
+  round                int  not null check (round between 1 and 3),
+  decider_dispatch_id  text not null references ledger.dispatch,
+  auditor_dispatch_id  text not null references ledger.dispatch,
+  proposal             jsonb not null,
+  audit                jsonb not null,
+  stance               text not null check (stance in ('agree', 'disagree', 'escalate')),
+  manifest_id          text not null references ledger.evidence_manifest,   -- the manifest this round cited
+  ts                   timestamptz not null,
+  primary key (decision_id, round)
+)
+```
+
+`ledger.evidence_manifest` holds the fixed list of sources a Dispatch or Decision may cite.
+
+A manifest never changes. When the auditor asks for evidence, Pod records a child manifest whose references are the parent's plus the new ones, with `parent_id` set. `ledger.decision.manifest_id` stays the round 1 pin, and each `ledger.decision_round` row cites the manifest that round used.
+
+A round may have several evidence exchanges. Each one records a `decision` event carrying the child manifest id. Pod writes the `decision_round` row once, when the auditor records a stance other than `needs_evidence`, with `manifest_id` set to the last child. On recovery inside a round, Pod reads the latest child manifest from those events, so no round is spent.
+
+```sql
+create table ledger.evidence_manifest (
+  id          text primary key,                 -- sha256 of content
+  run_id      text not null references ledger.run,
+  task_id     text null references ledger.task,
+  decision_id text null,
+  parent_id   text null references ledger.evidence_manifest(id),
+  references  jsonb not null,  -- each: source, revision, observed_at, coverage, excerpt
+  created_at  timestamptz not null
+)
+```
+
+`ledger.usage_observation` records what a provider reported about usage, or that it reported nothing.
+
+```sql
+create table ledger.usage_observation (
+  provider      text not null,
+  seat          text not null,
+  window_start  timestamptz not null,
+  window_end    timestamptz not null,
+  value         numeric null,                  -- null means unknown, never zero
+  coverage      text not null,
+  observed_at   timestamptz not null
+)
+```
+
+`ledger.learning` holds agent-only context. The docs tool never receives it.
+
+```sql
+create table ledger.learning (
+  id             bigserial primary key,
+  source_story   text not null,
+  evidence_refs  jsonb not null,
+  text           text not null,
+  adoption       text not null check (adoption in ('new', 'adopted', 'rejected')),
+  area           text not null check (area in ('product', 'design', 'impl', 'process')),
+  project_id     text null,   -- the project scope id used by --scope project:<id>
+  created_at     timestamptz not null
+)
+```
+
+#### Invariants by table
+
+The table below states who writes each table, what never changes, what a reader may assume, and which story adds it.
+
+| Table | Added by | Written by | Immutable | Readers may assume |
+| --- | --- | --- | --- | --- |
+| `config.revision` | S2 | `pod config apply`, and `pod decide` for a Task spec Revision | every row, trigger-enforced | an id names exactly one value forever |
+| `config.activation` | S2 | `pod config apply --activate` | no, replaced under CAS | one Revision per scope, kind, and name at any moment |
+| `config.snapshot` | S2 | `pod run create` | every row | a Run's configuration never changes after it starts |
+| `ledger.story` | S2 | tracker sync inside `pod run create` and `pod check` | no, refreshed from the tracker | a mirror with `synced_at`, never the authority |
+| `ledger.run` | S2 | `pod run create`, `pod takeover` | `run_id`, story, `snapshot_hash` | `owner_generation` only increases |
+| `ledger.task` | S2 | the projector inside `pod run create` and `pod check` | id, step, lineage, spec Revision | `state` moves only along the Task state table |
+| `ledger.dispatch` | S2 | `pod dispatch`, `pod retry`, `pod release`, `pod decide`, and `pod run create` and `pod takeover` on an xl Run | launch fields once recorded | `model_attribution` is `receipt` only when a launch receipt named the model |
+| `ledger.event` | S2 | every side-effect verb, `pod check` | every row, trigger-enforced | ordered by `ts` within a Run, each with a `source` |
+| `ledger.operation` | S2 | every side-effect verb | `op_key`, `intent` | one row per intent, status moves forward only |
+| `ledger.gate_receipt` | S6 | `pod verdict post`, `pod hqa record` | all fields except `sync_state` | a PASS is bound to one candidate SHA and one verified source |
+| `ledger.outbox` | S6 | `pod verdict post`, `pod hqa record`, `pod check` | `op_key`, `payload` | a row is done only when `readback` confirms it |
+| `ledger.evidence_manifest` | S4 | `pod dispatch`, `pod decide` | every row, new evidence makes a child manifest | the same sources give the same id |
+| `ledger.learning` | S10 | `pod learning add` | `text`, `evidence_refs`, `source_story`, `area`, `project_id` | never mirrored to the docs tool |
+| `ledger.usage_observation` | S11 | `pod check` only | every row | a null `value` means unknown |
+| `ledger.decision` | S12 | `pod decide`, and `pod check` for `adoption` | id, category, `effect`, question, `manifest_id`, `binding` | `spent` only increases, `binding` is always `run`, `adoption` moves along `pending` to `adopted`, `adopted` to `reworked` or `reversed`, and `reworked` to `reversed`, every change appends to `adoption_evidence` and records a `decision` event with the new state and its evidence, and the full history is the ordered `decision` events |
+| `ledger.decision_round` | S12 | `pod decide` | every row | at most three rounds per Decision |
+
+### CLI framework, verb list, and error shape
+
+Pod uses no CLI framework. Node's `util.parseArgs` parses argv. The verb set is a registry table in `src/cli/verbs.ts` with one row per verb.
+
+```ts
+interface VerbRow<I, O> {
+  name: string                      // 'config apply'
+  input: ZodType<I>
+  output: ZodType<O>
+  handler: (input: I, ctx: VerbContext) => Promise<O>
+  sideEffect: 'none' | 'config' | 'ledger' | 'orca' | 'tracker'
+  cancelBy: 'operator' | 'coordinator' | 'nobody'
+  evidenceRequired: readonly string[]
+}
+```
+
+The registry generates `pod --help`. The S1 contract test asserts that every registry row with a side effect appears in `docs/contract.md` with its `cancelBy` and its `evidenceRequired`. The registry is the contract, and a framework would put a second copy of it in decorators or config. That is why Pod has no framework.
+
+#### Verbs
+
+v1 has the PRD's 16 command forms plus `db migrate`. `db migrate` is a setup verb outside the count of the 16 forms. `--resume` on `pod check` is a flag, not a new form, so the forms stay 16.
+
+| Verb | Arguments | Side effect | Records to | Cancel by |
+| --- | --- | --- | --- | --- |
+| `db migrate` | none | config | Drizzle's applied-migrations table | nobody |
+| `config apply` | `FILE`, `--expected-revision R` (`none` for a first activation), optional `--activate --scope S` | config | `config.revision`, `config.activation`, event | nobody, a new Revision replaces it |
+| `config export` | `kind.name@rev`, `--out FILE` | none | a YAML file | nobody |
+| `run create` | `story:<id>`, optional `--process name@rev` | orca | `ledger.story`, `ledger.run`, `config.snapshot`, `ledger.task`, Orca `run-create` and `task-create`, and on an xl Run the decider and auditor `ledger.dispatch` rows | operator, by a cancel event |
+| `dispatch` | `--task T`, `--seat S`, `--generation N`, optional `--op-key K` | orca | `ledger.operation`, `ledger.evidence_manifest`, `ledger.dispatch`, start event, Orca `worker-start` | coordinator or operator, by `worker-stop` then `release` |
+| `check` | `--generation N`, optional `--wait`, optional `--resume` | ledger | delivery, ignored, `unknown_launch`, and `resume` events, `ledger.task`, `ledger.run` state, Orca `check` ack, `task-create`, and the worker list | nobody |
+| `retry` | `--dispatch D`, `--generation N`, optional `--op-key K` | orca | `ledger.operation`, `ledger.dispatch` with `retry_of`, Orca `worker-start --retry-of` | coordinator or operator |
+| `release` | `--dispatch D`, `--generation N`, optional `--retain --reason R` | orca | release event, Orca `worker-release` | nobody |
+| `verdict post` | `FILE`, `--generation N` | tracker | `ledger.gate_receipt`, `ledger.outbox` | operator, by voiding the receipt |
+| `hqa record` | `story:<id>`, `--generation N` | tracker | `ledger.gate_receipt`, `ledger.outbox` | operator, by voiding the receipt |
+| `decide` | `--task T`, `--category C`, `--effect accept_plan` or `--effect change_spec`, `FILE`, `--generation N` | orca | `ledger.decision`, `ledger.decision_round`, `ledger.evidence_manifest`, decider and auditor `ledger.dispatch` rows, Orca `send` | operator or the escalating actor, by a cancel event |
+| `state` | optional `--project P`, optional `--decisions` | none | nothing | not applicable |
+| `takeover` | `story:<id>` | orca | `ledger.run.owner_generation`, `ledger.run.coordinator`, takeover event, a restore view from the same manifest, Orca `run-use`, and on an xl Run a new decider `ledger.dispatch` row | nobody |
+| `brief` | optional `story:<id>`, optional `--html FILE` | none | an HTML file, with drift marked | not applicable |
+| `drain` | optional `--end` | ledger | drain event | operator |
+| `learning add` | `FILE`, `--area A` (required), optional `--project P` | ledger | `ledger.learning`, learning event | nobody |
+| `learning query` | optional `--story`, `--adoption`, `--text`, `--area`, `--project` | none | nothing | not applicable |
+
+`pod drain --end` ends a drain and records a `drain` event with `ended: true`. `pod check --resume` records an operator resume of a Run or a Task from `hold` as a `resume` event. `pod takeover` writes a restore view from the same manifest. `pod brief` marks a Revision with no matching file under `specs/` as drift.
+
+The evidence each side-effect verb requires before it acts:
+
+| Verb | Evidence required |
+| --- | --- |
+| `db migrate` | a reachable database and a `db/migrations/` journal that matches the applied-migrations table |
+| `config apply` | a file that passes its schema, every Role filled and every gate id present when the kind is process, and `expected_revision` equal to the active Revision when `--activate` is set |
+| `run create` | a groomed Story with a size and a stage, and exactly one selected process Revision |
+| `dispatch` | Task state `ready`, every dependency satisfied as "Task states" defines, a free quota slot, which on an xl Run counts the coordinator's slot as released by the dispatch transaction, an authorized Seat for the Role, reviewer independent of developer, no drain in force |
+| `check` | the delivery's `payload.dispatchId` matches a recorded Dispatch, and its owner generation matches the Run |
+| `retry` | Task state `blocked`, the original placement in `ledger.dispatch`, the worktree `git status` in the task view |
+| `release` | the Dispatch is settled or the caller gives a retain reason, and this host owns the terminal |
+| `verdict post` | Head SHA equals the current candidate SHA, and the reviewer is not the developer |
+| `hqa record` | a source-verified comment by the human gatekeeper, or by the relay principal with a matching content hash, plus a deploy event for `hqa_after_deploy` |
+| `decide` | the Reserved check passed, an Evidence manifest is pinned, and the `effect` fits the Task as "Decision effects" requires |
+| `takeover` | evidence that the old coordinator has stopped, which on an xl Run is the decider Dispatch |
+| `drain` | an owner generation that matches the Run |
+| `learning add` | a source Story, at least one evidence reference, and an `area` |
+
+#### JSON envelope
+
+Every verb prints one JSON object on stdout. The shape matches the one Orca receipts use.
+
+```json
+{ "ok": true, "result": { }, "meta": { "pod": "0.1.0", "orca": "1.4.211", "opKey": "...", "ownerGeneration": 3 } }
+{ "ok": false, "error": { "code": "revision_conflict", "message": "...", "nextSteps": ["pod config export process.impl-small@2", "..."] } }
+```
+
+Identifiers and flags come from argv. A body comes from a file path or stdin, as JSON or as YAML for a spec. Every output is JSON. `--json` is the only mode. A human-readable render exists only in `pod brief` (HTML) and in `nextSteps`.
+
+#### Exit codes
+
+| Code | Meaning | What happened |
+| --- | --- | --- |
+| 0 | ok | the verb finished |
+| 1 | failed | the verb failed after it started, and the error says where |
+| 2 | usage or schema error | Pod sent nothing to Orca, the database, or the tracker |
+| 3 | refused by a precondition | CAS, owner generation, selector, Reserved, independence, or a budget that ran out before the next step |
+| 4 | result unknown | a side effect may have happened, the reservation is held, run the verb again with the same op key or run `pod check` |
+| 5 | drained | a drain is in force and the verb would start new work |
+
+#### Error codes
+
+| Code | Exit | Fires when | `nextSteps` carries |
+| --- | --- | --- | --- |
+| `usage` | 2 | argv does not parse, or a required argument is missing | the verb's `pod --help` line |
+| `schema_invalid` | 2 | stdin JSON, a file, or YAML fails its zod schema | the failing path and the expected type |
+| `revision_conflict` | 3 | `expected_revision` differs from the active Revision, or it is `none` and an activation row exists | `pod config export` of the active Revision, then apply again with its id |
+| `revision_immutable` | 3 | a caller tries to change an existing Revision | apply a new Revision with `parent` set |
+| `selector_none` | 3 | no active process selector matches stage and size, or the Story lacks the stage label or the size | the missing field, or the stage and size read and the active process names |
+| `selector_many` | 3 | more than one process matches | the matching Revision ids, and `--process` to name one |
+| `selector_conflict` | 3 | `--process` and the `Kickoff:` line differ, or a named Revision's selector does not apply | both values, and a request to fix the Story or drop the flag |
+| `role_unfilled` | 3 | a process Role has no authorized Seat in the active crew | the Role, and `pod config apply` of a crew that fills it |
+| `reviewer_not_independent` | 3 | the reviewer Seat equals or is not independent of the developer Seat, or a Decision Role repeats on one artifact | the conflicting Seats and Dispatch ids |
+| `takeover_unsafe` | 3 | `pod takeover` has no evidence that the old coordinator stopped | the stop command for the old coordinator, and the evidence `pod takeover` accepts |
+| `release_refused` | 3 | the Dispatch is not settled and no retain reason is given, or another host owns the terminal | `pod check`, and `--retain --reason` |
+| `owner_generation_stale` | 3 | the caller's generation is lower than `ledger.run.owner_generation` | `pod takeover story:<id>` if this session should own the Run |
+| `task_not_ready` | 3 | the Task is not `ready`, or a dependency is not satisfied as "Task states" defines | the unsatisfied dependencies, the receipt or delivery each lacks, and the Task state |
+| `quota_exhausted` | 3 | no free slot on this host | the Dispatches holding slots, and `pod check --wait` |
+| `launch_unknown` | 4 | Orca returned `outcome_unknown` or the reply was lost | the same command with the same `--op-key`, then `pod check` |
+| `duplicate_op` | 3 | an op key returns with a different intent | a new op key with `retry_of` |
+| `receipt_stale_sha` | 3 | a verdict's Head SHA is not the current candidate SHA, or the deployed revision does not match | the current candidate SHA, and a request for a new review |
+| `receipt_no_deploy` | 3 | `pod hqa record` runs for `hqa_after_deploy` and the Run has no deploy event | the deploy event fields to record |
+| `receipt_unverified_source` | 3 | the source is not an accepted human source, the content hash differs, readback failed, or this host has no passing bypass test | the gate id, a note that the Gate stays waiting, and after a failed bypass test the remedy that "Trust boundary and the bypass test" names |
+| `reserved_deny` | 3 | the Decision category or content hits a deny class | none beyond the recorded event |
+| `reserved_needs_human` | 3 | the Decision hits a needs-human class, or a needs-existing-authorization class that the Story does not authorize | the brief line, and the tracker comment that awaits the human gatekeeper |
+| `decision_budget_exhausted` | 3 | wall clock, relaunches, tool calls, or context tokens run out | the spent budget, and the needs-human item |
+| `drained` | 5 | a verb would start a Dispatch while a drain is in force | `pod check` and `pod release`, which still run |
+| `orca_version_unsupported` | 3 | the installed Orca version is outside the adapter's range | the supported range and the installed version |
+
+#### Op keys
+
+Every side-effect verb takes `--op-key` or derives one from the intent, the Run, the Task, the Seat, and the attempt number. The intent is one of a closed list, which is `run_create`, `project`, `dispatch`, `retry`, `decide_seat`, `decide`, `config_apply`, `verdict`, `hqa`, `release`, `takeover`, `drain`, and `learning`. `run_create` is the Orca Run creation inside `pod run create`. `project` is one Task projection through `task-create`, inside `pod run create` or `pod check`. `decide` is the Decision request itself. `db migrate` records no operation row, because Drizzle's applied-migrations table is its own record. `dispatch`, `retry`, and `decide_seat` are the three launch intents, and each one calls `worker-start` exactly once. `pod decide` records one `decide_seat` operation for each Decision Seat launch.
+
+The verb inserts a `ledger.operation` row with status `pending` before it calls Orca or the tracker. The same key returns the recorded result, or it reconciles when the status is `unknown`. A retry is a new key with `retry_of`. A content hash is a fingerprint only and never stands in for an op key.
+
+#### Owner generation
+
+`pod run create` sets `owner_generation` to 1 and returns it in `meta`. `pod takeover` increments it. Every side effect checks the caller's `--generation` against the row before the external call, in the same transaction that records the operation. This guard covers dispatch, ack, Gate, sync, release, and Decision write-back. A direct runtime launch on a Pod-managed Run is a contract violation, and `docs/contract.md` states that. `pod check` compares the runtime's worker list for the Run, read through `workerList`, against `ledger.dispatch`. It records an `unknown_launch` event for every worker the ledger does not know and moves the Run to `hold`, which sends every open Task to `hold` and blocks new Dispatches until the operator reconciles.
+
+A cancel comes from the tracker. `pod check` reads the Story on every run, and a tracker Canceled records a `cancel` event, which blocks new Dispatches on that Run at once and sends every open Task to `hold`. No Pod verb cancels a Story. An emergency stop is `worker-stop`, which `pod check` then reconciles.
+
+#### Manifest, views, and budgets
+
+Each Dispatch lineage and each Decision lineage has one Evidence manifest. Every reference in it carries its source, its revision, its observed time, and its coverage. Transcripts never enter a manifest.
+
+| View | Word budget |
+| --- | --- |
+| task view | 2k words |
+| state view | 3k words |
+
+A view over its budget is marked `truncated` and lists routing lines for deeper reads, such as `pod state --decisions`, a docs section reference, or an ADR path. Trimming follows these rules.
+
+- Policies in force, Reserved categories, and applicable Decisions are never trimmed.
+- The roadmap trims only non-current milestones.
+- Only expired Decisions are trimmed.
+- A retry task view carries `git status` first.
+
+Every `pod dispatch` records the id of the manifest it used in `ledger.dispatch.manifest_id`. Regenerating a manifest from the same sources gives the same id, so a reader can rebuild the exact view a Seat saw.
+
+`pod state` renders the state view in seven sections.
+
+| State view section | Rule |
+| --- | --- |
+| roadmap | trims only non-current milestones |
+| active Runs and waiting-on | each Run with its state and what it waits on |
+| policies in force and Reserved categories | never trimmed |
+| applicable Decisions | never trimmed. A Decision older than 30 days that is still in force appears, and an expired one does not |
+| usage coverage | usage with no source shows `unknown` with its coverage, never zero |
+| open needs-human items | each with its Decision id or Gate id and its reason |
+| learnings | adopted learnings for the Story's project |
+
+Each section carries `source_revision` and `observed_at`. `pod brief` renders the same JSON as one self-contained HTML file.
+
+### Runtime adapter boundary and fixture replay
+
+`OrcaPort` is a TypeScript interface in `src/core/ports/orca.ts`. It has one method per Orca verb Pod uses.
+
+```ts
+interface OrcaPort {
+  version(): Promise<OrcaVersion>
+  runCreate(req: RunCreateRequest): Promise<Receipt<RunCreateResult>>
+  runUse(req: RunUseRequest): Promise<Receipt<RunUseResult>>
+  taskCreate(req: TaskCreateRequest): Promise<Receipt<TaskCreateResult>>
+  workerStart(req: WorkerStartRequest): Promise<Receipt<WorkerStartResult>>
+  workerStop(req: WorkerStopRequest): Promise<Receipt<WorkerStopResult>>
+  workerRelease(req: WorkerReleaseRequest): Promise<Receipt<WorkerReleaseResult>>
+  check(req: CheckRequest): Promise<Receipt<CheckResult>>      // includes ack
+  send(req: SendRequest): Promise<Receipt<SendResult>>
+  requestShow(req: RequestShowRequest): Promise<Receipt<RequestShowResult>>
+  workerList(req: WorkerListRequest): Promise<Receipt<WorkerListResult>>
+}
+
+interface Receipt<T> {
+  verb: string
+  exitCode: number
+  result: T | null
+  raw: unknown            // every field zod did not name, kept
+  orcaVersion: string
+}
+```
+
+`workerList` reads the runtime's workers for one Run through `worker-list`, which the Orca 1.4.211 help lists. Each method takes a typed request and returns a typed receipt that zod parses from `--json` stdout. Unknown fields go to `raw` and are never dropped. The adapter never parses human text output.
+
+#### The real adapter
+
+The real adapter spawns `orca orchestration <verb> ... --json`. For each call it records a receipt `{verb, argv, exitCode, stdout, stderr, startedAt, endedAt, orcaVersion}` into `ledger.event` as a `receipt` event with source `receipt`. In record mode, set by `POD_ORCA_RECORD=<dir>`, it also writes the receipt as a fixture file.
+
+Exit 1 with `outcome_unknown` maps to the `launch_unknown` path. The operation stays `unknown`, the reservation stays held, and `requestShow` is the first reconcile step. Without evidence that rules out a duplicate, Pod does not start again.
+
+#### Orca facts the adapter encodes
+
+Each row comes from the PRD's Orca facts, observed on Orca 1.4.230 in the proof of concept and on the 1.4.211 help text.
+
+| Orca fact | What the adapter does |
+| --- | --- |
+| A start receipt on a reused `--terminal` has null `launch.requested` and `launch.effective` | start every Dispatch in a new terminal, and record `model_attribution = 'unknown'` when the receipt has no model |
+| A completed Task refuses a new Dispatch with `task_not_startable` | model rework as a new Task in the same lineage |
+| After `worker-stop` a Task is `blocked`, not failed, and dependents stay pending | `pod retry` reads the original worktree, agent, and model from `ledger.dispatch` and passes them with `--retry-of` |
+| A stopped attempt's heartbeat still reaches the inbox | `pod check` filters deliveries by `payload.dispatchId` and owner generation, and records a mismatch as `ignored` |
+| Uncommitted edits stay in a shared worktree after a stop | the retry task view carries `git status` first, and a reviewer uses a detached checkout of the target SHA |
+| `send` requires `--subject` and `--body` | `SendRequest` makes both fields required |
+| `run-use` is not exclusive, and an old coordinator's `check` still works after a takeover | `pod takeover` refuses until it has evidence that the old coordinator stopped |
+| `worker-start` takes `--task/--spec`, `--run`, `--agent`, `--model/--effort`, `--worktree`, `--deps`, `--retry-of`, `--retry-request`, `--json` | `WorkerStartRequest` names exactly these fields |
+| Orca 1.4.211 help lists `request-show`, which asks whether one orchestration mutation already took effect | `requestShow` is the first reconcile step, and its availability per version is an assumption until a fixture records it |
+
+The adapter declares a supported Orca version range and refuses a call outside it with `orca_version_unsupported`. The first range starts at 1.4.211.
+
+#### Fixture replay
+
+`ReplayOrca` implements `OrcaPort` over a fixture directory. A fixture file is `fixtures/orca/<scenario>/NNN-<verb>.json`.
+
+```json
+{ "verb": "worker-start", "match": { "argv": ["--task", "task_1"] }, "exitCode": 0,
+  "stdout": "{...}", "stderr": "", "orcaVersion": "1.4.211", "recordedAt": "2026-10-21T00:00:00Z" }
+```
+
+The replayer matches calls in order by verb and by the `match` subset of argv. An unmatched call, an extra call, or a missing call fails the test and prints the diff. Unit tests never call a live Orca.
+
+A test names its scenario directory through `POD_ORCA_FIXTURES=<dir>`. The test file for a scenario is `test/replay/<scenario>.test.ts`.
+
+The first fixtures come from re-recording the proof-of-concept scenarios the PRD names.
+
+| Scenario | What it proves |
+| --- | --- |
+| `lost-launch-reply` | the same op key returns the existing result or stops with the reservation held, and the recorded calls show no second `worker-start` |
+| `two-coordinator-handoff` | the old coordinator's dispatch, ack, verdict, and release are refused before the side effect |
+| `stale-dispatch-id` | a delivery with a stale `dispatchId` or owner generation is recorded as `ignored` and moves no state |
+| `capacity-1` | a blocking Decision obtains both Seats in sequence, and the waiting Task releases its slot |
+| `drain` | no new Dispatch starts, Decision Seats included, while `check`, `release`, and reconcile still run |
+| `direct-launch` | a worker the ledger does not know records `unknown_launch` and the Run goes to `hold`. S7 records it |
+
+#### Scrubbing
+
+Fixtures are recorded on an operator's real hosts and the repo is public. The scrubber removes hostnames, paths, and user names at record time, and the denylist lint in CI is the guard that keeps an operator's names out of the repo.
+
+A scrubber runs on record. Hostnames become `host-a` and `host-b`. Worktree paths become `/w/<n>`. User names become `user-<n>`. A fixture lint fails CI when any term from a denylist file outside the repo matches. `POD_SCRUB_DENYLIST` names that file, so the denylist itself never enters the repo. CI reads `POD_SCRUB_DENYLIST` from a CI secret, never from the repo.
+
+Fixtures carry `orcaVersion`. Re-recording against a new Orca version is a story task. A receipt schema change surfaces as a zod parse failure in replay.
+
+#### Tracker and docs ports
+
+`TrackerPort` (Linear) and `DocsPort` (Notion) follow the same pattern. The real adapters record HTTP receipts, and tests replay them.
+
+```ts
+interface TrackerPort {
+  readStory(ref: StoryRef): Promise<Receipt<TrackerStory>>
+  readComment(ref: CommentRef): Promise<Receipt<TrackerComment>>     // author id, body, edited flag
+  postComment(req: PostCommentRequest): Promise<Receipt<CommentRef>>
+  setStatus(req: SetStatusRequest): Promise<Receipt<StatusResult>>
+  readback(ref: CommentRef | StoryRef): Promise<Receipt<Readback>>
+}
+
+interface DocsPort {
+  readSection(ref: DocSectionRef): Promise<Receipt<DocSection>>      // read-only, no write method
+}
+```
+
+`DocsPort` has no write method, so no learning can reach the docs tool through it. A status projection never overwrites a human Canceled. `setStatus` reads the current status first and refuses when the tracker shows Canceled.
+
+#### Trust boundary and the bypass test
+
+A human Gate receipt or a human ruling counts only from an accepted human source. Pod accepts each source below and never narrows the standard to one of them.
+
+| Accepted human source | What Pod verifies |
+| --- | --- |
+| a tracker comment by the human gatekeeper's own account | `author_id` is the keeper's account, the content hash matches, and readback confirms the comment |
+| a comment the relay principal posts | `author_id` is the relay principal, `relayed_by` carries the relay session id, and the content hash matches |
+| a tap on a tracker notification from the person's own account | the tracker attributes the action to the person's account, and readback confirms it |
+| a code-host PR approval from the person's own account | the approval's author is the person's account, and the approval is on the current candidate SHA |
+
+The relay principal is an independent principal that posts under its own tracker identity. Its token lives only in the human's interactive session, and no dispatched terminal inherits it. The receipt records `relayed_by` with the relay session id and the content hash. The relay passes on only what the person said. It reads no Story or verdict and judges no PASS. Text a worker Seat posts never counts, even when it is identical.
+
+That a worker cannot produce the human's comment is a premise, not a fact. The premise is that a worker cannot reach the human's tracker token, login session, or the relay's token. The bypass test proves it. With worker-equivalent rights on a controlled test Story, an attempt to post as the human gatekeeper and an attempt to post as the relay principal both land only as the worker identity, and the output contains no secret. A second check feeds the relay a Story whose text says PASS, and the relay posts no PASS of its own. S1 ships the test under `test/bypass/`. Each run records a `receipt` event with source `command`, the host, and the result, and the adoption procedure runs it before the first `pod hqa record`.
+
+When the test fails on a host, every human receipt on that host stays waiting, and `pod hqa record` refuses with `receipt_unverified_source`. The remedy is to move the relay principal to a separate OS user or a separate host and run the test again. Pod does not narrow receipts to the person's own tracker account.
+
+### Process spec loading and the selector
+
+A process spec is a YAML file. zod parses it into the process schema.
+
+| Field | Shape |
+| --- | --- |
+| `kind` | `process` |
+| `schema_version` | integer |
+| `name` | string |
+| `summary` | string |
+| `selector` | `{ stage, size[] }` |
+| `roles` | list of Role names |
+| `steps[]` | `id`, `type` in `worker`, `external_action`, `human_wait`, `role`, `needs[]`, `produces[]`, `gate`, `decision`, `adapter`, `event_fields`, `binds` |
+| `edges[]` | `from`, `on` (string or list), `to`, `new_task`, `then` |
+| `limits` | `{ attempts_per_task, rework_per_lineage }` |
+| `escalation` | `{ to }` |
+
+#### Validation at apply
+
+`pod config apply` refuses a process spec unless every rule below holds.
+
+- Every step is reachable from the first step.
+- Every step has an outgoing edge for each outcome its type allows, as the outcome table below lists.
+- No edge points to an unknown step. `hold` and `done` are reserved edge targets.
+- A `FAIL` edge targets `hold` or has `new_task: true`.
+- A step has `gate` or `decision`, never both. A `decision` step is a `worker` step, and its `cancelled` edge targets `hold`.
+- Every Role has an authorized Seat in the active crew.
+- The reviewer is independent of the developer.
+- Every gate id exists in the active policy.
+
+A policy or crew Revision validates against its own schema only. A process Revision checks its Roles against the active crew at its scope, or against every project's active crew when its scope is global, and its gate ids against the active policy. Policy and crew therefore apply before any process.
+
+| Step type | Allowed outcomes |
+| --- | --- |
+| `worker` | `done`, `timeout`, `cancel`, `unknown`, with `PASS` and `FAIL` in place of `done` when the step has a `gate`, and with `agreed` and `cancelled` in place of `done` when the step has a `decision` |
+| `human_wait` | `PASS`, `FAIL`, `cancel` |
+| `external_action` | `done`, `unknown`, `cancel` |
+
+Every allowed outcome needs an edge.
+
+The canonical JSON of the parsed value is hashed into the Revision id. A process spec names no keeper. Policy owns keepers.
+
+#### Reference excerpt
+
+The excerpt below is `specs/process/impl-small.yaml`.
+
+```yaml
+kind: process
+schema_version: 1
+name: impl-small
+summary: xs or s impl, one developer, one independent reviewer, one PR
+selector: { stage: impl, size: [xs, s] }
+roles: [developer, reviewer]   # apply checks the crew fills them and the reviewer is independent
+steps:
+  - { id: implement, type: worker, role: developer, produces: [commit] }
+  - { id: review, type: worker, role: reviewer, needs: [implement], gate: review }
+  - { id: pr, type: worker, role: developer, needs: [review], produces: [pr] }
+  - { id: merge, type: human_wait, needs: [pr], gate: merge }   # the existing merge authorization
+  - id: deploy
+    type: external_action
+    needs: [merge]
+    adapter: deploy
+    event_fields: [environment, deployment_id, deployed_revision, source_commit]
+  - { id: hqa, type: human_wait, needs: [deploy], gate: hqa_after_deploy, binds: deployed_revision }
+edges:   # all explicit, a missing edge refuses the apply
+  - { from: implement, on: done, to: review }
+  - { from: implement, on: [timeout, cancel, unknown], to: hold }
+  - { from: review, on: PASS, to: pr }
+  - { from: review, on: FAIL, to: implement, new_task: true, then: review }
+  - { from: review, on: [timeout, cancel, unknown], to: hold }
+  - { from: pr, on: done, to: merge }
+  - { from: pr, on: [timeout, cancel, unknown], to: hold }
+  - { from: merge, on: PASS, to: deploy }
+  - { from: merge, on: [FAIL, cancel], to: hold }
+  - { from: deploy, on: done, to: hqa }
+  - { from: deploy, on: [unknown, cancel], to: hold }
+  - { from: hqa, on: PASS, to: done }
+  - { from: hqa, on: FAIL, to: implement, new_task: true, then: review }
+  - { from: hqa, on: cancel, to: hold }
+limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+escalation: { to: decision-pair }
+```
+
+#### The six reference process specs
+
+| Process | Selector | Steps | Human Gate |
+| --- | --- | --- | --- |
+| `prd@1` | stage prd | draft (writer), audit (auditor), `prd_review` | `prd_review` |
+| `design@1` | stage design | design (designer), taste QA (taste reviewer), `design_clickthrough` | `design_clickthrough` |
+| `impl-small@1` | stage impl, size xs or s | implement, review, pr, merge, deploy, `hqa_after_deploy` | `hqa_after_deploy` |
+| `impl-medium@1` | stage impl, size m | plan (planner), plan review (Decision pair, automated Gate), implement, story QA (qa), pr, merge, deploy, `hqa_after_deploy` | `hqa_after_deploy` |
+| `impl-large@1` | stage impl, size l | plan (planner), plan review (Decision pair, automated Gate) in place of a tech review, implement (several Tasks), review per Task, review of the integrated candidate SHA, pr, merge, deploy, `hqa_after_deploy` | `hqa_after_deploy` |
+| `impl-xlarge@1` | stage impl, size xl | the same steps as `impl-large@1`, driven by the coordinator pair. Its plan review is a Decision round of the pair, and the `agreed` outcome advances the plan step with no Gate receipt | `hqa_after_deploy` |
+
+A Story of size xs or s has no plan step. In `impl-medium@1` and `impl-large@1` the plan review is an automated Gate kept by the Decision pair, and a PASS Gate receipt advances the plan step. In `impl-xlarge@1` the plan step is a `worker` step for the planner with `decision: plan` and no `gate`. The planner's delivery moves its Task to `delivered` and opens a `pod decide` request whose scope is the plan Revision. The verified outcome of the step is the `decision` event with outcome `agreed` bound to that plan Revision, and a delivery alone never advances it. The projector, the dependency rule, and the Task transition table under "Task states" all wait for that event. `story-full@1`, which chains and splits across stages, is phase 2.
+
+#### Selector
+
+The selector is a pure function in `core/process`.
+
+```ts
+type Size = 'xs' | 's' | 'm' | 'l' | 'xl'
+
+function selectProcess(input: {
+  stage: string
+  size: Size
+  kickoffLine: ProcessRef | null
+  cliProcess: ProcessRef | null
+  activations: readonly ActiveProcess[]
+}): { ok: true, revisionId: RevisionId } | { ok: false, code: SelectorErrorCode }
+```
+
+v1 fixes the tracker convention for the selector inputs. The stage is a tracker label, the size is mapped from the tracker's estimate field, and the process override is a `Kickoff:` line in the Story description. `TrackerStory` carries those three fields. The Linear adapter accepts both a numeric estimate (1, 2, 3, 5, 8 map to xs, s, m, l, xl) and Linear's T-shirt estimate scale, so an adopter's team switches scale without a Pod change.
+
+```ts
+interface TrackerStory {
+  ref: StoryRef
+  stageLabel: string | null        // the stage tracker label
+  size: Size | null                // mapped from the tracker's estimate
+  kickoffLine: ProcessRef | null   // the `Kickoff:` line in the description
+  status: string
+}
+```
+
+Profile-level field mapping is phase 2. Pod refuses a Story that lacks the stage label or the size with `selector_none`, and `nextSteps` names the missing field.
+
+It applies four precedence rules in order.
+
+| Rule | Condition | Result |
+| --- | --- | --- |
+| 1 | `--process` and the Story's `Kickoff:` line are both present and differ | refuse with `selector_conflict` |
+| 2 | one of them names a Revision | check that Revision's selector against stage and size only. A named Revision needs no activation. Refuse with `selector_conflict` when the selector does not apply, and with `selector_none` when no Revision has that `kind.name@rev` |
+| 3 | neither is present | match the project activations, then the global activations, by selector. Zero matches refuse with `selector_none`, several refuse with `selector_many` |
+| 4 | any case | no override changes the effective gate map. Gates come only from policy |
+
+When `--process` and the `Kickoff:` line name the same Revision, rule 2 applies. Under rule 3, zero project matches fall through to the global activations before a refusal.
+
+A table-driven test enumerates stage, size, `Kickoff:` line, and `--process` offline. Each combination yields exactly one Revision or one refusal code.
+
+#### Projector
+
+The projector is a scribe, not a judge. It turns each step into an Orca Task through `taskCreate`, with `deps` from the step's `needs`. The edge table drives transitions on verified outcomes, and a Gate receipt is the verified outcome for a gated step. A completed Orca Task is never a PASS.
+
+- `new_task: true` creates a Task in the same lineage and counts it against `rework_per_lineage`. At the limit, the lineage goes to `hold`.
+- A FAIL edge either creates a rework Task (`new_task: true`) or sends the Task to `hold`. The edge decides, and the Task table follows it.
+- A `human_wait` step starts no worker.
+- An `external_action` step waits for its event with the listed `event_fields`.
+- A step with no Gate and no `decision` treats its recorded delivery as outcome `done`.
+- A step with a `decision` treats the `decision` event with outcome `agreed` and effect `accept_plan` bound to its plan Revision as its verified outcome. The projector opens that Decision with `accept_plan` when the Task reaches `delivered`. Its recorded delivery moves the Task to `delivered` and fires no edge. A `cancelled` outcome fires the `cancelled` edge to `hold`.
+- Each projection carries its own op key, so replaying an event creates no Task twice.
+- `needs` sets the Orca `deps` of each projected Task. Edges decide which step the projector creates next. A downstream Task is created only when its edge fires, and its `deps` name the Tasks that must be `passed`.
+
+#### Task states
+
+`core/domain` models the Task as a typed state machine and refuses any transition the table below does not list.
+
+```ts
+type TaskState = 'pending' | 'ready' | 'dispatched' | 'delivered' | 'passed' | 'failed' | 'blocked' | 'hold' | 'done' | 'superseded'
+```
+
+A dependency is satisfied when it is `passed`, or `done`, which a Task reaches only through `passed`. `passed` means a PASS Gate receipt for a gated step, the `accept_plan` `decision` event with outcome `agreed` bound to the plan Revision for a step with a `decision`, or a recorded delivery with outcome `done` that matches the Dispatch and the owner generation for a step with neither. A delivery never satisfies a dependency on a step with a `gate` or a `decision`. An ungated `external_action` step has no Dispatch, so its recorded event with outcome `done` stands in for the delivery. `failed` and `superseded` never satisfy `deps`. The `dispatch` evidence row and `task_not_ready` use this definition.
+
+| From | To | Trigger |
+| --- | --- | --- |
+| `pending` | `ready` | every Task in `deps` is satisfied |
+| `ready` | `dispatched` | `pod dispatch` records a start event for a worker step |
+| `ready` | `delivered` | an `external_action` event or a `human_wait` Gate receipt arrives |
+| `dispatched` | `delivered` | `pod check` records a delivery that matches the Dispatch and the owner generation |
+| `dispatched` | `blocked` | Orca reports the Task `blocked` after `worker-stop` |
+| `blocked` | `dispatched` | `pod retry` starts a new Dispatch with `retry_of` |
+| `delivered` | `passed` | a PASS Gate receipt for a gated step, the `decision` event with outcome `agreed` and effect `accept_plan` bound to the plan Revision for a step with a `decision`, or the matching delivery for a step with neither |
+| `delivered` | `hold` | a `cancelled` Decision outcome on a step with a `decision`. The operator resumes after reconcile |
+| `delivered` | `failed` | a FAIL Gate receipt whose edge has `new_task: true` |
+| `delivered` | `hold` | a FAIL Gate receipt whose edge targets `hold`. The receipt stays recorded, and the operator resumes after reconcile |
+| `passed` | `done` | the projector records the outgoing edge |
+| `failed` | `failed` | none. A failed Task is terminal. The rework Task in the same lineage replaces it, and the projector repoints the dependents' `deps` to the rework Task |
+| any state except `done`, `failed`, and `superseded` | `hold` | a `timeout`, `cancel`, or `unknown` outcome, a cancel event, or a lineage at its rework limit |
+| `hold` | `ready` | the operator resumes after reconcile with `pod check --resume`, with no automatic retry |
+| `pending`, `ready`, or `hold` | `superseded` | a `change_spec` Decision outcome applies a new Task spec Revision, and the replacement Task inherits the dependents |
+| `dispatched` or `delivered` | `superseded` | a `change_spec` Decision outcome applies a new Task spec Revision to the escalating Task, or a new plan Revision to a `decision: plan` Task. Pod stops its Dispatch first, so the worker never resumes on the old spec. An `accept_plan` outcome never supersedes |
+
+When the outcome of a `change_spec` Decision applies a new Task spec Revision to a Task whose Dispatch is `waiting` on that Decision, Pod runs `worker-stop` on that Dispatch, records its settlement as `superseded` with `activity` `settled`, moves the Task to `superseded`, and creates the replacement Task `ready` in the same lineage with the new Revision. The replacement's task view carries the worktree's `git status`, because the stopped worker's uncommitted edits stay in the worktree. `pod retry` refuses a Dispatch whose Task is `superseded` with `task_not_ready`.
+
+`superseded` is terminal and never satisfies `deps`. A replacement Task for a `superseded` Task does not count against `rework_per_lineage`.
+
+A `human_wait` or `external_action` step has no Dispatch, so its readiness rule is the same `deps` rule, checked by `pod check` before it records the delivery.
+
+### The decision layer seats
+
+The decider and the auditor are Roles in the crew Revision. They share the host quota with worker Seats and start in sequence, so capacity 1 never deadlocks. There is no quota table. The quota is the host profile's `capacity` minus the slots in use. A slot is in use for each Dispatch on the host with `activity` `running`, worker and Decision Seats counted alike, and for each `ledger.operation` row with a launch intent (`dispatch`, `retry`, or `decide_seat`) and status `pending` or `unknown`, which is a reservation. When the start receipt arrives, the same transaction sets the operation to `done` and inserts the Dispatch row with `activity` `running`, so the slot moves from the reservation to the Dispatch and is never counted twice. An operation left `unknown` keeps its slot until `pod check` reconciles it through `requestShow` or the worker list. S3 may add a table if the count proves too slow.
+
+A Dispatch is `waiting` when its Seat has delivered and waits on a message. That covers a worker blocked on `pod decide` and a Decision Seat between rounds. A `waiting` Dispatch holds no slot. A Dispatch is `settled` once its settlement is recorded. `pod check` and `pod decide` record each `activity` change.
+
+At capacity 1 a blocking Decision runs in four steps.
+
+1. The worker escalates through `pod decide` and goes `waiting`, which frees the slot.
+2. The decider starts in the free slot, proposes, and goes `waiting`.
+3. The auditor starts in the free slot, audits, and goes `waiting`.
+4. Round 2 wakes one Seat at a time, and each Seat goes `waiting` again before the other wakes. The worker's Dispatch is stopped once the outcome applies a new Task spec Revision, and the replacement Task takes the next free slot through `pod dispatch`.
+
+#### Coordinator pair for xl
+
+For an xl Run the decider Seat is the Run's coordinator. It runs the `pod` verbs for the Run and holds the owner generation. The auditor Seat is resident from Run start and audits the plan, each Task's result, and the integrated candidate SHA. Escalations inside the Run use the same pair, and no further Decision Seats open. The pair's audits are Decision rounds, not Gate receipts. The plan review in `impl-xlarge@1` is therefore a Decision round of the pair, and its `agreed` outcome advances the plan step. The plan step carries `decision: plan`, its Decision carries effect `accept_plan`, its evidence is the `decision` event with outcome `agreed` bound to the plan Revision, no Gate receipt is written for it, and the planner's delivery alone leaves the Task `delivered`, as "Task states" describes. Each Task's PR review stays with an independent reviewer Seat, and the human Gates stay with the human gatekeeper.
+
+`pod run create` for an xl Story opens both Dispatches at Run start, in sequence, and records each launch as a `decide_seat` operation. It records the decider Dispatch id as the Run's coordinator in `ledger.run.coordinator`. The decider's session passes `--generation` like any coordinator. `pod takeover` treats the decider Dispatch as the old coordinator. It requires evidence that the decider Dispatch stopped, increments the owner generation, and opens a new decider Dispatch as the new coordinator with the restore view. The resident auditor keeps its Dispatch across a takeover.
+
+Capacity 1 does not deadlock, because a waiting Seat holds no slot and the coordinator's slot passes to the worker before any external call. When the coordinator runs `pod dispatch`, one transaction marks the coordinator Dispatch `waiting` on the new Task and writes the launch reservation. The free-slot precondition of `dispatch` counts the coordinator's slot as released by that transaction, so the reservation takes the slot the coordinator held. Only then does Pod call `worker-start`. When the launch fails, the reconcile path that releases the reservation returns the coordinator Dispatch to `running` in the same transaction. The auditor wake in step 3 follows the same order. The transaction that marks the delivering Seat `waiting` writes the auditor's wake message, and the auditor's slot is counted from that transaction. At capacity 1 an xl Run moves in four steps.
+
+1. The coordinator runs `pod dispatch`. One transaction marks the coordinator Dispatch `waiting` and reserves the slot for the worker, and the worker then starts in that slot.
+2. The worker runs in the slot, delivers, and goes `waiting` or settles, which frees the slot.
+3. The auditor wakes in the free slot in the same transaction that recorded the worker's delivery, audits the result, and goes `waiting`.
+4. The coordinator wakes in the free slot to act on the audit.
+
+Sizes other than xl keep the Decision Seats opened on first need, as "What `pod decide` does" describes.
+
+#### What `pod decide` does
+
+1. Read the policy's Reserved table first, with the classes deny, needs_human, and needs_existing_authorization, whose members "Policy schema" lists. Cross-check the category against the content and the scope, so a spend question relabeled `tradeoff` still hits the check.
+2. Pin an Evidence manifest from the local evidence, the state view, and the applicable Decisions.
+3. For sizes other than xl, open the Run's decider Dispatch and auditor Dispatch on first need, usually at plan review, and reuse them after that. On an xl Run both are open from Run start, as "Coordinator pair for xl" describes. `ledger.dispatch` records both with Role `decider` or `auditor`. Both close with the Run, and a Seat reopens only on failure or recovery.
+4. Send round 1 through `send` with the manifest reference.
+5. Run the round state machine. Rounds 2 and 3 are `send` messages that carry only the audit comments and the points of disagreement, never the manifest again.
+6. Record a `decision` event. An agreed outcome takes the effect the request named. `change_spec` applies a new Task spec Revision bound to the Run, as "Config tables" describes. `accept_plan` applies no Revision and passes the plan Task, as "Decision effects" describes.
+
+A Decision authorizes the next step only. `pod verdict post` and `pod hqa record` refuse a Decision outcome as a PASS. A scope or spec change creates a new Revision and makes the earlier review stale.
+
+#### Decision effects
+
+Every Decision request names its `effect`, and `ledger.decision.effect` records it. There are two.
+
+| Effect | Who requests it | What `agreed` does |
+| --- | --- | --- |
+| `accept_plan` | the projector, when a `decision: plan` step's Task is `delivered` | records the `decision` event bound to the plan Revision, and the plan Task moves `delivered` to `passed`. No Task spec Revision is applied and no Task is superseded |
+| `change_spec` | a worker through `pod decide`, the lead, or the claim authority | applies a new Task spec Revision bound to the Run, and the affected Task moves to `superseded` with a replacement created, as "Task states" describes |
+
+A Decision on a `decision: plan` step carries `accept_plan`, and `effect` never changes. When the pair proposes a plan change inside an `accept_plan` Decision, that Decision ends `superseded`, with `by` set to a new `change_spec` Decision that the coordinator opens on the same Run through `pod decide --effect change_spec`, carrying the proposed plan Revision. The new Decision cites the old id in `supersedes_decision_id` and runs its own rounds on the lineage budget, as "Budgets" describes. On `agreed` it applies the new plan Revision and supersedes the plan Task through the `change_spec` path, and the projector creates the replacement plan Task `delivered` on the new plan Revision and opens a new `accept_plan` Decision for it. The `accept_plan` Decision itself never supersedes a Task. `pod decide` refuses `accept_plan` for a Task whose step has no `decision`, and refuses `change_spec` from the projector, both with `usage`.
+
+#### Round protocol
+
+The decider proposes and must cite the manifest. A proposal without citations is an automatic disagree. The auditor lists constraints and verification results first, then audits the proposal, checks citations, and looks for counterexamples. The auditor answers agree, disagree with reasons, escalate, or needs_evidence. The auditor never proposes.
+
+#### Decision states
+
+```ts
+type DecisionState =
+  | { kind: 'requested' }
+  | { kind: 'reserved_denied' }
+  | { kind: 'reserved_needs_human' }
+  | { kind: 'round', n: 1 | 2 | 3 }
+  | { kind: 'awaiting_evidence', n: 1 | 2 | 3 }
+  | { kind: 'agreed' }
+  | { kind: 'needs_human', reason: 'policy-required' | 'disagreement' | 'context-missing' | 'runtime-failure' }
+  | { kind: 'cancelled' }
+  | { kind: 'superseded', by: DecisionId }
+```
+
+| From | Event | To |
+| --- | --- | --- |
+| `requested` | Reserved deny hit | `reserved_denied`, a Decision event is recorded, with no loop and no wait for the human |
+| `requested` | Reserved needs_human hit | `reserved_needs_human`, then `needs_human` with reason `policy-required`, with no rounds spent |
+| `requested` | Reserved needs_existing_authorization hit, and the Story or an infrastructure Story authorizes it | `round(1)` |
+| `requested` | Reserved needs_existing_authorization hit, and nothing authorizes it | `needs_human` with reason `policy-required` |
+| `requested` | no Reserved hit | `round(1)` |
+| `round(n)` | both agree | dependencies re-checked, then `agreed`, and the outcome applies by its `effect` as "Decision effects" describes |
+| `round(n)` or `awaiting_evidence(n)` | the pair proposes a plan change on an `accept_plan` Decision | `superseded`, with `by` the new `change_spec` Decision the coordinator opens, and no rounds spent on the old Decision after that |
+| `round(n)` | both agree, but a dependency's source Revision changed | `needs_human` with reason `context-missing`, and the outcome is not executable |
+| `round(n)` | one side escalates | affected actions stop first, the other side evaluates, and continued disagreement counts as a round |
+| `round(n)` | auditor answers needs_evidence | `awaiting_evidence(n)`, which is not a round and counts against `tool_calls` |
+| `awaiting_evidence(n)` | the evidence joins a child manifest whose `parent_id` is the current manifest | `round(n)`, and the next round cites the child manifest |
+| `round(n)`, n below 3 | disagree | `round(n+1)` |
+| `round(3)` | disagree | `needs_human` with reason `disagreement`, carrying both final positions and the points of disagreement |
+| any open state | deadline, missing data, or an identity Pod cannot verify | `needs_human` with reason `runtime-failure` or `context-missing`, with no rounds spent |
+| any open state | budget exhausted | `needs_human` with reason `runtime-failure` |
+| any open state | cancel by the escalating actor or the human | `cancelled`, the affected Task goes to `hold`, with no automatic reopen |
+| `round(n)` or `awaiting_evidence(n)` | Seat failure or coordinator interruption | `needs_human` with reason `runtime-failure`, with no round spent |
+| `needs_human` with reason `runtime-failure` | a source-verified human ruling that says resume, within the `relaunches` budget, after the owner generation check | `round(n)` for the interrupted round, with the same Decision id, rounds, and manifest, and the failed Seat's Dispatch reopened with a summary of earlier positions |
+| `needs_human` with reason `runtime-failure` | a resume ruling when `relaunches` is spent | Pod refuses the ruling with `decision_budget_exhausted`, and the Decision stays `needs_human` |
+| `needs_human` | a human ruling comment that passes source verification and readback | `agreed` or `cancelled`, as the ruling says |
+| `agreed` | a later Decision cites this id | `superseded`, with `by` that Decision |
+
+The human ruling authorizes recovery from a Seat failure, and Pod never relaunches a Decision Seat on its own. A resume ruling reopens the failed Seat's Dispatch with a summary of earlier positions, and the relaunch counts against `relaunches`. The only exits from `needs_human` are a human ruling that resumes, decides, or cancels.
+
+#### Budgets
+
+The budget lives on the `ledger.decision` row. It has four fields, which are wall clock, relaunches, tool calls, and context tokens. `spent` decrements the remaining budget across relaunches and never resets. An injected timeout and relaunch keep the lineage budget. A Decision that supersedes another through `supersedes_decision_id` is in the same lineage and inherits its remaining budget.
+
+#### Escalation threshold
+
+Only four cases open the loop. They are a change beyond the Story's scope, an effect on another Story, a new dependency, and a choice between two architectures. The policy's `escalate_when` lists them. A process step can narrow the list and never widen it. Anything else, the developer decides and records as a `self_decision` event with no rounds and no Decision Seats.
+
+#### Role exclusion
+
+The author, proposer, auditor, and gatekeeper of one artifact are distinct Seats. Pod checks this against `ledger.dispatch` and `ledger.gate_receipt` for the same artifact. An auditor Seat that wrote an artifact's audit is not that artifact's Decision auditor. On a violation, Pod refuses with `reviewer_not_independent`.
+
+#### Binding
+
+Binding is `run` only. A project or global change is a recommendation that goes to needs-human. It takes effect only as a policy Revision the human gatekeeper authorizes. A Decision can be overruled, never rewritten. A new Decision cites the old id in `supersedes_decision_id`. A reversal records a new Decision that cites the old id, and the old Decision's `adoption` moves to `reversed` with that id in `adoption_evidence`.
+
+#### Policy schema
+
+The policy is `specs/policy/policy.yaml`, a `kind: policy` Revision. It names each Gate's keeper, the Reserved categories, the profiles, the escalation threshold, and the Decision limits. The excerpt below uses generic keeper names.
+
+```yaml
+kind: policy
+schema_version: 1
+name: default
+gates:
+  review:              { keeper: reviewer-seat, type: AQA }
+  merge:               { keeper: lead, type: AQA }
+  prd_review:          { keeper: human-gatekeeper, type: HQA }
+  design_clickthrough: { keeper: human-gatekeeper, type: HQA }
+  hqa_after_deploy:    { keeper: human-gatekeeper, type: HQA }
+  staging_review:      { keeper: human-gatekeeper, type: HQA }
+profiles:
+  autonomous:   # the human gatekeeper names the project, the gate list, and this policy Revision
+    replaces: { prd_review: decision-pair-aqa, design_clickthrough: decision-pair-aqa }
+    requires: { tracker: linear }
+reserved:
+  deny: [live_trading, evidence_tamper, safety_limit_removal]
+  needs_human:
+    [spend, credentials, data_delete, deploy_production,
+     gate_change_running_run, policy_change, driver_or_gatekeeper_change]
+  needs_existing_authorization: { repo_create: story_spec, vps_ssh: infrastructure_story }
+escalate_when: [scope_exceeds_story, affects_other_story, new_dependency, architecture_choice]
+limits:
+  decision_rounds: 3
+  decision_budget: { wall_clock: 2h, relaunches: 2, tool_calls: 40, context_tokens: 60k }
+```
+
+| Reserved class | Members | Result |
+| --- | --- | --- |
+| deny | live trading, evidence tampering, safety-limit removal | refused at once |
+| needs_human | any spend, credentials, data deletion, a production deploy, a Gate change on a running Run, a policy change, a driver or gatekeeper change | needs-human with reason `policy-required` |
+| needs_existing_authorization | repo creation, which the Story spec must name, and VPS SSH, which needs an infrastructure Story | the loop runs when the Story authorizes it, and needs-human otherwise |
+
+`pod config apply` refuses a policy with `schema_invalid` unless every rule below holds.
+
+- Every Gate has exactly one keeper.
+- An HQA keeper is a human account with a verifiable source, one of the sources "Trust boundary and the bypass test" accepts.
+- A policy change is a needs-human category. It takes effect only as a new policy Revision that the human gatekeeper applies.
+- An agent cannot choose a profile.
+
+#### Gate-lift
+
+The policy schema validates `profiles`. A profile may replace only `prd_review` and `design_clickthrough` with a Decision-pair automated Gate. `hqa_after_deploy` and `staging_review` stay with the human gatekeeper. A lifted Gate records an automated PASS, never a human one. In v1 the executor refuses every profile activation. The schema fixtures cover a lift outside the two Gates, a lift on a running Run, an added Gate, and a missing policy Revision, and each is refused.
+
+### Versioning, release, and migration policy
+
+| Area | Rule |
+| --- | --- |
+| Pod version | semver. The CLI JSON envelope and the exit codes are the public interface. A breaking change to the envelope, a verb's input, or an exit code bumps major. A new verb or a new optional field bumps minor. |
+| Spec schemas | `schema_version` per kind, versioned independently of Pod. A reader supports the current and the previous schema version. A Run pinned to a Revision older than the previous schema version finishes on the Pod version that can read it, and `pod db migrate` refuses an upgrade that would drop support while such a Run is open. |
+| Revisions | never migrated in place. To move a spec forward, the operator exports it, edits it, and applies a new Revision with `parent` set. |
+| Database migrations | forward-only. `drizzle-kit generate` writes each migration and its journal entry. A PR that changes the schema ships the generated migration. A hand-edited migration is allowed only for a data backfill and says so in its header. `pod db migrate` is idempotent through Drizzle's applied-migrations table. |
+| Protected rows | a migration never rewrites `config.revision` values or `ledger.event` rows, and the append-only triggers live in a custom SQL migration that `drizzle-kit generate --custom` creates. |
+| Columns | adding a column is allowed. Dropping or renaming one needs a major release and a two-step migration. The first release adds, backfills, and switches readers. The next release drops. |
+| Orca compatibility | the adapter names a supported Orca version range, and fixtures carry the recorded version. A new Orca version is adopted by re-recording the fixture scenarios and bumping the range in one PR. |
+| Release | a git tag `vX.Y.Z` and a GitHub release that CI builds from `tsup`. No npm publish in v1. The operator installs from a clone. Publishing is a later milestone. |
+
+Every PR runs typecheck, lint with the import-boundary rule, unit tests, replay tests, the scope scan against `POD_SCRUB_DENYLIST`, and `pod db migrate` against a throwaway Postgres in CI.
+
+The two-schema split stays in one database for v1. Splitting the database is a later decision, and nothing in v1 joins across a boundary a split would break, because `config` and `ledger` reference each other only by Revision id.
+
+### Adoption with a crew profile and a host profile
+
+An operator adopts Pod with two profiles. The host profile describes one machine. The crew profile describes who fills each Role.
+
+#### Host profile
+
+The host profile is a local file outside the repo at `$POD_HOME/host.yaml`, default `~/.pod/host.yaml`. Each execution host has one.
+
+| Field | Meaning |
+| --- | --- |
+| `host_id` | this host's id in the ledger |
+| `orca.server` | the Orca selector |
+| `db.url_env` | the name of the environment variable that holds the connection string |
+| `tracker.kind` | `linear` |
+| `tracker.token_env` | the name of the environment variable that holds the tracker token |
+| `docs.kind` | `notion` |
+| `docs.token_env` | the name of the environment variable that holds the docs token |
+| `capacity` | the Seat quota on this host |
+| `record_dir` | optional, the fixture record directory |
+
+The file holds no secrets. It names environment variables instead. The host profile is not a Revision because it names local secrets and a local Orca, and a Revision is meant to be shared and pinned.
+
+#### Crew profile
+
+The crew profile is `crew.yaml`, a `kind: crew` Revision. It maps each Role to a Seat.
+
+```yaml
+kind: crew
+schema_version: 1
+name: default
+seats:
+  developer: { runtime: <orca agent id>, model: <model>, effort: <effort>, host_id: host-a }
+  reviewer:  { runtime: <orca agent id>, model: <model>, host_id: host-a, independent_of: [developer] }
+  decider:   { runtime: <orca agent id>, model: <model>, host_id: host-a, fallback: decider-fallback }
+  auditor:   { runtime: <orca agent id>, model: <model>, host_id: host-a, independent_of: [decider] }
+```
+
+| Seat field | Meaning |
+| --- | --- |
+| `runtime` | an Orca agent id |
+| `model` | the requested model |
+| `effort` | the requested effort |
+| `host_id` | the host that may start this Seat |
+| `independent_of` | Roles this Seat must not share an identity with |
+| `fallback` | an optional Seat. A launch on the fallback is marked in receipts and in the brief, and a fallback the crew does not name blocks |
+
+The operator applies it with `pod config apply crew.yaml --activate --scope project:<id> --expected-revision none` the first time, and with the active Revision id after that.
+
+#### Adopt Pod on a host
+
+1. Clone the Pod repo.
+2. Run `pnpm install`.
+3. Set the environment variables for the database URL, the tracker token, and the docs token.
+4. Write `$POD_HOME/host.yaml` with the names of those variables.
+5. Run `pod db migrate`.
+6. Apply the policy first with `pod config apply specs/policy/policy.yaml --activate --scope global --expected-revision none`.
+7. Copy `specs/crew/crew.example.yaml`, fill it, and apply it with `pod config apply crew.yaml --activate --scope project:<id> --expected-revision none`.
+8. Apply each of the six reference process specs with `pod config apply specs/process/<name>.yaml --activate --scope global --expected-revision none`. A process apply validates Roles against the active crew and gate ids against the active policy, so it comes last.
+9. Run the bypass test under `test/bypass/` and confirm it passes before the first `pod hqa record`.
+10. From a worktree that the operator's claim authority chose, run `pod run create story:<id>`. It returns `ownerGeneration` 1 in `meta`.
+11. Run `pod dispatch --task T --seat S --generation 1` for each ready Task the claim authority authorizes.
+12. Run `pod check --generation 1 --wait` to record deliveries and project the next Tasks.
+
+The operator's existing grooming, planning, kickoff, and docs tools stay outside Pod and keep working as they do. Pod refuses to start a second crew for a Story that already has a Run.
+
+### Story order and what each adds
+
+S1 carries the repo scaffold, which is the toolchain, the import-boundary lint, an empty registry, CI, and `docs/contract.md`. Its acceptance test reads `pod --help`, so the scaffold must exist first. This is a grooming note for S1.
+
+The order is S1, then S2, then S3 with S4, then S5 with S6, then S7 with S8, then S10, then S9 with S11 with S12, then S13, then S15, then S14. S10 lands before S11 so the state view can read learnings. S15 lands before S14 because dogfood B depends on the coordinator pair.
+
+| Order | Story | Key | Size | Adds to the tree | First fixture scenarios | Depends on |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | S1 Authorization and completion contract | TPC-1113 | s | `package.json`, `tsconfig.json`, `src/cli/verbs.ts` empty registry, boundary lint config, CI workflow, `docs/contract.md` with the direct-launch violation rule, `test/bypass/` | none, the contract test reads `pod --help` | none |
+| 2 | S2 Config revisions and minimum ledger | TPC-1114 | m | `src/core/config`, `src/core/ledger`, `src/adapters/postgres`, the Drizzle schema under `src/db/schema/`, `drizzle.config.ts`, the first generated migration under `db/migrations/` with `config.revision`, `config.activation`, `config.snapshot`, `ledger.story`, `ledger.run`, `ledger.task`, `ledger.dispatch`, `ledger.event`, `ledger.operation`, the append-only triggers as a custom migration, verbs `db migrate`, `config apply`, `config export`. S2 adds the four mapping tables `ledger.story`, `ledger.run`, `ledger.task`, and `ledger.dispatch` beyond the PRD's list, and the S2 groomer re-estimates if size m does not fit. S2 may create one database project and one test branch on the existing database account's current plan, with no plan upgrade and no new spend, and anything beyond that is a needs-human decision | test-database cases for CAS conflict, bundle read, dropped connection, and restore | S1 |
+| 3 | S3 Single-host Orca adapter | TPC-1115 | l | `src/core/ports/orca.ts`, `src/adapters/orca`, `fixtures/orca/`, verbs `run create`, `dispatch`, `check` with `--resume`, `retry`, `release`, `takeover` with its restore view, `drain` | `lost-launch-reply`, `two-coordinator-handoff`, `stale-dispatch-id`, `capacity-1`, `drain` | S2 |
+| 3 | S4 Evidence manifest, task view, and brief | TPC-1116 | s | `src/core/manifest`, `ledger.evidence_manifest` with `parent_id`, the `ledger.dispatch.manifest_id` column, the 2k word task view budget with `truncated` and routing lines, verb `brief` with drift marking | `retry-git-status`, `planted-secret-scan` | S2, and S3 for the task view |
+| 4 | S5 Process schema, selector, and impl-small projector | TPC-1117 | m | `src/core/process`, `specs/process/impl-small.yaml` | `review-fail-rework`, `integration-review` | S2, S3 |
+| 4 | S6 Gate receipts and tracker sync | TPC-1118 | m | `src/adapters/linear`, `ledger.gate_receipt`, `ledger.outbox`, verbs `verdict post`, `hqa record` | `tracker-dropped-reply`, `tracker-canceled`, `edited-comment`, `forged-author` | S2 |
+| 5 | S7 Integrated failure drill | TPC-1119 | s | `test/drill/`, the `workerList` check in `pod check` | `integrated-drill`, `direct-launch` | S3, S5, S6 |
+| 5 | S8 Dogfood A, wiring and measurement | TPC-1120 | xs | `specs/crew/crew.example.yaml`, one real xs or s Story with two Tasks through `impl-small@1`, a ledger with no hand-written entry, brief counters for coordinator operation count, recovery steps, retries and rework, and hand-filled entries, and test results under the standard command and a 60-second-timeout command | `dogfood-a` | S3, S4, S5, S6 |
+| 6 | S10 Learning records | TPC-1122 | s | `ledger.learning` with `area` and `project_id`, verbs `learning add` with `--area` and `--project`, `learning query` | none, ledger tests only | S2 |
+| 7 | S9 Remaining reference process specs | TPC-1121 | m | `specs/process/prd.yaml`, `design.yaml`, `impl-medium.yaml`, `impl-large.yaml`, `impl-xlarge.yaml`. A size m, l, or xl impl Story selects its own spec and never `impl-small@1` | none, apply tests only | S5 |
+| 7 | S11 State view | TPC-1123 | xs | `src/adapters/notion`, `ledger.usage_observation`, verb `state` with the seven state view sections, each with `source_revision` and `observed_at`, the 30-day in-force Decision rule, and the 3k word budget | `docs-section-read` | S4, S10 |
+| 7 | S12 Minimal decision loop | TPC-1124 | m | `src/core/decide`, `ledger.decision`, `ledger.decision_round`, verb `decide` | `decision-happy-path`, `decision-fallback` | S3, S4, S11 |
+| 8 | S13 Decision failures and authorization | TPC-1125 | m | Reserved checks, the policy schema with `profiles`, Decision recovery through needs-human, every Flow 2 transition replayed, the mixed auditor case set (correct proposal, wrong citation, stale roadmap, out-of-scope proposal, true citation with wrong inference) with misses and false refusals recorded per case, a dependency change between rounds, gate-lift refusals, and a budget kept across relaunch | one scenario per Decision state table row, `gate-lift-refused` | S12 |
+| 9 | S15 Coordinator pair for xl | to be filed | m | the xl branch of `pod run create` and `pod takeover`, the resident auditor, `impl-xlarge@1` driven by the pair | `xl-coordinator-pair`, `xl-takeover` | S12, S13 |
+| 10 | S14 Dogfood B, decision measurement | TPC-1126 | s | one real xl Story through `impl-xlarge@1` with the coordinator pair, escalations reported by reason with a natural sample reported as such, adoption, rework, and reversal per Decision, the pair's context size and cold-start time per Run, and the reviewer and human receipts bound to the final candidate SHA and the deployed revision with keepers that are not the Decision Seats | `dogfood-b` | S9, S13, S15 |
+
+There are fifteen stories, 2 of size xs, 5 of size s, 7 of size m, and 1 of size l. In position 7, S11 merges before S12 because the Decision manifest reads the state view.
+
+### Later milestones this spec keeps room for
+
+Some parts of the layout, schema, and interfaces exist only so that phase 2 and later are not designed out. This section names them and gives no designs.
+
+- `src/core` is the home of a future `podd`. The daemon becomes a second entry point over the same `core`, and that is when Pod splits into packages.
+- `ledger.outbox` is the future cross-host channel. Its `target` check allows only `tracker` in v1.
+- The reserved `ledger.dispatch` columns `execution_backend`, `owner_host`, `external_execution_id`, `auth_ref`, and `output_ref` leave room for cloud Seats. They stay null in v1.
+- `scope: host` on Revisions leaves room for per-host configuration across several hosts.
+- `TrackerPort` and `DocsPort` leave room for trackers and docs tools other than Linear and Notion.
+- The `pod brief` JSON is the first state snapshot a UI reads.
+
+## Checkpoints
+
+The story order table in "Story order and what each adds" is the checkpoint plan. Each order position ends in a check that proves it before the next position starts.
+
+| Position | Checkpoint |
+| --- | --- |
+| 1 | `pod --help` prints the registry, and the contract test passes against `docs/contract.md` |
+| 2 | `pod db migrate` runs twice with no change, an apply returns `kind.name@rev`, and a stale `expected_revision` exits 3 with `revision_conflict` |
+| 3 | the five Orca scenarios replay green, and `pod brief` prints JSON and writes one HTML file from it |
+| 4 | the selector enumeration passes, review FAIL replays to a rework Task, and a forged author and a stale SHA are refused |
+| 5 | one drill Run shows zero duplicate launches, zero Gate overruns, and zero false Done, and dogfood A's ledger has no hand-written entry |
+| 6 | `pod learning add` and `pod learning query` round-trip, and no call reaches `DocsPort` |
+| 7 | every reference spec applies against a filling crew and is refused against one that does not, `pod state --json` carries `source_revision` and `observed_at` in every section, and the Decision happy path records manifest hash, rounds, and outcome |
+| 8 | every row of the Decision state table replays to its listed state, and every gate-lift activation is refused |
+| 9 | an xl Run opens the coordinator pair at start, survives a takeover with the resident auditor kept, and never deadlocks at capacity 1 |
+| 10 | dogfood B runs the xl Story through `impl-xlarge@1`, its ledger holds a source-verified reviewer PASS on the final candidate SHA and a source-verified `hqa_after_deploy` PASS on the deployed revision, and neither keeper is a Decision Seat |
+
+## Verification
+
+Three checks verify this spec and the code that follows it.
+
+1. The completion check reads this file and confirms that the nine required sections exist as `###` headings under `## Design`, in the ticket's order, with the later milestones section after them. The nine are "Repo layout and packages", "Config schema and ledger schema sketch", "CLI framework, verb list, and error shape", "Runtime adapter boundary and fixture replay", "Process spec loading and the selector", "The decision layer seats", "Versioning, release, and migration policy", "Adoption with a crew profile and a host profile", and "Story order and what each adds".
+2. The scope scan runs the denylist that `POD_SCRUB_DENYLIST` names over this file, `specs/`, `fixtures/`, `docs/`, and `src/db/schema/`. It matches whole words, case-insensitive, and passes only at zero matches.
+3. The registry contract test, from S1 on, asserts that every verb row with a side effect appears in `docs/contract.md` with its `cancelBy` and `evidenceRequired`, and that each of the 17 verbs in the table under "Verbs" exists in the registry. The 17 are `db migrate`, `config apply`, `config export`, `run create`, `dispatch`, `check` with `--resume`, `retry`, `release`, `verdict post`, `hqa record`, `decide`, `state`, `takeover`, `brief`, `drain`, `learning add` with `--area`, and `learning query`.
