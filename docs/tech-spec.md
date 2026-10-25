@@ -133,7 +133,7 @@ create table config.revision (
 )
 ```
 
-A Task spec Revision has kind `task`, scope `run`, `scope_ref` the Run id, and `name` the lineage id. The agreed outcome of a Decision applies one, and the pinned process Snapshot does not change. A Task's `spec_revision_id` is immutable, so the projector creates a replacement Task in the same lineage with the new Revision, and the replaced Task moves to `superseded`. "Task states" lists that transition.
+A Task spec Revision has kind `task`, scope `run`, `scope_ref` the Run id, and `name` the lineage id. The agreed outcome of a Decision with effect `change_spec` applies one, and the pinned process Snapshot does not change. A Decision with effect `accept_plan` applies no Revision, as "Decision effects" describes. A Task's `spec_revision_id` is immutable, so the projector creates a replacement Task in the same lineage with the new Revision, and the replaced Task moves to `superseded`. "Task states" lists that transition.
 
 `config.activation` chooses which Revision a scope uses for one kind and name.
 
@@ -359,6 +359,7 @@ create table ledger.decision (
   run_id                  text not null references ledger.run,
   task_id                 text null references ledger.task,   -- null when the lead or the claim authority escalates with no Task
   category                text not null,
+  effect                  text not null check (effect in ('accept_plan', 'change_spec')),   -- named by the request, see "Decision effects"
   question                text not null,
   options                 jsonb not null,
   manifest_id             text not null references ledger.evidence_manifest,
@@ -463,7 +464,7 @@ The table below states who writes each table, what never changes, what a reader 
 | `ledger.evidence_manifest` | S4 | `pod dispatch`, `pod decide` | every row, new evidence makes a child manifest | the same sources give the same id |
 | `ledger.learning` | S10 | `pod learning add` | `text`, `evidence_refs`, `source_story`, `area`, `project_id` | never mirrored to the docs tool |
 | `ledger.usage_observation` | S11 | `pod check` only | every row | a null `value` means unknown |
-| `ledger.decision` | S12 | `pod decide`, and `pod check` for `adoption` | id, category, question, `manifest_id`, `binding` | `spent` only increases, `binding` is always `run`, `adoption` moves along `pending` to `adopted`, `adopted` to `reworked` or `reversed`, and `reworked` to `reversed`, every change appends to `adoption_evidence` and records a `decision` event with the new state and its evidence, and the full history is the ordered `decision` events |
+| `ledger.decision` | S12 | `pod decide`, and `pod check` for `adoption` | id, category, `effect`, question, `manifest_id`, `binding` | `spent` only increases, `binding` is always `run`, `adoption` moves along `pending` to `adopted`, `adopted` to `reworked` or `reversed`, and `reworked` to `reversed`, every change appends to `adoption_evidence` and records a `decision` event with the new state and its evidence, and the full history is the ordered `decision` events |
 | `ledger.decision_round` | S12 | `pod decide` | every row | at most three rounds per Decision |
 
 ### CLI framework, verb list, and error shape
@@ -500,7 +501,7 @@ v1 has the PRD's 16 command forms plus `db migrate`. `db migrate` is a setup ver
 | `release` | `--dispatch D`, `--generation N`, optional `--retain --reason R` | orca | release event, Orca `worker-release` | nobody |
 | `verdict post` | `FILE`, `--generation N` | tracker | `ledger.gate_receipt`, `ledger.outbox` | operator, by voiding the receipt |
 | `hqa record` | `story:<id>`, `--generation N` | tracker | `ledger.gate_receipt`, `ledger.outbox` | operator, by voiding the receipt |
-| `decide` | `--task T`, `--category C`, `FILE`, `--generation N` | orca | `ledger.decision`, `ledger.decision_round`, `ledger.evidence_manifest`, decider and auditor `ledger.dispatch` rows, Orca `send` | operator or the escalating actor, by a cancel event |
+| `decide` | `--task T`, `--category C`, `--effect accept_plan` or `--effect change_spec`, `FILE`, `--generation N` | orca | `ledger.decision`, `ledger.decision_round`, `ledger.evidence_manifest`, decider and auditor `ledger.dispatch` rows, Orca `send` | operator or the escalating actor, by a cancel event |
 | `state` | optional `--project P`, optional `--decisions` | none | nothing | not applicable |
 | `takeover` | `story:<id>` | orca | `ledger.run.owner_generation`, `ledger.run.coordinator`, takeover event, a restore view from the same manifest, Orca `run-use`, and on an xl Run a new decider `ledger.dispatch` row | nobody |
 | `brief` | optional `story:<id>`, optional `--html FILE` | none | an HTML file, with drift marked | not applicable |
@@ -523,7 +524,7 @@ The evidence each side-effect verb requires before it acts:
 | `release` | the Dispatch is settled or the caller gives a retain reason, and this host owns the terminal |
 | `verdict post` | Head SHA equals the current candidate SHA, and the reviewer is not the developer |
 | `hqa record` | a source-verified comment by the human gatekeeper, or by the relay principal with a matching content hash, plus a deploy event for `hqa_after_deploy` |
-| `decide` | the Reserved check passed, and an Evidence manifest is pinned |
+| `decide` | the Reserved check passed, an Evidence manifest is pinned, and the `effect` fits the Task as "Decision effects" requires |
 | `takeover` | evidence that the old coordinator has stopped, which on an xl Run is the decider Dispatch |
 | `drain` | an owner generation that matches the Run |
 | `learning add` | a source Story, at least one evidence reference, and an `area` |
@@ -894,7 +895,7 @@ The projector is a scribe, not a judge. It turns each step into an Orca Task thr
 - A `human_wait` step starts no worker.
 - An `external_action` step waits for its event with the listed `event_fields`.
 - A step with no Gate and no `decision` treats its recorded delivery as outcome `done`.
-- A step with a `decision` treats the `decision` event with outcome `agreed` bound to its plan Revision as its verified outcome. Its recorded delivery moves the Task to `delivered` and fires no edge. A `cancelled` outcome fires the `cancelled` edge to `hold`.
+- A step with a `decision` treats the `decision` event with outcome `agreed` and effect `accept_plan` bound to its plan Revision as its verified outcome. The projector opens that Decision with `accept_plan` when the Task reaches `delivered`. Its recorded delivery moves the Task to `delivered` and fires no edge. A `cancelled` outcome fires the `cancelled` edge to `hold`.
 - Each projection carries its own op key, so replaying an event creates no Task twice.
 - `needs` sets the Orca `deps` of each projected Task. Edges decide which step the projector creates next. A downstream Task is created only when its edge fires, and its `deps` name the Tasks that must be `passed`.
 
@@ -906,7 +907,7 @@ The projector is a scribe, not a judge. It turns each step into an Orca Task thr
 type TaskState = 'pending' | 'ready' | 'dispatched' | 'delivered' | 'passed' | 'failed' | 'blocked' | 'hold' | 'done' | 'superseded'
 ```
 
-A dependency is satisfied when it is `passed`, or `done`, which a Task reaches only through `passed`. `passed` means a PASS Gate receipt for a gated step, the `decision` event with outcome `agreed` bound to the plan Revision for a step with a `decision`, or a recorded delivery with outcome `done` that matches the Dispatch and the owner generation for a step with neither. A delivery never satisfies a dependency on a step with a `gate` or a `decision`. An ungated `external_action` step has no Dispatch, so its recorded event with outcome `done` stands in for the delivery. `failed` and `superseded` never satisfy `deps`. The `dispatch` evidence row and `task_not_ready` use this definition.
+A dependency is satisfied when it is `passed`, or `done`, which a Task reaches only through `passed`. `passed` means a PASS Gate receipt for a gated step, the `accept_plan` `decision` event with outcome `agreed` bound to the plan Revision for a step with a `decision`, or a recorded delivery with outcome `done` that matches the Dispatch and the owner generation for a step with neither. A delivery never satisfies a dependency on a step with a `gate` or a `decision`. An ungated `external_action` step has no Dispatch, so its recorded event with outcome `done` stands in for the delivery. `failed` and `superseded` never satisfy `deps`. The `dispatch` evidence row and `task_not_ready` use this definition.
 
 | From | To | Trigger |
 | --- | --- | --- |
@@ -916,7 +917,7 @@ A dependency is satisfied when it is `passed`, or `done`, which a Task reaches o
 | `dispatched` | `delivered` | `pod check` records a delivery that matches the Dispatch and the owner generation |
 | `dispatched` | `blocked` | Orca reports the Task `blocked` after `worker-stop` |
 | `blocked` | `dispatched` | `pod retry` starts a new Dispatch with `retry_of` |
-| `delivered` | `passed` | a PASS Gate receipt for a gated step, the `decision` event with outcome `agreed` bound to the plan Revision for a step with a `decision`, or the matching delivery for a step with neither |
+| `delivered` | `passed` | a PASS Gate receipt for a gated step, the `decision` event with outcome `agreed` and effect `accept_plan` bound to the plan Revision for a step with a `decision`, or the matching delivery for a step with neither |
 | `delivered` | `hold` | a `cancelled` Decision outcome on a step with a `decision`. The operator resumes after reconcile |
 | `delivered` | `failed` | a FAIL Gate receipt whose edge has `new_task: true` |
 | `delivered` | `hold` | a FAIL Gate receipt whose edge targets `hold`. The receipt stays recorded, and the operator resumes after reconcile |
@@ -924,10 +925,10 @@ A dependency is satisfied when it is `passed`, or `done`, which a Task reaches o
 | `failed` | `failed` | none. A failed Task is terminal. The rework Task in the same lineage replaces it, and the projector repoints the dependents' `deps` to the rework Task |
 | any state except `done`, `failed`, and `superseded` | `hold` | a `timeout`, `cancel`, or `unknown` outcome, a cancel event, or a lineage at its rework limit |
 | `hold` | `ready` | the operator resumes after reconcile with `pod check --resume`, with no automatic retry |
-| `pending`, `ready`, or `hold` | `superseded` | a Decision outcome applies a new Task spec Revision, and the replacement Task inherits the dependents |
-| `dispatched` or `delivered` | `superseded` | a Decision outcome applies a new Task spec Revision to the escalating Task. Pod stops its Dispatch first, so the worker never resumes on the old spec |
+| `pending`, `ready`, or `hold` | `superseded` | a `change_spec` Decision outcome applies a new Task spec Revision, and the replacement Task inherits the dependents |
+| `dispatched` or `delivered` | `superseded` | a `change_spec` Decision outcome applies a new Task spec Revision to the escalating Task, or a plan-change outcome applies a new plan Revision to a `decision: plan` Task. Pod stops its Dispatch first, so the worker never resumes on the old spec. An `accept_plan` outcome never supersedes |
 
-When the outcome of a Decision applies a new Task spec Revision to a Task whose Dispatch is `waiting` on that Decision, Pod runs `worker-stop` on that Dispatch, records its settlement as `superseded` with `activity` `settled`, moves the Task to `superseded`, and creates the replacement Task `ready` in the same lineage with the new Revision. The replacement's task view carries the worktree's `git status`, because the stopped worker's uncommitted edits stay in the worktree. `pod retry` refuses a Dispatch whose Task is `superseded` with `task_not_ready`.
+When the outcome of a `change_spec` Decision applies a new Task spec Revision to a Task whose Dispatch is `waiting` on that Decision, Pod runs `worker-stop` on that Dispatch, records its settlement as `superseded` with `activity` `settled`, moves the Task to `superseded`, and creates the replacement Task `ready` in the same lineage with the new Revision. The replacement's task view carries the worktree's `git status`, because the stopped worker's uncommitted edits stay in the worktree. `pod retry` refuses a Dispatch whose Task is `superseded` with `task_not_ready`.
 
 `superseded` is terminal and never satisfies `deps`. A replacement Task for a `superseded` Task does not count against `rework_per_lineage`.
 
@@ -948,7 +949,7 @@ At capacity 1 a blocking Decision runs in four steps.
 
 #### Coordinator pair for xl
 
-For an xl Run the decider Seat is the Run's coordinator. It runs the `pod` verbs for the Run and holds the owner generation. The auditor Seat is resident from Run start and audits the plan, each Task's result, and the integrated candidate SHA. Escalations inside the Run use the same pair, and no further Decision Seats open. The pair's audits are Decision rounds, not Gate receipts. The plan review in `impl-xlarge@1` is therefore a Decision round of the pair, and its `agreed` outcome advances the plan step. The plan step carries `decision: plan`, its evidence is the `decision` event with outcome `agreed` bound to the plan Revision, no Gate receipt is written for it, and the planner's delivery alone leaves the Task `delivered`, as "Task states" describes. Each Task's PR review stays with an independent reviewer Seat, and the human Gates stay with the human gatekeeper.
+For an xl Run the decider Seat is the Run's coordinator. It runs the `pod` verbs for the Run and holds the owner generation. The auditor Seat is resident from Run start and audits the plan, each Task's result, and the integrated candidate SHA. Escalations inside the Run use the same pair, and no further Decision Seats open. The pair's audits are Decision rounds, not Gate receipts. The plan review in `impl-xlarge@1` is therefore a Decision round of the pair, and its `agreed` outcome advances the plan step. The plan step carries `decision: plan`, its Decision carries effect `accept_plan`, its evidence is the `decision` event with outcome `agreed` bound to the plan Revision, no Gate receipt is written for it, and the planner's delivery alone leaves the Task `delivered`, as "Task states" describes. Each Task's PR review stays with an independent reviewer Seat, and the human Gates stay with the human gatekeeper.
 
 `pod run create` for an xl Story opens both Dispatches at Run start, in sequence, and records each launch as a `decide_seat` operation. It records the decider Dispatch id as the Run's coordinator in `ledger.run.coordinator`. The decider's session passes `--generation` like any coordinator. `pod takeover` treats the decider Dispatch as the old coordinator. It requires evidence that the decider Dispatch stopped, increments the owner generation, and opens a new decider Dispatch as the new coordinator with the restore view. The resident auditor keeps its Dispatch across a takeover.
 
@@ -968,9 +969,20 @@ Sizes other than xl keep the Decision Seats opened on first need, as "What `pod 
 3. For sizes other than xl, open the Run's decider Dispatch and auditor Dispatch on first need, usually at plan review, and reuse them after that. On an xl Run both are open from Run start, as "Coordinator pair for xl" describes. `ledger.dispatch` records both with Role `decider` or `auditor`. Both close with the Run, and a Seat reopens only on failure or recovery.
 4. Send round 1 through `send` with the manifest reference.
 5. Run the round state machine. Rounds 2 and 3 are `send` messages that carry only the audit comments and the points of disagreement, never the manifest again.
-6. Record a `decision` event. An agreed outcome applies a new Task spec Revision bound to the Run, as "Config tables" describes.
+6. Record a `decision` event. An agreed outcome takes the effect the request named. `change_spec` applies a new Task spec Revision bound to the Run, as "Config tables" describes. `accept_plan` applies no Revision and passes the plan Task, as "Decision effects" describes.
 
 A Decision authorizes the next step only. `pod verdict post` and `pod hqa record` refuse a Decision outcome as a PASS. A scope or spec change creates a new Revision and makes the earlier review stale.
+
+#### Decision effects
+
+Every Decision request names its `effect`, and `ledger.decision.effect` records it. There are two.
+
+| Effect | Who requests it | What `agreed` does |
+| --- | --- | --- |
+| `accept_plan` | the projector, when a `decision: plan` step's Task is `delivered` | records the `decision` event bound to the plan Revision, and the plan Task moves `delivered` to `passed`. No Task spec Revision is applied and no Task is superseded |
+| `change_spec` | a worker through `pod decide`, the lead, or the claim authority | applies a new Task spec Revision bound to the Run, and the affected Task moves to `superseded` with a replacement created, as "Task states" describes |
+
+A Decision on a `decision: plan` step carries `accept_plan`. When the pair proposes a plan change inside that Decision, the agreed outcome is not a plain acceptance. The Decision closes `agreed` with a new plan Revision in its outcome, the projector treats that outcome as `change_spec` on the plan Task, the plan Task moves to `superseded`, and the replacement plan Task is created `delivered` on the new plan Revision with a new `accept_plan` Decision opened for it. `pod decide` refuses `accept_plan` for a Task whose step has no `decision`, and refuses `change_spec` from the projector, both with `usage`.
 
 #### Round protocol
 
@@ -998,7 +1010,7 @@ type DecisionState =
 | `requested` | Reserved needs_existing_authorization hit, and the Story or an infrastructure Story authorizes it | `round(1)` |
 | `requested` | Reserved needs_existing_authorization hit, and nothing authorizes it | `needs_human` with reason `policy-required` |
 | `requested` | no Reserved hit | `round(1)` |
-| `round(n)` | both agree | dependencies re-checked, then `agreed`, and the outcome applies as "Task states" describes |
+| `round(n)` | both agree | dependencies re-checked, then `agreed`, and the outcome applies by its `effect` as "Decision effects" describes |
 | `round(n)` | both agree, but a dependency's source Revision changed | `needs_human` with reason `context-missing`, and the outcome is not executable |
 | `round(n)` | one side escalates | affected actions stop first, the other side evaluates, and continued disagreement counts as a round |
 | `round(n)` | auditor answers needs_evidence | `awaiting_evidence(n)`, which is not a round and counts against `tool_calls` |
