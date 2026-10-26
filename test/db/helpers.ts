@@ -30,14 +30,43 @@ export function dbUrl(): string {
   return url;
 }
 
-export async function resetDb(): Promise<void> {
-  const connection = connect(dbUrl());
-  try {
-    await connection.sql`set client_min_messages = warning`;
-    await connection.sql`drop schema if exists config, ledger, drizzle cascade`;
-  } finally {
-    await connection.close();
+const connectAttempts = 3;
+const connectRetryDelayMs = 1_000;
+
+function errorCode(error: unknown): unknown {
+  return error instanceof Object && "code" in error ? error.code : undefined;
+}
+
+function isTimeout(error: unknown): boolean {
+  return (
+    errorCode(error) === "ETIMEDOUT" ||
+    (error instanceof Error && errorCode(error.cause) === "ETIMEDOUT")
+  );
+}
+
+export async function withConnectRetry<T>(
+  attempt: () => Promise<T>,
+): Promise<T> {
+  for (let attempts = 1; ; attempts += 1) {
+    try {
+      return await attempt();
+    } catch (error) {
+      if (attempts === connectAttempts || !isTimeout(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, connectRetryDelayMs));
+    }
   }
+}
+
+export async function resetDb(): Promise<void> {
+  await withConnectRetry(async () => {
+    const connection = connect(dbUrl());
+    try {
+      await connection.sql`set client_min_messages = warning`;
+      await connection.sql`drop schema if exists config, ledger, drizzle cascade`;
+    } finally {
+      await connection.close();
+    }
+  });
   const result = await migrate(dbUrl(), migrationsFolder());
   if (result.kind !== "ok")
     throw new Error("migrate refused on a fresh database");
