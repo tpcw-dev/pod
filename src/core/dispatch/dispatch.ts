@@ -19,8 +19,15 @@ import {
   taskReference,
 } from "../manifest/references.ts";
 import type { Db, Repo } from "../ports/db.ts";
-import type { OrcaPort, WorkerStartResult } from "../ports/orca.ts";
-import { freeSlots, launchIntents } from "./quota.ts";
+import type { OrcaPort } from "../ports/orca.ts";
+import {
+  fromReceipt,
+  recordStarted,
+  recordUnknown,
+  type DispatchResult,
+  type LaunchArgs,
+} from "./launch-record.ts";
+import { freeSlots, onHost, openLaunches } from "./quota.ts";
 import { readSeats, SeatsInvalid, type Seat } from "./seats.ts";
 
 export interface DispatchInput {
@@ -34,27 +41,16 @@ export interface DispatchInput {
   now: () => Date;
 }
 
-export interface DispatchResult {
-  dispatch_id: string;
-  task_id: string;
-  run_id: string;
-  seat: string;
-  manifest_id: string;
-  model_attribution: "receipt" | "unknown";
-  terminal_handle: string | null;
-  owner_generation: number;
-}
+export type { DispatchResult } from "./launch-record.ts";
 
 const satisfied = ["passed", "done"];
 
-const LaunchRequest = z.looseObject({
-  request: z.looseObject({
-    task_id: z.string().optional(),
-    host: z.string().optional(),
-  }),
-});
-
 const DrainEnded = z.looseObject({ ended: z.literal(true) });
+
+export async function drainInForce(tx: Repo, runId: string): Promise<boolean> {
+  const drain = await tx.latestEvent(runId, "drain");
+  return drain !== null && !DrainEnded.safeParse(drain.payload).success;
+}
 
 const Recorded = z.looseObject({
   request: z.looseObject({ task_id: z.string(), seat: z.string() }),
@@ -67,7 +63,7 @@ const Recorded = z.looseObject({
 type Gate =
   | { kind: "refused"; refusal: Refusal }
   | { kind: "existing"; operation: Operation }
-  | { kind: "launch"; manifestId: string; seat: Seat };
+  | { kind: "launch"; manifestId: string; launch: LaunchArgs };
 
 interface Checked {
   run: Run;
@@ -81,8 +77,7 @@ async function precondition(
   checked: Checked,
 ): Promise<{ refusal: Refusal } | { seat: Seat }> {
   const { run, task, seat } = checked;
-  const drain = await tx.latestEvent(run.run_id, "drain");
-  if (drain !== null && !DrainEnded.safeParse(drain.payload).success)
+  if (await drainInForce(tx, run.run_id))
     return stopWith("drained", `a drain is in force on Run ${run.run_id}`, [
       "pod check",
       "pod release",
@@ -95,10 +90,7 @@ async function precondition(
       unmet.push(`dependency ${dep} is ${row?.state ?? "missing"}`);
   }
   const blocked = await runBlocked(tx, run.run_id);
-  const launches = (await tx.launchReservations(launchIntents)).map((row) => ({
-    ...row,
-    request: LaunchRequest.safeParse(row.result_ref).data?.request ?? null,
-  }));
+  const launches = await openLaunches(tx);
   const inFlight = launches.filter(
     (row) => row.request?.task_id === task.task_id,
   );
@@ -123,9 +115,7 @@ async function precondition(
         ...(blocked === null ? [] : [`Run blocked by a ${blocked.type} event`]),
       ],
     );
-  const reservations = launches.filter(
-    (row) => (row.request?.host ?? input.host) === input.host,
-  );
+  const reservations = onHost(launches, input.host);
   const slots = freeSlots(
     input.capacity,
     await tx.hostActivities(input.host),
@@ -186,10 +176,13 @@ function refusal(
   return { code, message, nextSteps };
 }
 
-function attribution(result: WorkerStartResult): "receipt" | "unknown" {
-  const model =
-    result.launch?.effective?.model ?? result.launch?.requested?.model;
-  return typeof model === "string" && model !== "" ? "receipt" : "unknown";
+export function seatLaunch(seat: Seat): LaunchArgs {
+  return {
+    agent: seat.runtime,
+    ...(seat.model === undefined ? {} : { model: seat.model }),
+    ...(seat.effort === undefined ? {} : { effort: seat.effort }),
+    worktree: "current",
+  };
 }
 
 export async function dispatch(
@@ -263,12 +256,13 @@ export async function dispatch(
     if (existing !== null) return { kind: "existing", operation: existing };
     const found = await precondition(tx, input, { run, task: current, seat });
     if ("refusal" in found) return record(found.refusal);
+    const launch = seatLaunch(found.seat);
     await tx.insertOperation({
       op_key: opKey,
       intent: "dispatch",
       owner_generation: input.generation,
       at: now,
-      result_ref: { request },
+      result_ref: Json.parse({ request, launch }),
     });
     const story = await tx.getStory(run.story_provider, run.story_external_id);
     const process = await tx.getRevision(snapshot.process_revision_id);
@@ -290,29 +284,23 @@ export async function dispatch(
         revisionReference(policy),
       ],
     });
-    return { kind: "launch", manifestId: manifest.id, seat: found.seat };
+    return { kind: "launch", manifestId: manifest.id, launch };
   });
 
   if (gate.kind === "refused") return { ok: false, refusal: gate.refusal };
   if (gate.kind === "existing")
-    return replayed(gate.operation, {
+    return replayed(gate.operation, "dispatch", {
       orca,
       log,
       runId: task.run_id,
       request,
-      input,
+      command: input.command(opKey),
       opKey,
       version,
     });
 
-  const { seat: chosen } = gate;
+  const { launch } = gate;
   log.at({ run_id: task.run_id, task_id: task.task_id, op_key: opKey });
-  const launch = {
-    agent: chosen.runtime,
-    ...(chosen.model === undefined ? {} : { model: chosen.model }),
-    ...(chosen.effort === undefined ? {} : { effort: chosen.effort }),
-    worktree: "current",
-  };
   const receipt = await orca.workerStart({
     task: task.task_id,
     run: task.run_id,
@@ -321,65 +309,23 @@ export async function dispatch(
   const outcome = launchOutcome(receipt);
   const at = input.now();
   const result = receipt.result;
+  const launched =
+    outcome.kind === "ok" && result !== null ? fromReceipt(result) : null;
 
-  if (
-    outcome.kind === "ok" &&
-    result !== null &&
-    typeof result.dispatchId === "string"
-  ) {
-    const dispatchId = result.dispatchId;
-    const done: DispatchResult = {
-      dispatch_id: dispatchId,
-      task_id: task.task_id,
-      run_id: task.run_id,
-      seat: input.seat,
-      manifest_id: gate.manifestId,
-      model_attribution: attribution(result),
-      terminal_handle: result.terminalHandle ?? null,
-      owner_generation: input.generation,
-    };
-    await db.transaction(async (tx) => {
-      await tx.moveOperation(
+  if (launched !== null) {
+    const done = await db.transaction((tx) =>
+      recordStarted(tx, {
         opKey,
-        "done",
-        Json.parse({ request, manifest_id: gate.manifestId, result: done }),
+        request,
+        launch,
+        task,
+        manifestId: gate.manifestId,
+        generation: input.generation,
+        launched,
+        verb: "dispatch",
         at,
-      );
-      await tx.insertDispatch({
-        dispatch_id: dispatchId,
-        task_id: task.task_id,
-        run_id: task.run_id,
-        seat: input.seat,
-        role: task.role,
-        requested_launch: Json.parse(result.launch?.requested ?? launch),
-        effective_launch: Json.parse(result.launch?.effective ?? null),
-        model_attribution: done.model_attribution,
-        retry_of: null,
-        op_key: opKey,
-        settlement: "open",
-        terminal_handle: done.terminal_handle,
-        created_at: at,
-        settled_at: null,
-        activity: "running",
-        manifest_id: gate.manifestId,
-      });
-      await tx.setTaskState(task.task_id, "dispatched");
-      await tx.appendEvent({
-        type: "start",
-        ts: at,
-        host: input.host,
-        run_id: task.run_id,
-        task_id: task.task_id,
-        dispatch_id: dispatchId,
-        op_key: opKey,
-        payload: {
-          seat: input.seat,
-          role: task.role,
-          manifest_id: gate.manifestId,
-        },
-        source: { kind: "command", verb: "dispatch" },
-      });
-    });
+      }),
+    );
     return { ok: true, result: done, opKey, orca: version };
   }
 
@@ -397,26 +343,18 @@ export async function dispatch(
   }
 
   const requestId = outcome.kind === "unknown" ? outcome.requestId : null;
-  await db.transaction(async (tx) => {
-    await tx.moveOperation(
+  await db.transaction((tx) =>
+    recordUnknown(tx, {
       opKey,
-      "unknown",
-      { request, requestId, manifest_id: gate.manifestId },
+      request,
+      launch,
+      task,
+      manifestId: gate.manifestId,
+      requestId,
+      verb: "dispatch",
       at,
-    );
-    await tx.setTaskState(task.task_id, "hold");
-    await tx.appendEvent({
-      type: "hold",
-      ts: at,
-      host: input.host,
-      run_id: task.run_id,
-      task_id: task.task_id,
-      dispatch_id: null,
-      op_key: opKey,
-      payload: { reason: "launch_unknown", op_key: opKey },
-      source: { kind: "command", verb: "dispatch" },
-    });
-  });
+    }),
+  );
   return refuse(
     "launch_unknown",
     `worker-start for Task ${task.task_id} has no known outcome`,
@@ -424,23 +362,24 @@ export async function dispatch(
   );
 }
 
-interface Replay {
+export interface Replay {
   orca: OrcaPort;
   log: ReceiptLog;
   runId: string;
   request: { task_id: string; seat: string; host: string };
-  input: DispatchInput;
+  command: string;
   opKey: string;
   version: string;
 }
 
-async function replayed(
+export async function replayed(
   operation: Operation,
-  { orca, log, runId, request, input, opKey, version }: Replay,
+  intent: "dispatch" | "retry",
+  { orca, log, runId, request, command, opKey, version }: Replay,
 ): Promise<Outcome<DispatchResult>> {
   const ref = Recorded.safeParse(operation.result_ref);
   if (
-    operation.intent !== "dispatch" ||
+    operation.intent !== intent ||
     !ref.success ||
     ref.data.request.task_id !== request.task_id ||
     ref.data.request.seat !== request.seat
@@ -456,7 +395,7 @@ async function replayed(
       log,
       { run_id: runId, task_id: request.task_id, op_key: opKey },
       operation,
-      input.command(opKey),
+      command,
     );
   if (operation.status === "refused")
     return refuse(

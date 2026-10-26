@@ -1,17 +1,22 @@
 import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
+import { checkPass, checkWait, resume } from "../core/check/check.ts";
 import { dispatch } from "../core/dispatch/dispatch.ts";
+import { release } from "../core/dispatch/release.ts";
+import { retry, retryPlan } from "../core/dispatch/retry.ts";
 import { Size } from "../core/domain/ledger.ts";
-import type { Outcome } from "../core/domain/outcome.ts";
+import type { Refused } from "../core/domain/outcome.ts";
 import { receiptLog, type ReceiptLog } from "../core/ledger/receipts.ts";
 import type { Db } from "../core/ports/db.ts";
 import {
   OrcaVersionUnsupported,
   orcaRangeText,
+  ReleaseState,
   type OrcaPort,
 } from "../core/ports/orca.ts";
 import { runCreate } from "../core/run/create.ts";
 import { exitFor, PodError, usageError } from "./errors.ts";
+import { gitStatus } from "./git.ts";
 import {
   databaseUrl,
   readHostProfile,
@@ -26,9 +31,9 @@ interface Wiring {
   host: HostSettings;
 }
 
-async function withOrca<T>(
-  work: (wiring: Wiring) => Promise<Outcome<T>>,
-): Promise<{ result: T; opKey: string; orca: string }> {
+async function withOrca<R extends { ok: true }>(
+  work: (wiring: Wiring) => Promise<R | Refused>,
+): Promise<R> {
   const host = readHostProfile();
   const connection = connect(databaseUrl(host));
   try {
@@ -206,6 +211,197 @@ export async function dispatchVerb(
         host: host.hostId,
         capacity: host.capacity,
         command,
+        now: () => new Date(),
+      }),
+  );
+  return { ...result, op_key: opKey, orca };
+}
+
+const Generation = z.string().regex(/^[1-9][0-9]*$/);
+const Seconds = z.string().regex(/^[1-9][0-9]*$/);
+
+export const CheckInput = z
+  .strictObject({
+    args: z.tuple([]),
+    run: z.string().min(1).optional(),
+    task: z.string().min(1).optional(),
+    generation: Generation,
+    wait: z.boolean().optional(),
+    interval: Seconds.optional(),
+    timeout: Seconds.optional(),
+    resume: z.boolean().optional(),
+  })
+  .refine((input) =>
+    input.resume === true
+      ? (input.run === undefined) !== (input.task === undefined) &&
+        input.wait === undefined &&
+        input.interval === undefined &&
+        input.timeout === undefined
+      : input.run !== undefined &&
+        input.task === undefined &&
+        (input.wait === true ||
+          (input.interval === undefined && input.timeout === undefined)),
+  );
+type CheckInput = z.infer<typeof CheckInput>;
+
+const PassOutput = z.object({
+  run_id: z.string(),
+  reconciled: z.array(
+    z.object({
+      op_key: z.string(),
+      to: z.enum(["dispatched", "ready", "unknown"]),
+    }),
+  ),
+  deliveries: z.array(
+    z.object({
+      message_id: z.string(),
+      dispatch_id: z.string(),
+      outcome: z.string(),
+    }),
+  ),
+  ignored: z.int(),
+  acked: z.array(z.string()),
+  stopped: z.array(z.string()),
+  unknown_workers: z.array(z.string()),
+  free_slots: z.int(),
+  nextSteps: z.array(z.string()),
+  owner_generation: z.int(),
+  orca: z.string().nullable(),
+});
+
+const ResumeOutput = z.object({
+  run_id: z.string(),
+  resumed: z.array(z.object({ kind: z.enum(["run", "task"]), id: z.string() })),
+  owner_generation: z.int(),
+  orca: z.string().nullable(),
+});
+
+export const CheckOutput = z.union([PassOutput, ResumeOutput]);
+type CheckOutput = z.infer<typeof CheckOutput>;
+
+export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
+  const generation = Number(input.generation);
+  const now = () => new Date();
+  if (input.resume === true) {
+    const { result } = await withOrca(({ db, host }) =>
+      resume(db, {
+        run: input.run ?? null,
+        task: input.task ?? null,
+        generation,
+        host: host.hostId,
+        now,
+      }),
+    );
+    return { ...result, owner_generation: generation, orca: null };
+  }
+  const run = input.run ?? "";
+  const { result, orca } = await withOrca(({ db, orca: port, log, host }) => {
+    const pass = {
+      run,
+      generation,
+      host: host.hostId,
+      capacity: host.capacity,
+      now,
+    };
+    return input.wait === true
+      ? checkWait(db, port, log, {
+          ...pass,
+          interval: Number(input.interval ?? "10"),
+          timeout: Number(input.timeout ?? "600"),
+          sleep: (seconds) =>
+            new Promise((done) => setTimeout(done, seconds * 1000)),
+        })
+      : checkPass(db, port, log, pass);
+  });
+  return { ...result, owner_generation: generation, orca };
+}
+
+export function checkMeta(output: {
+  owner_generation: number;
+  orca: string | null;
+}) {
+  return {
+    ownerGeneration: output.owner_generation,
+    ...(output.orca === null ? {} : { orca: output.orca }),
+  };
+}
+
+export const RetryInput = z.strictObject({
+  args: z.tuple([]),
+  dispatch: z.string().min(1),
+  generation: Generation,
+  "op-key": z.string().min(1).optional(),
+});
+type RetryInput = z.infer<typeof RetryInput>;
+
+export const RetryOutput = DispatchOutput.extend({
+  retry_of: z.string(),
+  task_view: z.string(),
+});
+type RetryOutput = z.infer<typeof RetryOutput>;
+
+export async function retryVerb(input: RetryInput): Promise<RetryOutput> {
+  const command = (opKey: string) =>
+    [
+      "pod",
+      "retry",
+      "--dispatch",
+      input.dispatch,
+      "--generation",
+      input.generation,
+      "--op-key",
+      opKey,
+    ]
+      .map(quote)
+      .join(" ");
+  const { result, opKey, orca } = await withOrca(
+    async ({ db, orca: port, log, host }) => {
+      const plan = await retryPlan(db, input.dispatch, host.hostId);
+      if ("ok" in plan) return plan;
+      return retry(db, port, log, {
+        dispatch: input.dispatch,
+        generation: Number(input.generation),
+        opKey: input["op-key"] ?? null,
+        host: host.hostId,
+        capacity: host.capacity,
+        gitStatus: gitStatus(plan.worktreePath),
+        command,
+        now: () => new Date(),
+      });
+    },
+  );
+  return { ...result, op_key: opKey, orca };
+}
+
+export const ReleaseInput = z
+  .strictObject({
+    args: z.tuple([]),
+    dispatch: z.string().min(1),
+    generation: Generation,
+    retain: z.boolean().optional(),
+    reason: z.string().min(1).optional(),
+  })
+  .refine((input) => (input.retain === true) === (input.reason !== undefined));
+type ReleaseInput = z.infer<typeof ReleaseInput>;
+
+export const ReleaseOutput = z.object({
+  dispatch_id: z.string(),
+  state: ReleaseState,
+  reason: z.string().nullable(),
+  owner_generation: z.int(),
+  op_key: z.string(),
+  orca: z.string(),
+});
+type ReleaseOutput = z.infer<typeof ReleaseOutput>;
+
+export async function releaseVerb(input: ReleaseInput): Promise<ReleaseOutput> {
+  const { result, opKey, orca } = await withOrca(
+    ({ db, orca: port, log, host }) =>
+      release(db, port, log, {
+        dispatch: input.dispatch,
+        generation: Number(input.generation),
+        retain: input.reason ?? null,
+        host: host.hostId,
         now: () => new Date(),
       }),
   );

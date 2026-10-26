@@ -35,10 +35,13 @@ test("help lists the verbs sorted by name", () => {
   expect(names).toEqual([...names].sort());
   expect(names).toEqual([
     "brief",
+    "check",
     "config apply",
     "config export",
     "db migrate",
     "dispatch",
+    "release",
+    "retry",
     "run create",
   ]);
 });

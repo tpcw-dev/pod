@@ -1,10 +1,14 @@
 import type { ZodType } from "zod";
 import {
+  CheckResult,
   LooseResult,
   RequestShowResult,
   RunCreateResult,
   TaskCreateResult,
+  WorkerListResult,
+  WorkerReleaseResult,
   WorkerStartResult,
+  WorkerStopResult,
   type OrcaPort,
   type Receipt,
 } from "../../core/ports/orca.ts";
@@ -21,11 +25,12 @@ export function methods(call: Call): Omit<OrcaPort, "version"> {
     runUse: (req) => call(argvFor.runUse(req), LooseResult),
     taskCreate: (req) => call(argvFor.taskCreate(req), TaskCreateResult),
     workerStart: (req) => call(argvFor.workerStart(req), WorkerStartResult),
-    workerStop: (req) => call(argvFor.workerStop(req), LooseResult),
-    workerRelease: (req) => call(argvFor.workerRelease(req), LooseResult),
-    check: (req) => call(argvFor.check(req), LooseResult),
+    workerStop: (req) => call(argvFor.workerStop(req), WorkerStopResult),
+    workerRelease: (req) =>
+      call(argvFor.workerRelease(req), WorkerReleaseResult),
+    check: (req) => call(argvFor.check(req), CheckResult),
     send: (req) => call(argvFor.send(req), LooseResult),
     requestShow: (req) => call(argvFor.requestShow(req), RequestShowResult),
-    workerList: (req) => call(argvFor.workerList(req), LooseResult),
+    workerList: (req) => call(argvFor.workerList(req), WorkerListResult),
   };
 }

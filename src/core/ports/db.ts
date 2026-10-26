@@ -58,6 +58,10 @@ export interface Repo {
   insertDispatch(row: Dispatch): Promise<void>;
   getDispatch(dispatchId: string): Promise<Dispatch | null>;
   listDispatches(runId: string): Promise<Dispatch[]>;
+  settleDispatch(
+    dispatchId: string,
+    change: { activity: Activity; settlement: string; settled_at: Date | null },
+  ): Promise<boolean>;
   hostActivities(host: string): Promise<Activity[]>;
   lockQuota(host: string): Promise<void>;
   insertManifest(
@@ -66,7 +70,13 @@ export interface Repo {
   getManifest(id: string): Promise<EvidenceManifest | null>;
   readBrief(externalId: string | null): Promise<BriefTree>;
   appendEvent(row: NewEvent): Promise<Event>;
-  firstEvent(runId: string, types: readonly EventType[]): Promise<Event | null>;
+  firstEvent(
+    runId: string,
+    types: readonly EventType[],
+    options?: { runWide?: boolean },
+  ): Promise<Event | null>;
+  dispatchEvent(dispatchId: string, type: EventType): Promise<Event | null>;
+  messageRecorded(runId: string, messageId: string): Promise<boolean>;
   latestEvent(runId: string, type: EventType): Promise<Event | null>;
   insertOperation(
     row: NewOperation,
@@ -75,6 +85,10 @@ export interface Repo {
   launchReservations(
     intents: readonly string[],
   ): Promise<Pick<Operation, "op_key" | "intent" | "status" | "result_ref">[]>;
+  listOperations(
+    intents: readonly string[],
+    statuses: readonly OperationStatus[],
+  ): Promise<Operation[]>;
   moveOperation(
     opKey: string,
     to: OperationStatus,

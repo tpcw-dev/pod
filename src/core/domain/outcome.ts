@@ -13,6 +13,7 @@ export const RefusalCode = z.enum([
   "role_unfilled",
   "reviewer_not_independent",
   "launch_unknown",
+  "release_refused",
   "failed",
 ]);
 export type RefusalCode = z.infer<typeof RefusalCode>;
@@ -22,6 +23,10 @@ export interface Refusal {
   message: string;
   nextSteps: string[];
 }
+
+export type Refused = { ok: false; refusal: Refusal };
+
+export type Checked<T> = { ok: true; result: T; orca: string } | Refused;
 
 export type Outcome<T> =
   | { ok: true; result: T; opKey: string; orca: string }

@@ -113,8 +113,21 @@ export interface RequestShowRequest {
   request: string;
 }
 
+export const terminalStates = [
+  "active",
+  "reclaimable",
+  "retained",
+  "release_pending",
+  "release_unknown",
+  "released",
+] as const;
+export type TerminalState = (typeof terminalStates)[number];
+
 export interface WorkerListRequest {
   run?: string;
+  terminalState?: TerminalState;
+  cursor?: string;
+  limit?: number;
 }
 
 export const RunCreateResult = z.looseObject({
@@ -140,6 +153,9 @@ export const WorkerStartResult = z.looseObject({
   lastError: z.string().nullish(),
   failedStage: z.string().nullish(),
   requestId: z.string().nullish(),
+  effects: z
+    .array(z.looseObject({ kind: z.string(), id: z.string().nullish() }))
+    .nullish(),
 });
 export type WorkerStartResult = z.infer<typeof WorkerStartResult>;
 
@@ -149,10 +165,77 @@ export const RequestShowResult = z.looseObject({
 });
 export type RequestShowResult = z.infer<typeof RequestShowResult>;
 
+function parseJsonText(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+const Payload = z.preprocess(
+  parseJsonText,
+  z
+    .looseObject({
+      dispatchId: z.string().optional(),
+      taskId: z.string().optional(),
+      outcome: z.string().optional(),
+    })
+    .catch({}),
+);
+
+export const OrcaMessage = z.looseObject({
+  id: z.string().min(1),
+  type: z.string(),
+  subject: z.string().nullish(),
+  payload: Payload,
+});
+export type OrcaMessage = z.infer<typeof OrcaMessage>;
+
+export const CheckResult = z.looseObject({
+  deliveryId: z.string().nullable(),
+  messages: z.array(OrcaMessage),
+  acknowledged: z.string().nullish(),
+});
+export type CheckResult = z.infer<typeof CheckResult>;
+
+export const WorkerRow = z.looseObject({
+  dispatchId: z.string().min(1),
+  taskId: z.string().nullish(),
+  workerState: z.string(),
+  terminalState: z.string().nullish(),
+  resource: z.looseObject({ worktreeId: z.string().nullish() }).nullish(),
+});
+export type WorkerRow = z.infer<typeof WorkerRow>;
+
+export const WorkerListResult = z.looseObject({
+  workers: z.array(WorkerRow),
+  page: z.looseObject({ nextCursor: z.string().nullish() }),
+});
+export type WorkerListResult = z.infer<typeof WorkerListResult>;
+
+export const WorkerStopResult = z.looseObject({
+  dispatchId: z.string(),
+  state: z.string(),
+});
+export type WorkerStopResult = z.infer<typeof WorkerStopResult>;
+
+export const ReleaseState = z.enum([
+  "released",
+  "already_released",
+  "retained",
+  "release_pending",
+  "release_unknown",
+]);
+export type ReleaseState = z.infer<typeof ReleaseState>;
+
+export const WorkerReleaseResult = z.looseObject({
+  dispatchId: z.string(),
+  state: ReleaseState,
+});
+export type WorkerReleaseResult = z.infer<typeof WorkerReleaseResult>;
+
 export const LooseResult = z.looseObject({});
 export type RunUseResult = z.infer<typeof LooseResult>;
-export type WorkerStopResult = z.infer<typeof LooseResult>;
-export type WorkerReleaseResult = z.infer<typeof LooseResult>;
-export type CheckResult = z.infer<typeof LooseResult>;
 export type SendResult = z.infer<typeof LooseResult>;
-export type WorkerListResult = z.infer<typeof LooseResult>;

@@ -15,6 +15,7 @@ export type ErrorCode =
   | "reviewer_not_independent"
   | "launch_unknown"
   | "drained"
+  | "release_refused"
   | "orca_version_unsupported"
   | "failed";
 

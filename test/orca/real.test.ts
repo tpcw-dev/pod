@@ -356,3 +356,139 @@ test("a fixture refused by the denylist does not fail the call, and is reported 
   expect(orca.recordRefusals()).toHaveLength(1);
   expect(orca.recordRefusals()[0]?.message).not.toContain("secretco");
 });
+
+function envelope(result: unknown): string {
+  return JSON.stringify({
+    id: "r",
+    ok: true,
+    result,
+    _meta: { runtimeId: "rt" },
+  });
+}
+
+test("a check batch parses string payloads, and an ack returns the next batch", async () => {
+  const replies = [
+    envelope({
+      runId: "run_1",
+      deliveryId: "delivery_1",
+      messages: [
+        {
+          id: "msg_1",
+          type: "worker_done",
+          subject: "done",
+          payload: JSON.stringify({
+            taskId: "task_1",
+            dispatchId: "ctx_1",
+            outcome: "succeeded",
+          }),
+        },
+        {
+          id: "msg_2",
+          type: "heartbeat",
+          subject: "alive",
+          payload: "not json",
+        },
+      ],
+      count: 2,
+      acknowledged: null,
+    }),
+    envelope({
+      runId: "run_1",
+      deliveryId: null,
+      messages: [],
+      count: 0,
+      acknowledged: "delivery_1",
+    }),
+  ];
+  const { run, calls } = stub(() => out(replies.shift() ?? ""));
+  const orca = makeRealOrca({ run, sink: () => Promise.resolve() });
+  const batch = await orca.check({ run: "run_1" });
+  expect(batch.result?.deliveryId).toBe("delivery_1");
+  expect(batch.result?.messages.map((m) => m.payload)).toEqual([
+    { taskId: "task_1", dispatchId: "ctx_1", outcome: "succeeded" },
+    {},
+  ]);
+  const next = await orca.check({ run: "run_1", ack: "delivery_1" });
+  expect(next.result).toMatchObject({
+    messages: [],
+    acknowledged: "delivery_1",
+  });
+  expect(calls.slice(1).map((call) => call.args)).toEqual([
+    ["orchestration", "check", "--run", "run_1", "--json"],
+    [
+      "orchestration",
+      "check",
+      "--run",
+      "run_1",
+      "--ack",
+      "delivery_1",
+      "--json",
+    ],
+  ]);
+});
+
+test("worker-list takes the page flags and carries nextCursor", async () => {
+  const { run, calls } = stub(() =>
+    out(
+      envelope({
+        workers: [
+          {
+            dispatchId: "ctx_1",
+            taskId: "task_1",
+            workerState: "stopped",
+            terminalState: "retained",
+            resource: { worktreeId: "repo::/w" },
+          },
+        ],
+        page: { limit: 1, total: 2, hasMore: true, nextCursor: "c2" },
+      }),
+    ),
+  );
+  const orca = makeRealOrca({ run, sink: () => Promise.resolve() });
+  const page = await orca.workerList({
+    run: "run_1",
+    terminalState: "active",
+    cursor: "c1",
+    limit: 1,
+  });
+  expect(page.result?.page.nextCursor).toBe("c2");
+  expect(page.result?.workers[0]).toMatchObject({
+    workerState: "stopped",
+    resource: { worktreeId: "repo::/w" },
+  });
+  expect(calls[1]?.args).toEqual([
+    "orchestration",
+    "worker-list",
+    "--run",
+    "run_1",
+    "--terminal-state",
+    "active",
+    "--cursor",
+    "c1",
+    "--limit",
+    "1",
+    "--json",
+  ]);
+});
+
+test("worker-release parses each named state and leaves an unnamed one unparsed", async () => {
+  const states = [
+    "released",
+    "already_released",
+    "retained",
+    "release_pending",
+    "release_unknown",
+    "novel_state",
+  ];
+  const replies = states.map((state) =>
+    envelope({ dispatchId: "ctx_1", state, processAction: "none" }),
+  );
+  const { run } = stub(() => out(replies.shift() ?? ""));
+  const orca = makeRealOrca({ run, sink: () => Promise.resolve() });
+  const parsed: (string | null)[] = [];
+  while (parsed.length < states.length)
+    parsed.push(
+      (await orca.workerRelease({ dispatch: "ctx_1" })).result?.state ?? null,
+    );
+  expect(parsed).toEqual([...states.slice(0, 5), null]);
+});

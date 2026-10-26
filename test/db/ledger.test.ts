@@ -201,4 +201,68 @@ describeDb("ledger repositories", () => {
     });
     expect(await runBlocked(conn.db, "run-2")).toEqual(stop);
   });
+
+  test("runBlocked skips a stop that names a Dispatch", async () => {
+    const run3 = { ...eventOf("stop", later(1)), run_id: "run-3" };
+    await conn.db.appendEvent({ ...run3, dispatch_id: "ctx-9" });
+    expect(await runBlocked(conn.db, "run-3")).toBeNull();
+    const cancel = await conn.db.appendEvent({
+      ...eventOf("cancel", later(2)),
+      run_id: "run-3",
+      dispatch_id: "ctx-9",
+    });
+    expect(await runBlocked(conn.db, "run-3")).toEqual(cancel);
+  });
+
+  test("a Dispatch settles once, while it is open", async () => {
+    const change = {
+      activity: "settled" as const,
+      settlement: "done",
+      settled_at: later(30),
+    };
+    expect(await conn.db.settleDispatch("ctx-1", change)).toBe(true);
+    expect(
+      await conn.db.settleDispatch("ctx-1", {
+        ...change,
+        settlement: "failed",
+      }),
+    ).toBe(false);
+    expect(await conn.db.getDispatch("ctx-1")).toMatchObject({
+      activity: "settled",
+      settlement: "done",
+      settled_at: later(30),
+    });
+  });
+
+  test("a Dispatch's earliest event of a type and a recorded message id read back", async () => {
+    const first = await conn.db.appendEvent({
+      ...eventOf("start", later(40)),
+      dispatch_id: "ctx-1",
+      payload: { message_id: "msg-1" },
+    });
+    await conn.db.appendEvent({
+      ...eventOf("start", later(41)),
+      dispatch_id: "ctx-1",
+    });
+    expect(await conn.db.dispatchEvent("ctx-1", "start")).toEqual(first);
+    expect(await conn.db.dispatchEvent("ctx-1", "release")).toBeNull();
+    expect(await conn.db.messageRecorded("run-1", "msg-1")).toBe(true);
+    expect(await conn.db.messageRecorded("run-1", "msg-2")).toBe(false);
+    expect(await conn.db.messageRecorded("run-2", "msg-1")).toBe(false);
+  });
+
+  test("operations list by intent and status", async () => {
+    await conn.db.insertOperation({
+      op_key: "op-r",
+      intent: "release",
+      owner_generation: 1,
+      at: later(50),
+    });
+    expect(
+      (await conn.db.listOperations(["release"], ["pending"])).map(
+        (row) => row.op_key,
+      ),
+    ).toEqual(["op-r"]);
+    expect(await conn.db.listOperations(["release"], ["done"])).toEqual([]);
+  });
 });

@@ -191,6 +191,32 @@ describeDb("pod dispatch", () => {
     });
   });
 
+  test("the Dispatch row records the receipt's worktree as an id selector", async () => {
+    const { orca, log } = replay([
+      ok("worker-start", {
+        ...(started("ctx_3", "m-1") as object),
+        effects: [
+          { kind: "terminal", id: "term_1" },
+          { kind: "worktree", action: "reused", id: "repo-1::/w/one" },
+        ],
+      }),
+    ]);
+    const outcome = await dispatch(conn.db, orca, log, input());
+    expect(outcome.ok).toBe(true);
+    expect((await conn.db.getDispatch("ctx_3"))?.requested_launch).toEqual({
+      model: "m-1",
+      worktree: "id:repo-1::/w/one",
+    });
+    const [op] = await conn.sql<{ result_ref: { launch: unknown } }[]>`
+      select result_ref from ledger.operation where intent = 'dispatch'`;
+    expect(op?.result_ref.launch).toEqual({
+      agent: "claude",
+      model: "m-1",
+      effort: "low",
+      worktree: "current",
+    });
+  });
+
   test("a generation other than the Run's is owner_generation_stale", async () => {
     await expectRefused("owner_generation_stale", { generation: 2 });
     await conn.sql`update ledger.run set owner_generation = 3`;

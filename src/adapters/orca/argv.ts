@@ -97,7 +97,12 @@ export const argvFor = {
   requestShow: (req: RequestShowRequest) =>
     flags("request-show", [["--request", req.request]]),
   workerList: (req: WorkerListRequest) =>
-    flags("worker-list", [["--run", req.run]]),
+    flags("worker-list", [
+      ["--run", req.run],
+      ["--terminal-state", req.terminalState],
+      ["--cursor", req.cursor],
+      ["--limit", req.limit],
+    ]),
 };
 
 export function matchArgv(argv: readonly string[]): string[] {
