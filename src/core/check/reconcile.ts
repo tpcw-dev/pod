@@ -72,11 +72,11 @@ async function reconcileOne(
   const runId = input.run.run_id;
   log.at({ run_id: runId, task_id: request.task_id, op_key: operation.op_key });
   let shown: string | null = null;
-  if (ref.requestId != null && launch !== undefined) {
+  if (ref.requestId != null) {
     shown =
       (await orca.requestShow({ request: ref.requestId })).result?.state ??
       null;
-    if (shown === "completed") {
+    if (shown === "completed" && launch !== undefined) {
       const receipt = await orca.workerStart({
         task: request.task_id,
         run: runId,
@@ -107,7 +107,7 @@ async function reconcileOne(
     });
     return "dispatched";
   }
-  if (shown === "pending") return "unknown";
+  if (ref.requestId != null && shown !== "absent") return "unknown";
   const at = input.now();
   await db.transaction(async (tx) => {
     await tx.moveOperation(

@@ -4,7 +4,7 @@ import type { Operation } from "../domain/ledger.ts";
 import { refuse, type Outcome } from "../domain/outcome.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
-import type { Db } from "../ports/db.ts";
+import type { Db, Repo } from "../ports/db.ts";
 import { ReleaseState, type OrcaPort } from "../ports/orca.ts";
 
 export interface ReleaseInput {
@@ -39,7 +39,7 @@ type Key =
   | { kind: "open"; opKey: string; operation: Operation };
 
 async function releaseKey(
-  db: Db,
+  db: Repo,
   scope: {
     run_id: string;
     dispatch_id: string;
@@ -115,12 +115,15 @@ export async function release(
     owner_generation: input.generation,
   });
 
-  const key = await releaseKey(db, {
-    run_id: run.run_id,
-    dispatch_id: dispatch.dispatch_id,
-    host: input.host,
-    generation: input.generation,
-    at: input.now(),
+  const key = await db.transaction(async (tx) => {
+    await tx.lockQuota(input.host);
+    return releaseKey(tx, {
+      run_id: run.run_id,
+      dispatch_id: dispatch.dispatch_id,
+      host: input.host,
+      generation: input.generation,
+      at: input.now(),
+    });
   });
   if (key.kind === "final")
     return {
@@ -140,7 +143,11 @@ export async function release(
     state !== undefined &&
     answered.includes(state)
   ) {
-    await db.transaction(async (tx) => {
+    const finished = await db.transaction(async (tx) => {
+      await tx.lockQuota(input.host);
+      const current = await tx.getOperation(opKey);
+      const recorded = Recorded.safeParse(current?.result_ref);
+      if (current?.status === "done" && recorded.success) return recorded.data;
       await tx.moveOperation(
         opKey,
         "done",
@@ -162,25 +169,30 @@ export async function release(
         payload: { state, reason: input.retain, op_key: opKey },
         source: { kind: "command", verb: "release" },
       });
+      return { state, reason: input.retain };
     });
     return {
       ok: true,
-      result: result(state, input.retain),
+      result: result(finished.state, finished.reason),
       opKey,
       orca: version,
     };
   }
   if (operation.status === "pending")
-    await db.moveOperation(
-      opKey,
-      "unknown",
-      Json.parse({
-        dispatch_id: dispatch.dispatch_id,
-        state: state ?? null,
-        exit_code: receipt.exitCode,
-      }),
-      at,
-    );
+    await db.transaction(async (tx) => {
+      await tx.lockQuota(input.host);
+      if ((await tx.getOperation(opKey))?.status !== "pending") return;
+      await tx.moveOperation(
+        opKey,
+        "unknown",
+        Json.parse({
+          dispatch_id: dispatch.dispatch_id,
+          state: state ?? null,
+          exit_code: receipt.exitCode,
+        }),
+        at,
+      );
+    });
   return refuse(
     "failed",
     `worker-release for Dispatch ${dispatch.dispatch_id} answered ${state ?? `exit ${receipt.exitCode}`}`,

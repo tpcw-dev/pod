@@ -32,7 +32,6 @@ export interface CheckResult {
 }
 
 const openTaskStates = ["ready", "dispatched", "delivered"];
-const terminalTaskStates = ["done", "failed", "superseded"];
 const nextKeyCodes = ["quota_exhausted", "drained"];
 
 class StaleGeneration extends Error {
@@ -89,7 +88,9 @@ export async function checkPass(
     stopped: [],
     unknown_workers: [],
     free_slots: 0,
-    nextSteps: [],
+    nextSteps: reconciled
+      .filter((row) => row.to === "unknown")
+      .map((row) => `pod check: launch ${row.op_key} is still unknown`),
   };
   try {
     const read = await readDeliveries(db, orca, log, input, result);
@@ -230,8 +231,7 @@ async function recordMessage(
   const task = await tx.getTask(known.task_id);
   if (task === null) return;
   if (row.outcome === "unknown") {
-    if (terminalTaskStates.includes(task.state) || task.state === "hold")
-      return;
+    if (task.state !== "dispatched") return;
     await tx.setTaskState(task.task_id, "hold");
     await tx.appendEvent({
       ...base,
@@ -240,12 +240,12 @@ async function recordMessage(
     });
     return;
   }
-  await tx.settleDispatch(known.dispatch_id, {
+  const moved = await tx.settleDispatch(known.dispatch_id, {
     activity: row.activity,
     settlement: row.settlement,
     settled_at: row.settlement === "open" ? null : at,
   });
-  if (task.state === "dispatched")
+  if (moved && task.state === "dispatched")
     await tx.setTaskState(task.task_id, "delivered");
 }
 

@@ -189,4 +189,19 @@ describeDb("pod release", () => {
       meta: { ownerGeneration: 1, opKey: expect.stringMatching(/^release:/) },
     });
   });
+
+  test("two concurrent releases of one Dispatch finish one operation and one release event", async () => {
+    await settle();
+    const go = () => {
+      const { orca, log } = replay(conn, [answer("released")]);
+      return release(conn.db, orca, log, input());
+    };
+    const [a, b] = await Promise.all([go(), go()]);
+    expect(a).toMatchObject({ ok: true, result: { state: "released" } });
+    expect(b).toMatchObject({ ok: true, result: { state: "released" } });
+    expect(
+      await conn.sql`select status from ledger.operation where intent = 'release'`,
+    ).toEqual([{ status: "done" }]);
+    expect(await events(conn, "release")).toHaveLength(1);
+  });
 });

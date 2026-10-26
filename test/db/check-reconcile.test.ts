@@ -156,6 +156,56 @@ describeDb("pod check reconciles unknown launches", () => {
     expect(await taskState(conn, "task_b")).toBe("dispatched");
   });
 
+  test("an unreadable request-show keeps the operation unknown and the Task held", async () => {
+    await launchUnknown(unknownReply("worker-start", requestId));
+    const outcome = await pass([
+      {
+        verb: "request-show",
+        argv: ["--request", requestId],
+        exitCode: 1,
+        stdout: "not json",
+      },
+      ok("worker-list", workers([]), run),
+      ok("check", empty(), run),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        reconciled: [{ to: "unknown" }],
+        free_slots: 0,
+        nextSteps: expect.arrayContaining([
+          `pod check: launch ${opKey} is still unknown`,
+        ]),
+      },
+    });
+    expect(await status()).toBe("unknown");
+    expect(await taskState(conn, "task_b")).toBe("hold");
+  });
+
+  test("a completed request whose replay fails keeps the operation unknown and sends no second start", async () => {
+    await launchUnknown(unknownReply("worker-start", requestId));
+    const outcome = await pass([
+      shown("completed"),
+      {
+        verb: "worker-start",
+        argv: replayArgv,
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          error: { code: "task_not_startable", message: "no" },
+        }),
+      },
+      ok("worker-list", workers([]), run),
+      ok("check", empty(), run),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { reconciled: [{ to: "unknown" }], free_slots: 0 },
+    });
+    expect(await status()).toBe("unknown");
+    expect(await taskState(conn, "task_b")).toBe("hold");
+  });
+
   test("absent with no worker finishes the operation and frees the Task with a resume event", async () => {
     await launchUnknown(unknownReply("worker-start", requestId));
     const outcome = await pass([

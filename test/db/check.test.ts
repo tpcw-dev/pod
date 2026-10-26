@@ -184,6 +184,18 @@ describeDb("pod check", () => {
       settled_at: null,
     });
     expect(await taskState(conn, "task_b")).toBe("delivered");
+    await pass([
+      ok(
+        "check",
+        batch("delivery_3", [
+          message("msg_3", "novel", { dispatchId: "ctx_1" }),
+        ]),
+        run,
+      ),
+      ok("check", empty("delivery_3"), ack("delivery_3")),
+      ok("worker-list", workers([]), run),
+    ]);
+    expect(await taskState(conn, "task_b")).toBe("delivered");
     await conn.sql`update ledger.task set state = 'dispatched' where task_id = 'task_b'`;
     await pass([
       ok(
@@ -199,7 +211,7 @@ describeDb("pod check", () => {
     expect(await taskState(conn, "task_b")).toBe("hold");
     expect(
       (await events(conn, "delivery")).map((row) => row.payload["outcome"]),
-    ).toEqual(["waiting", "unknown"]);
+    ).toEqual(["waiting", "unknown", "unknown"]);
     expect((await events(conn, "hold")).at(-1)?.payload).toMatchObject({
       reason: "unknown_delivery",
       message_id: "msg_2",
