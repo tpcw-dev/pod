@@ -54,7 +54,7 @@ const Placement = z.looseObject({
   worktree: z.string().optional().catch(undefined),
 });
 
-const References = z.array(ManifestReference).catch([]);
+const References = z.array(ManifestReference);
 
 export async function retryPlan(
   db: Repo,
