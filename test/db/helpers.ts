@@ -55,6 +55,7 @@ export interface CliResult {
     ok: boolean;
     result?: Record<string, unknown>;
     error?: { code: string; message: string; nextSteps: string[] };
+    meta?: Record<string, unknown>;
   };
 }
 

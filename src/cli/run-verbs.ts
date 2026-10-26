@@ -1,0 +1,186 @@
+import { z } from "zod";
+import { FixtureRefused } from "../adapters/orca/scrub.ts";
+import { connect } from "../adapters/postgres/connection.ts";
+import { dispatch } from "../core/dispatch/dispatch.ts";
+import { Size } from "../core/domain/ledger.ts";
+import type { Outcome } from "../core/domain/outcome.ts";
+import { receiptLog, type ReceiptLog } from "../core/ledger/receipts.ts";
+import type { Db } from "../core/ports/db.ts";
+import {
+  OrcaVersionUnsupported,
+  orcaRangeText,
+  type OrcaPort,
+} from "../core/ports/orca.ts";
+import { runCreate } from "../core/run/create.ts";
+import { exitFor, PodError, usageError } from "./errors.ts";
+import { databaseUrl, readHostProfile, type HostSettings } from "./host-profile.ts";
+import { orcaFor } from "./orca.ts";
+
+interface Wiring {
+  db: Db;
+  orca: OrcaPort;
+  log: ReceiptLog;
+  host: HostSettings;
+}
+
+async function withOrca<T>(
+  work: (wiring: Wiring) => Promise<Outcome<T>>,
+): Promise<{ result: T; opKey: string; orca: string }> {
+  const host = readHostProfile();
+  const connection = connect(databaseUrl(host));
+  try {
+    const log = receiptLog(connection.db, host.hostId);
+    const orca = orcaFor(log.sink);
+    const outcome = await work({ db: connection.db, orca, log, host });
+    if (!outcome.ok) {
+      const { code, message, nextSteps } = outcome.refusal;
+      throw new PodError(code, exitFor(code), message, nextSteps);
+    }
+    return outcome;
+  } catch (error) {
+    if (error instanceof OrcaVersionUnsupported)
+      throw new PodError("orca_version_unsupported", 3, error.message, [
+        `supported Orca range ${orcaRangeText()}`,
+        `installed Orca ${error.installed}`,
+      ]);
+    if (error instanceof FixtureRefused)
+      throw new PodError("failed", 1, error.message, [
+        "add the term to the scrubber inputs or drop the fixture",
+      ]);
+    throw error;
+  } finally {
+    await connection.close();
+  }
+}
+
+function quote(value: string): string {
+  return /^[\w@:./=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+export const RunCreateInput = z.strictObject({
+  args: z.tuple([z.string().regex(/^story:.+$/)]),
+  process: z.string().optional(),
+  size: Size.optional(),
+  stage: z.string().min(1).optional(),
+});
+type RunCreateInput = z.infer<typeof RunCreateInput>;
+
+export const RunCreateOutput = z.object({
+  run_id: z.string(),
+  story: z.string(),
+  process: z.string(),
+  snapshot_hash: z.string(),
+  owner_generation: z.int(),
+  tasks: z.array(
+    z.object({
+      task_id: z.string(),
+      step_id: z.string(),
+      role: z.string(),
+      state: z.string(),
+    }),
+  ),
+  op_key: z.string(),
+  orca: z.string(),
+});
+type RunCreateOutput = z.infer<typeof RunCreateOutput>;
+
+function processRef(value: string | undefined): { name: string; rev: number } | null {
+  if (value === undefined) return null;
+  const match = /^(.+)@([1-9][0-9]*)$/.exec(value);
+  if (match === null || match[1] === undefined || match[2] === undefined)
+    throw usageError(`--process ${value} is not name@rev`);
+  return { name: match[1], rev: Number(match[2]) };
+}
+
+export async function runCreateVerb(input: RunCreateInput): Promise<RunCreateOutput> {
+  const coordinator = process.env["POD_COORDINATOR"];
+  if (coordinator === undefined || coordinator === "")
+    throw usageError("POD_COORDINATOR is not set", [
+      "set POD_COORDINATOR to the coordinator session id",
+    ]);
+  const [story] = input.args;
+  const ref = processRef(input.process);
+  const command = [
+    "pod",
+    "run",
+    "create",
+    story,
+    ...(input.process === undefined ? [] : ["--process", input.process]),
+    ...(input.size === undefined ? [] : ["--size", input.size]),
+    ...(input.stage === undefined ? [] : ["--stage", input.stage]),
+  ]
+    .map(quote)
+    .join(" ");
+  const { result, opKey, orca } = await withOrca(({ db, orca: port, log, host }) =>
+    runCreate(db, port, log, {
+      story: story.slice("story:".length),
+      process: ref,
+      size: input.size ?? null,
+      stage: input.stage ?? null,
+      coordinator,
+      host: host.hostId,
+      provider: host.trackerKind,
+      command,
+      now: () => new Date(),
+    }),
+  );
+  return { ...result, op_key: opKey, orca };
+}
+
+export function runMeta(output: { owner_generation: number; op_key: string; orca: string }) {
+  return { ownerGeneration: output.owner_generation, opKey: output.op_key, orca: output.orca };
+}
+
+export const DispatchInput = z.strictObject({
+  args: z.tuple([]),
+  task: z.string().min(1),
+  seat: z.string().min(1),
+  generation: z.string().regex(/^[1-9][0-9]*$/),
+  "op-key": z.string().min(1).optional(),
+});
+type DispatchInput = z.infer<typeof DispatchInput>;
+
+export const DispatchOutput = z.object({
+  dispatch_id: z.string(),
+  task_id: z.string(),
+  run_id: z.string(),
+  seat: z.string(),
+  manifest_id: z.string(),
+  model_attribution: z.enum(["receipt", "unknown"]),
+  terminal_handle: z.string().nullable(),
+  owner_generation: z.int(),
+  op_key: z.string(),
+  orca: z.string(),
+});
+type DispatchOutput = z.infer<typeof DispatchOutput>;
+
+export async function dispatchVerb(input: DispatchInput): Promise<DispatchOutput> {
+  const command = (opKey: string) =>
+    [
+      "pod",
+      "dispatch",
+      "--task",
+      input.task,
+      "--seat",
+      input.seat,
+      "--generation",
+      input.generation,
+      "--op-key",
+      opKey,
+    ]
+      .map(quote)
+      .join(" ");
+  const { result, opKey, orca } = await withOrca(({ db, orca: port, log, host }) =>
+    dispatch(db, port, log, {
+      task: input.task,
+      seat: input.seat,
+      generation: Number(input.generation),
+      opKey: input["op-key"] ?? null,
+      host: host.hostId,
+      capacity: host.capacity,
+      command,
+      now: () => new Date(),
+    }),
+  );
+  return { ...result, op_key: opKey, orca };
+}

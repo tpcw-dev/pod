@@ -1,9 +1,10 @@
 import type {
+  Kind,
+  Scope,
   ActivateInput,
   ActivateResult,
   Activation,
   ActivationKey,
-  Kind,
   NewRevision,
   Revision,
   Snapshot,
@@ -11,6 +12,7 @@ import type {
 import type { Json } from "../domain/json.ts";
 import type { BriefTree } from "../domain/brief.ts";
 import type {
+  Activity,
   Dispatch,
   Event,
   EventType,
@@ -20,6 +22,7 @@ import type {
   Operation,
   OperationStatus,
   Run,
+  RunState,
   Story,
   Task,
 } from "../domain/ledger.ts";
@@ -35,6 +38,11 @@ export interface Repo {
     rev: number,
   ): Promise<Revision | null>;
   getActivation(key: ActivationKey): Promise<Activation | null>;
+  listActivations(
+    kind: Kind,
+    scope: Scope,
+    scopeRef: string,
+  ): Promise<Activation[]>;
   activate(input: ActivateInput): Promise<ActivateResult>;
   insertSnapshot(row: Snapshot): Promise<void>;
   getSnapshot(runId: string): Promise<Snapshot | null>;
@@ -42,10 +50,16 @@ export interface Repo {
   getStory(provider: string, externalId: string): Promise<Story | null>;
   insertRun(row: Run): Promise<void>;
   getRun(runId: string): Promise<Run | null>;
+  setRunState(runId: string, state: RunState): Promise<void>;
   insertTask(row: Task): Promise<void>;
   getTask(taskId: string): Promise<Task | null>;
+  listTasks(runId: string): Promise<Task[]>;
+  setTaskState(taskId: string, state: string): Promise<void>;
   insertDispatch(row: Dispatch): Promise<void>;
   getDispatch(dispatchId: string): Promise<Dispatch | null>;
+  listDispatches(runId: string): Promise<Dispatch[]>;
+  hostActivities(host: string): Promise<Activity[]>;
+  lockQuota(host: string): Promise<void>;
   insertManifest(
     row: EvidenceManifest,
   ): Promise<{ manifest: EvidenceManifest; created: boolean }>;
@@ -53,10 +67,14 @@ export interface Repo {
   readBrief(externalId: string | null): Promise<BriefTree>;
   appendEvent(row: NewEvent): Promise<Event>;
   firstEvent(runId: string, types: readonly EventType[]): Promise<Event | null>;
+  latestEvent(runId: string, type: EventType): Promise<Event | null>;
   insertOperation(
     row: NewOperation,
   ): Promise<{ operation: Operation; created: boolean }>;
   getOperation(opKey: string): Promise<Operation | null>;
+  launchReservations(
+    intents: readonly string[],
+  ): Promise<Pick<Operation, "op_key" | "intent" | "status">[]>;
   moveOperation(
     opKey: string,
     to: OperationStatus,

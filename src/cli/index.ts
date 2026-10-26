@@ -48,6 +48,12 @@ function parse() {
         reason: { type: "string" },
         out: { type: "string" },
         html: { type: "string" },
+        process: { type: "string" },
+        size: { type: "string" },
+        stage: { type: "string" },
+        task: { type: "string" },
+        seat: { type: "string" },
+        generation: { type: "string" },
       },
       strict: true,
       allowPositionals: true,
@@ -82,7 +88,11 @@ async function main(): Promise<void> {
   const input = verb.input.safeParse({ args, ...flags });
   if (!input.success) throw usageError(`usage: ${verb.name}`, ["pod --help"]);
   const result = verb.output.parse(await verb.handler(input.data, {}));
-  write({ ok: true, result, meta: { pod: pkg.version } });
+  write({
+    ok: true,
+    result,
+    meta: { pod: pkg.version, ...verb.meta?.(result) },
+  });
 }
 
 try {

@@ -6,7 +6,28 @@ export type ErrorCode =
   | "duplicate_op"
   | "journal_mismatch"
   | "story_not_found"
+  | "selector_none"
+  | "owner_generation_stale"
+  | "task_not_ready"
+  | "quota_exhausted"
+  | "role_unfilled"
+  | "reviewer_not_independent"
+  | "launch_unknown"
+  | "drained"
+  | "orca_version_unsupported"
   | "failed";
+
+const exits: Partial<Record<ErrorCode, number>> = {
+  usage: 2,
+  schema_invalid: 2,
+  launch_unknown: 4,
+  drained: 5,
+  failed: 1,
+};
+
+export function exitFor(code: ErrorCode): number {
+  return exits[code] ?? 3;
+}
 
 export class PodError extends Error {
   constructor(

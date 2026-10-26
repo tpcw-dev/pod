@@ -10,11 +10,17 @@ const HostProfile = z.looseObject({
   db: z
     .looseObject({ url_env: z.string().min(1).default("POD_DB_URL") })
     .prefault({}),
+  capacity: z.int().positive().default(2),
+  tracker: z
+    .looseObject({ kind: z.string().min(1).default("linear") })
+    .prefault({}),
 });
 
 export interface HostSettings {
   hostId: string;
   urlEnv: string;
+  capacity: number;
+  trackerKind: string;
 }
 
 function profilePath(): string {
@@ -45,7 +51,12 @@ export function readHostProfile(): HostSettings {
       `${path} fails the host profile schema`,
       issuesOf(parsed.error),
     );
-  return { hostId: parsed.data.host_id, urlEnv: parsed.data.db.url_env };
+  return {
+    hostId: parsed.data.host_id,
+    urlEnv: parsed.data.db.url_env,
+    capacity: parsed.data.capacity,
+    trackerKind: parsed.data.tracker.kind,
+  };
 }
 
 export function databaseUrl(settings: HostSettings): string {

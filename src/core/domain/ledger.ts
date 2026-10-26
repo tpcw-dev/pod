@@ -74,6 +74,7 @@ export type RunState = z.infer<typeof RunState>;
 
 export const ModelAttribution = z.enum(["receipt", "unknown"]);
 export const Activity = z.enum(["running", "waiting", "settled"]);
+export type Activity = z.infer<typeof Activity>;
 
 export interface Story {
   provider: string;
@@ -124,7 +125,7 @@ export interface Dispatch {
   terminal_handle: string | null;
   created_at: Date;
   settled_at: Date | null;
-  activity: z.infer<typeof Activity>;
+  activity: Activity;
   manifest_id: string | null;
 }
 
@@ -159,6 +160,7 @@ export interface NewOperation {
   intent: Intent;
   owner_generation: number;
   at: Date;
+  result_ref?: Json | null;
 }
 
 export interface Operation {

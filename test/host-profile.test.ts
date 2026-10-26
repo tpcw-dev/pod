@@ -17,21 +17,23 @@ function home(profile: string | null): void {
   process.env["POD_HOME"] = dir;
 }
 
+const defaults = { capacity: 2, trackerKind: "linear" };
+
 test("no profile reads the defaults", () => {
   home(null);
-  expect(readHostProfile()).toEqual({ hostId: "local", urlEnv: "POD_DB_URL" });
+  expect(readHostProfile()).toEqual({ ...defaults, hostId: "local", urlEnv: "POD_DB_URL" });
 });
 
 test("a profile without db keeps the default variable", () => {
   home("{}\n");
-  expect(readHostProfile()).toEqual({ hostId: "local", urlEnv: "POD_DB_URL" });
+  expect(readHostProfile()).toEqual({ ...defaults, hostId: "local", urlEnv: "POD_DB_URL" });
   home("host_id: h\n");
-  expect(readHostProfile()).toEqual({ hostId: "h", urlEnv: "POD_DB_URL" });
+  expect(readHostProfile()).toEqual({ ...defaults, hostId: "h", urlEnv: "POD_DB_URL" });
 });
 
 test("db.url_env names the variable", () => {
   home("db:\n  url_env: X\n");
-  expect(readHostProfile()).toEqual({ hostId: "local", urlEnv: "X" });
+  expect(readHostProfile()).toEqual({ ...defaults, hostId: "local", urlEnv: "X" });
 });
 
 test("an empty db.url_env is schema_invalid", () => {
@@ -48,4 +50,19 @@ test("an empty db.url_env is schema_invalid", () => {
     exit: 2,
     nextSteps: [expect.stringMatching(/^db\.url_env: /)],
   });
+});
+
+test("capacity and tracker.kind are read when set", () => {
+  home("capacity: 1\ntracker:\n  kind: other\n");
+  expect(readHostProfile()).toEqual({
+    hostId: "local",
+    urlEnv: "POD_DB_URL",
+    capacity: 1,
+    trackerKind: "other",
+  });
+});
+
+test("a capacity below 1 is schema_invalid", () => {
+  home("capacity: 0\n");
+  expect(() => readHostProfile()).toThrow(PodError);
 });

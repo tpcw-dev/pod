@@ -22,8 +22,8 @@ const expectedVerbs = [
   { story: "S2", name: "db migrate", status: "done" },
   { story: "S2", name: "config apply", status: "done" },
   { story: "S2", name: "config export", status: "done" },
-  { story: "S3", name: "run create", status: "todo" },
-  { story: "S3", name: "dispatch", status: "todo" },
+  { story: "S3", name: "run create", status: "done" },
+  { story: "S3", name: "dispatch", status: "done" },
   { story: "S3", name: "check", status: "todo" },
   { story: "S3", name: "retry", status: "todo" },
   { story: "S3", name: "release", status: "todo" },
@@ -74,7 +74,7 @@ test("side-effect verbs in the registry match the contract", () => {
     if (verb.sideEffect === "none") continue;
     const row = rows.get(verb.name);
     expect(row, verb.name).toBeDefined();
-    expect(row?.cancelBy).toBe(verb.cancelBy);
+    expect(row?.cancelBy).toBe(verb.cancelBy.join(", "));
     expect(row?.evidence).toBe(verb.evidenceRequired.join(" "));
   }
 });
