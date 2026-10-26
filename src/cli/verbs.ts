@@ -7,6 +7,7 @@ import {
   configApply,
   configExport,
 } from "./config-verbs.ts";
+import { BriefInput, BriefOutput, brief } from "./brief.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
 
 export type VerbContext = Record<string, never>;
@@ -29,6 +30,17 @@ function row<I, O>(verb: VerbRow<I, O>): VerbRow<unknown, unknown> {
 }
 
 export const verbs: readonly VerbRow<unknown, unknown>[] = [
+  row({
+    name: "brief",
+    input: BriefInput,
+    output: BriefOutput,
+    handler: brief,
+    sideEffect: "none",
+    cancelBy: "nobody",
+    evidenceRequired: [
+      "a Story whose external_id matches story:<id> when that argument is set",
+    ],
+  }),
   row({
     name: "config apply",
     input: ConfigApplyInput,

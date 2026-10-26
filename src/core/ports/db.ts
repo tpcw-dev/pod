@@ -9,10 +9,12 @@ import type {
   Snapshot,
 } from "../domain/config.ts";
 import type { Json } from "../domain/json.ts";
+import type { BriefTree } from "../domain/brief.ts";
 import type {
   Dispatch,
   Event,
   EventType,
+  EvidenceManifest,
   NewEvent,
   NewOperation,
   Operation,
@@ -44,6 +46,11 @@ export interface Repo {
   getTask(taskId: string): Promise<Task | null>;
   insertDispatch(row: Dispatch): Promise<void>;
   getDispatch(dispatchId: string): Promise<Dispatch | null>;
+  insertManifest(
+    row: EvidenceManifest,
+  ): Promise<{ manifest: EvidenceManifest; created: boolean }>;
+  getManifest(id: string): Promise<EvidenceManifest | null>;
+  readBrief(externalId: string | null): Promise<BriefTree>;
   appendEvent(row: NewEvent): Promise<Event>;
   firstEvent(runId: string, types: readonly EventType[]): Promise<Event | null>;
   insertOperation(

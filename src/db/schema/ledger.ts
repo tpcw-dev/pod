@@ -73,6 +73,24 @@ export const task = ledger.table("task", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
 });
 
+export const evidenceManifest = ledger.table(
+  "evidence_manifest",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => run.runId),
+    taskId: text("task_id").references(() => task.taskId),
+    decisionId: text("decision_id"),
+    parentId: text("parent_id"),
+    references: jsonb("references").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.parentId], foreignColumns: [t.id] }),
+  ],
+);
+
 export const operation = ledger.table(
   "operation",
   {
@@ -120,6 +138,7 @@ export const dispatch = ledger.table(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     settledAt: timestamp("settled_at", { withTimezone: true }),
     activity: text("activity").notNull(),
+    manifestId: text("manifest_id").references(() => evidenceManifest.id),
     executionBackend: text("execution_backend"),
     ownerHost: text("owner_host"),
     externalExecutionId: text("external_execution_id"),

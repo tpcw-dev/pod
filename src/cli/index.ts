@@ -47,6 +47,7 @@ function parse() {
         "op-key": { type: "string" },
         reason: { type: "string" },
         out: { type: "string" },
+        html: { type: "string" },
       },
       strict: true,
       allowPositionals: true,
@@ -65,11 +66,21 @@ async function main(): Promise<void> {
     help();
     return;
   }
-  const name = positionals.slice(0, 2).join(" ");
-  const verb = verbs.find((item) => item.name === name);
+  const twoWord = positionals.slice(0, 2).join(" ");
+  let verb = verbs.find((item) => item.name === twoWord);
+  let args = positionals.slice(2);
+  if (verb === undefined) {
+    const one = positionals[0];
+    const oneVerb =
+      one === undefined ? undefined : verbs.find((item) => item.name === one);
+    if (oneVerb !== undefined) {
+      verb = oneVerb;
+      args = positionals.slice(1);
+    }
+  }
   if (verb === undefined) throw usageError("usage");
-  const input = verb.input.safeParse({ args: positionals.slice(2), ...flags });
-  if (!input.success) throw usageError(`usage: ${name}`, ["pod --help"]);
+  const input = verb.input.safeParse({ args, ...flags });
+  if (!input.success) throw usageError(`usage: ${verb.name}`, ["pod --help"]);
   const result = verb.output.parse(await verb.handler(input.data, {}));
   write({ ok: true, result, meta: { pod: pkg.version } });
 }
