@@ -299,7 +299,9 @@ export async function retry(
         ? null
         : await tx.getManifest(original.manifest_id);
     const references = [
-      ...References.parse(parent?.references ?? []),
+      ...References.parse(parent?.references ?? []).filter(
+        (reference) => reference.source !== "git_status",
+      ),
       gitStatusReference(input.gitStatus, now),
     ];
     const { manifest } = await recordManifest(tx, {

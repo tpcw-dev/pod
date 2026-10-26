@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { z } from "zod";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
 import {
@@ -297,6 +298,36 @@ describeDb("pod retry", () => {
     });
     expect(await taskState(conn, "task_b")).toBe("hold");
     expect((await conn.db.getOperation("k-unknown"))?.status).toBe("unknown");
+  });
+
+  test("a retry of a retried Dispatch shows only the newest git status", async () => {
+    const first = await run([ok("worker-start", started("ctx_2"), retryArgv)]);
+    expect(first.ok).toBe(true);
+    await conn.sql`
+      update ledger.dispatch set activity = 'settled', settlement = 'stopped', settled_at = now()
+      where dispatch_id = 'ctx_2'`;
+    await conn.sql`update ledger.task set state = 'blocked' where task_id = 'task_b'`;
+    const newer = "## main...origin/main\n M src/b.ts";
+    const second = await run(
+      [
+        ok("worker-start", started("ctx_3"), [
+          ...retryArgv.slice(0, -1),
+          "ctx_2",
+        ]),
+      ],
+      { dispatch: "ctx_2", gitStatus: newer },
+    );
+    if (!second.ok) throw new Error(second.refusal.message);
+    expect(second.result.task_view.startsWith(newer)).toBe(true);
+    expect(second.result.task_view).not.toContain("src/a.ts");
+    const manifest = await conn.db.getManifest(second.result.manifest_id);
+    expect(
+      z
+        .array(z.looseObject({ source: z.string(), excerpt: z.string() }))
+        .parse(manifest?.references)
+        .filter((row) => row.source === "git_status")
+        .map((row) => row.excerpt),
+    ).toEqual([newer]);
   });
 
   test("retryPlan returns the path after the first ::", async () => {
