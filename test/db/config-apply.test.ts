@@ -1,0 +1,311 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, expect, test } from "vitest";
+import type { Connection } from "../../src/adapters/postgres/connection.ts";
+import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+
+const dir = mkdtempSync(join(tmpdir(), "pod-apply-"));
+
+function file(name: string, text: string): string {
+  const path = join(dir, name);
+  writeFileSync(path, text);
+  return path;
+}
+
+const v1 = file(
+  "v1.yaml",
+  "kind: process\nname: demo\nschema_version: 1\nvalue:\n  steps: [a, b]\n",
+);
+const v2 = file(
+  "v2.yaml",
+  "kind: process\nname: demo\nschema_version: 1\nvalue:\n  steps: [a, b, c]\n",
+);
+const v3 = file(
+  "v3.yaml",
+  "kind: process\nname: demo\nschema_version: 1\nvalue:\n  steps: [c]\n",
+);
+
+describeDb("pod config apply and export", () => {
+  let db: Connection;
+  let v1Id = "";
+  let v2Id = "";
+
+  beforeAll(async () => {
+    await resetDb();
+    db = openDb();
+  });
+  afterAll(() => db.close());
+
+  async function operationStatus(opKey: string): Promise<string | undefined> {
+    const rows = await db.sql<
+      { status: string }[]
+    >`select status from ledger.operation where op_key = ${opKey}`;
+    return rows[0]?.status;
+  }
+
+  test("an apply returns kind.name@rev", () => {
+    const result = runCli(["config", "apply", v1]);
+    expect(result).toMatchObject({
+      status: 0,
+      json: {
+        ok: true,
+        result: {
+          ref: "process.demo@1",
+          rev: 1,
+          created: true,
+          activation: null,
+        },
+      },
+    });
+    v1Id = String(result.json.result?.["id"]);
+    expect(v1Id).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("the same file again returns the same id and rev", () => {
+    expect(runCli(["config", "apply", v1]).json.result).toMatchObject({
+      id: v1Id,
+      rev: 1,
+      created: false,
+    });
+  });
+
+  test("an export applies again to the same id and rev", () => {
+    const out = join(dir, "export.yaml");
+    expect(
+      runCli(["config", "export", "process.demo@1", "--out", out]).json,
+    ).toMatchObject({
+      ok: true,
+      result: { ref: "process.demo@1", id: v1Id, out },
+    });
+    expect(runCli(["config", "apply", out]).json.result).toMatchObject({
+      id: v1Id,
+      rev: 1,
+      created: false,
+    });
+  });
+
+  test("an export of an unknown ref is revision_not_found", () => {
+    const result = runCli([
+      "config",
+      "export",
+      "process.demo@9",
+      "--out",
+      join(dir, "none.yaml"),
+    ]);
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("revision_not_found");
+  });
+
+  test("a first activation records the operation and the activation event", async () => {
+    const result = runCli([
+      "config",
+      "apply",
+      v1,
+      "--activate",
+      "--scope",
+      "global",
+      "--expected-revision",
+      "none",
+    ]);
+    expect(result.status).toBe(0);
+    const activation = result.json.result?.["activation"] as { op_key: string };
+    expect(activation).toMatchObject({
+      revision_id: v1Id,
+      previous_revision_id: null,
+      bundle_id: null,
+    });
+    expect(await operationStatus(activation.op_key)).toBe("done");
+    const events =
+      await db.sql`select host, payload, source from ledger.event where op_key = ${activation.op_key}`;
+    expect(events).toEqual([
+      {
+        host: "local",
+        payload: {
+          scope: "global",
+          scope_ref: "",
+          kind: "process",
+          name: "demo",
+          revision_id: v1Id,
+          previous_revision_id: null,
+          bundle_id: null,
+        },
+        source: { kind: "command", verb: "config apply" },
+      },
+    ]);
+    const again = runCli([
+      "config",
+      "apply",
+      v1,
+      "--activate",
+      "--scope",
+      "global",
+      "--expected-revision",
+      "none",
+    ]);
+    expect(again.json.result).toEqual(result.json.result);
+  });
+
+  test("a second none is revision_conflict and leaves a refused operation", async () => {
+    const result = runCli([
+      "config",
+      "apply",
+      v2,
+      "--activate",
+      "--scope",
+      "global",
+      "--expected-revision",
+      "none",
+    ]);
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("revision_conflict");
+    expect(result.json.error?.nextSteps[0]).toBe(
+      "pod config export process.demo@1 --out FILE",
+    );
+    const rows = await db.sql<
+      { status: string }[]
+    >`select status from ledger.operation where status = 'refused'`;
+    expect(rows).toHaveLength(1);
+  });
+
+  test("an activation with the active id moves forward", () => {
+    const result = runCli([
+      "config",
+      "apply",
+      v2,
+      "--activate",
+      "--scope",
+      "global",
+      "--expected-revision",
+      v1Id,
+    ]);
+    expect(result.status).toBe(0);
+    v2Id = String(result.json.result?.["id"]);
+    expect(result.json.result).toMatchObject({
+      ref: "process.demo@2",
+      activation: { revision_id: v2Id, previous_revision_id: v1Id },
+    });
+  });
+
+  test("a stale expected revision is revision_conflict and leaves a refused operation", async () => {
+    const result = runCli([
+      "config",
+      "apply",
+      v3,
+      "--activate",
+      "--scope",
+      "global",
+      "--expected-revision",
+      v1Id,
+    ]);
+    expect(result.status).toBe(3);
+    expect(result.json.error).toMatchObject({
+      code: "revision_conflict",
+      nextSteps: [
+        "pod config export process.demo@2 --out FILE",
+        `pod config apply ${v3} --activate --scope global --expected-revision ${v2Id}`,
+      ],
+    });
+    const rows =
+      await db.sql`select status from ledger.operation where status = 'refused'`;
+    expect(rows).toHaveLength(2);
+    const [active] = await db.sql<
+      { revision_id: string }[]
+    >`select revision_id from config.activation`;
+    expect(active?.revision_id).toBe(v2Id);
+  });
+
+  test("an op key another intent holds is duplicate_op", async () => {
+    await db.sql`insert into ledger.operation (op_key, intent, status, owner_generation, created_at, updated_at)
+      values ('taken', 'drain', 'done', 1, now(), now())`;
+    const result = runCli([
+      "config",
+      "apply",
+      v3,
+      "--activate",
+      "--scope",
+      "global",
+      "--expected-revision",
+      v2Id,
+      "--op-key",
+      "taken",
+    ]);
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("duplicate_op");
+  });
+
+  test("an envelope missing kind is schema_invalid at kind", () => {
+    const path = file(
+      "nokind.yaml",
+      "name: demo\nschema_version: 1\nvalue: {}\n",
+    );
+    const result = runCli(["config", "apply", path]);
+    expect(result.status).toBe(2);
+    expect(result.json.error?.code).toBe("schema_invalid");
+    expect(result.json.error?.nextSteps[0]).toMatch(/^kind: /);
+  });
+
+  test("an unknown parent is schema_invalid at parent", () => {
+    const path = file(
+      "orphan.yaml",
+      `kind: process\nname: demo\nschema_version: 1\nparent: "${"0".repeat(64)}"\nvalue: {}\n`,
+    );
+    const result = runCli(["config", "apply", path]);
+    expect(result.status).toBe(2);
+    expect(result.json.error?.code).toBe("schema_invalid");
+    expect(result.json.error?.nextSteps[0]).toMatch(/^parent: /);
+  });
+
+  test("a duplicate key is schema_invalid", () => {
+    const path = file(
+      "dup.yaml",
+      "kind: process\nkind: crew\nname: demo\nschema_version: 1\nvalue: {}\n",
+    );
+    expect(runCli(["config", "apply", path])).toMatchObject({
+      status: 2,
+      json: { error: { code: "schema_invalid" } },
+    });
+  });
+
+  test("flags that disagree are usage", () => {
+    for (const args of [
+      ["config", "apply", v1, "--expected-revision", "none"],
+      ["config", "apply", v1, "--activate", "--scope", "global"],
+      [
+        "config",
+        "apply",
+        v1,
+        "--activate",
+        "--scope",
+        "project:p1",
+        "--expected-revision",
+        "none",
+      ],
+      [
+        "config",
+        "apply",
+        v1,
+        "--activate",
+        "--scope",
+        "global",
+        "--expected-revision",
+        "abc",
+      ],
+      ["config", "apply", v1, "--out", "x"],
+      ["config", "export", "process.demo", "--out", "x"],
+    ]) {
+      expect(runCli(args), args.join(" ")).toMatchObject({
+        status: 2,
+        json: { error: { code: "usage" } },
+      });
+    }
+  });
+
+  test("a raw UPDATE on a Revision raises", async () => {
+    await expect(
+      db.sql`update config.revision set reason = 'edited' where id = ${v1Id}`,
+    ).rejects.toMatchObject({
+      code: "P0001",
+    });
+  });
+});

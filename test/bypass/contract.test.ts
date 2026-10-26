@@ -19,9 +19,9 @@ const sideEffectVerbs = [
 ] as const;
 
 const expectedVerbs = [
-  { story: "S2", name: "db migrate", status: "todo" },
-  { story: "S2", name: "config apply", status: "todo" },
-  { story: "S2", name: "config export", status: "todo" },
+  { story: "S2", name: "db migrate", status: "done" },
+  { story: "S2", name: "config apply", status: "done" },
+  { story: "S2", name: "config export", status: "done" },
   { story: "S3", name: "run create", status: "todo" },
   { story: "S3", name: "dispatch", status: "todo" },
   { story: "S3", name: "check", status: "todo" },
