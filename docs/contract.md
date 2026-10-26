@@ -8,6 +8,10 @@ Spec clarification: a Cancel by cell holds only operator, coordinator, and nobod
 Spec clarification: the bypass paragraphs are lines 744, 746, and 748 of docs/tech-spec.md at 6a7fec0. Lines 745, 747, and 749 are blank. The contract test pins 744, 746, and 748.
 Spec clarification: S2 enforces the config apply envelope and CAS; the Role and gate id checks land with S5, S8, and S13.
 Spec clarification: S4 registers brief with side effect none, so it stays out of the side-effect table; its Cancel by is nobody for the spec's not applicable.
+Spec clarification: S3a makes the registry's cancelBy an array, because dispatch is cancelled by coordinator, operator. pod --help prints the array, and the contract test compares it joined with ", " against the Cancel by cell.
+Spec clarification: S3a takes --size and --stage on pod run create in place of the tracker read, until S6 reads the Story through a TrackerPort and keeps both flags as overrides. A missing --size or --stage is selector_none.
+Spec clarification: S3a reads the Run's coordinator from POD_COORDINATOR. pod run create exits usage when it is unset.
+Spec clarification: S3a records a dispatch refusal at steps 1 and 3 to 7 under its op key, as the spec's refused status requires, so a key-less pod dispatch for the same Task and Seat replays the refusal. After a transient quota_exhausted or drained, the caller passes a new --op-key; S3b's pod check --wait decides whether it derives the next attempt key.
 
 ## Authority
 

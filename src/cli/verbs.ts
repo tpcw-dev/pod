@@ -9,6 +9,15 @@ import {
 } from "./config-verbs.ts";
 import { BriefInput, BriefOutput, brief } from "./brief.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
+import {
+  DispatchInput,
+  DispatchOutput,
+  dispatchVerb,
+  RunCreateInput,
+  RunCreateOutput,
+  runCreateVerb,
+  runMeta,
+} from "./run-verbs.ts";
 
 export type VerbContext = Record<string, never>;
 
@@ -18,14 +27,19 @@ export interface VerbRow<I, O> {
   output: ZodType<O>;
   handler: (input: I, ctx: VerbContext) => Promise<O>;
   sideEffect: "none" | "config" | "ledger" | "orca" | "tracker";
-  cancelBy: "operator" | "coordinator" | "nobody";
+  cancelBy: readonly ("operator" | "coordinator" | "nobody")[];
   evidenceRequired: readonly string[];
+  meta?: (output: O) => Record<string, unknown>;
 }
 
 function row<I, O>(verb: VerbRow<I, O>): VerbRow<unknown, unknown> {
+  const { meta, handler, ...rest } = verb;
   return {
-    ...verb,
-    handler: (input, ctx) => verb.handler(verb.input.parse(input), ctx),
+    ...rest,
+    handler: (input, ctx) => handler(verb.input.parse(input), ctx),
+    ...(meta === undefined
+      ? {}
+      : { meta: (output: unknown) => meta(verb.output.parse(output)) }),
   };
 }
 
@@ -36,7 +50,7 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     output: BriefOutput,
     handler: brief,
     sideEffect: "none",
-    cancelBy: "nobody",
+    cancelBy: ["nobody"],
     evidenceRequired: [
       "a Story whose external_id matches story:<id> when that argument is set",
     ],
@@ -47,7 +61,7 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     output: ConfigApplyOutput,
     handler: configApply,
     sideEffect: "config",
-    cancelBy: "nobody",
+    cancelBy: ["nobody"],
     evidenceRequired: [
       "a file that passes its schema, every Role filled and every gate id present when the kind is process, and `expected_revision` equal to the active Revision when `--activate` is set",
     ],
@@ -58,7 +72,7 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     output: ConfigExportOutput,
     handler: configExport,
     sideEffect: "none",
-    cancelBy: "nobody",
+    cancelBy: ["nobody"],
     evidenceRequired: ["a Revision named by kind.name@rev"],
   }),
   row({
@@ -67,9 +81,33 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     output: DbMigrateOutput,
     handler: dbMigrate,
     sideEffect: "config",
-    cancelBy: "nobody",
+    cancelBy: ["nobody"],
     evidenceRequired: [
       "a reachable database and a `db/migrations/` journal that matches the applied-migrations table",
     ],
+  }),
+  row({
+    name: "run create",
+    input: RunCreateInput,
+    output: RunCreateOutput,
+    handler: runCreateVerb,
+    sideEffect: "orca",
+    cancelBy: ["operator"],
+    evidenceRequired: [
+      "a groomed Story with a size and a stage, and exactly one selected process Revision",
+    ],
+    meta: runMeta,
+  }),
+  row({
+    name: "dispatch",
+    input: DispatchInput,
+    output: DispatchOutput,
+    handler: dispatchVerb,
+    sideEffect: "orca",
+    cancelBy: ["coordinator", "operator"],
+    evidenceRequired: [
+      'Task state `ready`, every dependency satisfied as "Task states" defines, a free quota slot, which on an xl Run counts the coordinator\'s slot as released by the dispatch transaction, an authorized Seat for the Role, reviewer independent of developer, no drain in force',
+    ],
+    meta: runMeta,
   }),
 ];

@@ -29,6 +29,13 @@ jobs:
       - uses: jdx/mise-action@v5.2.2
       - run: pg_dump --version
       - run: pnpm install --frozen-lockfile
+      - name: scope scan
+        env:
+          DENYLIST: ${{ secrets.POD_SCRUB_DENYLIST }}
+        run: |
+          printf '%s\n' "$DENYLIST" | grep -v '^[[:space:]]*$' > "$RUNNER_TEMP/denylist" || true
+          test -s "$RUNNER_TEMP/denylist" || { echo "POD_SCRUB_DENYLIST is empty"; exit 1; }
+          if grep -rlwiF -f "$RUNNER_TEMP/denylist" fixtures docs src/db/schema; then exit 1; fi
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   Kind,
@@ -37,15 +37,8 @@ import * as configSchema from "../../db/schema/config.ts";
 import * as ledgerSchema from "../../db/schema/ledger.ts";
 
 const { activation, revision, snapshot } = configSchema;
-const {
-  dispatch,
-  event,
-  evidenceManifest,
-  operation,
-  run,
-  story,
-  task,
-} = ledgerSchema;
+const { dispatch, event, evidenceManifest, operation, run, story, task } =
+  ledgerSchema;
 
 type Database = PostgresJsDatabase<Record<string, never>>;
 type Executor = Pick<Database, "select" | "insert" | "update" | "execute">;
@@ -104,7 +97,9 @@ function toEvent(row: typeof event.$inferSelect): Event {
   };
 }
 
-function toManifest(row: typeof evidenceManifest.$inferSelect): EvidenceManifest {
+function toManifest(
+  row: typeof evidenceManifest.$inferSelect,
+): EvidenceManifest {
   return {
     id: row.id,
     run_id: row.runId,
@@ -113,6 +108,41 @@ function toManifest(row: typeof evidenceManifest.$inferSelect): EvidenceManifest
     parent_id: row.parentId,
     references: json(row.references),
     created_at: row.createdAt,
+  };
+}
+
+function toTask(row: typeof task.$inferSelect): Task {
+  return {
+    task_id: row.taskId,
+    run_id: row.runId,
+    step_id: row.stepId,
+    lineage_id: row.lineageId,
+    role: row.role,
+    deps: json(row.deps),
+    spec_revision_id: row.specRevisionId,
+    state: row.state,
+    created_at: row.createdAt,
+  };
+}
+
+function toDispatch(row: typeof dispatch.$inferSelect): Dispatch {
+  return {
+    dispatch_id: row.dispatchId,
+    task_id: row.taskId,
+    run_id: row.runId,
+    seat: row.seat,
+    role: row.role,
+    requested_launch: json(row.requestedLaunch),
+    effective_launch: jsonOrNull(row.effectiveLaunch),
+    model_attribution: ModelAttribution.parse(row.modelAttribution),
+    retry_of: row.retryOf,
+    op_key: row.opKey,
+    settlement: row.settlement,
+    terminal_handle: row.terminalHandle,
+    created_at: row.createdAt,
+    settled_at: row.settledAt,
+    activity: Activity.parse(row.activity),
+    manifest_id: row.manifestId,
   };
 }
 
@@ -195,6 +225,21 @@ function makeRepo(x: Executor): Repo {
         .from(activation)
         .where(activationWhere(key));
       return row === undefined ? null : toActivation(row);
+    },
+
+    async listActivations(kind, scope, scopeRef) {
+      const rows = await x
+        .select()
+        .from(activation)
+        .where(
+          and(
+            eq(activation.kind, kind),
+            eq(activation.scope, scope),
+            eq(activation.scopeRef, scopeRef),
+          ),
+        )
+        .orderBy(asc(activation.name));
+      return rows.map(toActivation);
     },
 
     async activate(input: ActivateInput): Promise<ActivateResult> {
@@ -342,6 +387,10 @@ function makeRepo(x: Executor): Repo {
       };
     },
 
+    async setRunState(runId, state) {
+      await x.update(run).set({ state }).where(eq(run.runId, runId));
+    },
+
     async insertTask(row: Task) {
       await x.insert(task).values({
         taskId: row.task_id,
@@ -358,18 +407,20 @@ function makeRepo(x: Executor): Repo {
 
     async getTask(taskId) {
       const [row] = await x.select().from(task).where(eq(task.taskId, taskId));
-      if (row === undefined) return null;
-      return {
-        task_id: row.taskId,
-        run_id: row.runId,
-        step_id: row.stepId,
-        lineage_id: row.lineageId,
-        role: row.role,
-        deps: json(row.deps),
-        spec_revision_id: row.specRevisionId,
-        state: row.state,
-        created_at: row.createdAt,
-      };
+      return row === undefined ? null : toTask(row);
+    },
+
+    async listTasks(runId) {
+      const rows = await x
+        .select()
+        .from(task)
+        .where(eq(task.runId, runId))
+        .orderBy(asc(task.createdAt), asc(task.taskId));
+      return rows.map(toTask);
+    },
+
+    async setTaskState(taskId, state) {
+      await x.update(task).set({ state }).where(eq(task.taskId, taskId));
     },
 
     async insertDispatch(row: Dispatch) {
@@ -398,25 +449,31 @@ function makeRepo(x: Executor): Repo {
         .select()
         .from(dispatch)
         .where(eq(dispatch.dispatchId, dispatchId));
-      if (row === undefined) return null;
-      return {
-        dispatch_id: row.dispatchId,
-        task_id: row.taskId,
-        run_id: row.runId,
-        seat: row.seat,
-        role: row.role,
-        requested_launch: json(row.requestedLaunch),
-        effective_launch: jsonOrNull(row.effectiveLaunch),
-        model_attribution: ModelAttribution.parse(row.modelAttribution),
-        retry_of: row.retryOf,
-        op_key: row.opKey,
-        settlement: row.settlement,
-        terminal_handle: row.terminalHandle,
-        created_at: row.createdAt,
-        settled_at: row.settledAt,
-        activity: Activity.parse(row.activity),
-        manifest_id: row.manifestId,
-      };
+      return row === undefined ? null : toDispatch(row);
+    },
+
+    async listDispatches(runId) {
+      const rows = await x
+        .select()
+        .from(dispatch)
+        .where(eq(dispatch.runId, runId))
+        .orderBy(asc(dispatch.dispatchId));
+      return rows.map(toDispatch);
+    },
+
+    async hostActivities(host) {
+      const rows = await x
+        .select({ activity: dispatch.activity })
+        .from(dispatch)
+        .innerJoin(run, eq(run.runId, dispatch.runId))
+        .where(eq(run.host, host));
+      return rows.map((row) => Activity.parse(row.activity));
+    },
+
+    async lockQuota(host) {
+      await x.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`quota:${host}`}))`,
+      );
     },
 
     async insertManifest(row: EvidenceManifest) {
@@ -522,35 +579,8 @@ function makeRepo(x: Executor): Repo {
                     process: await repo.getRevision(snap.process_revision_id),
                     policy: await repo.getRevision(snap.policy_revision_id),
                   },
-            tasks: taskRows.map((item) => ({
-              task_id: item.taskId,
-              run_id: item.runId,
-              step_id: item.stepId,
-              lineage_id: item.lineageId,
-              role: item.role,
-              deps: json(item.deps),
-              spec_revision_id: item.specRevisionId,
-              state: item.state,
-              created_at: item.createdAt,
-            })),
-            dispatches: dispatchRows.map((item) => ({
-              dispatch_id: item.dispatchId,
-              task_id: item.taskId,
-              run_id: item.runId,
-              seat: item.seat,
-              role: item.role,
-              requested_launch: json(item.requestedLaunch),
-              effective_launch: jsonOrNull(item.effectiveLaunch),
-              model_attribution: ModelAttribution.parse(item.modelAttribution),
-              retry_of: item.retryOf,
-              op_key: item.opKey,
-              settlement: item.settlement,
-              terminal_handle: item.terminalHandle,
-              created_at: item.createdAt,
-              settled_at: item.settledAt,
-              activity: Activity.parse(item.activity),
-              manifest_id: item.manifestId,
-            })),
+            tasks: taskRows.map(toTask),
+            dispatches: dispatchRows.map(toDispatch),
           });
         }
         stories.push({ story: storyRow, runs });
@@ -588,6 +618,16 @@ function makeRepo(x: Executor): Repo {
       return row === undefined ? null : toEvent(row);
     },
 
+    async latestEvent(runId, type) {
+      const [row] = await x
+        .select()
+        .from(event)
+        .where(and(eq(event.runId, runId), eq(event.type, type)))
+        .orderBy(desc(event.ts), desc(event.id))
+        .limit(1);
+      return row === undefined ? null : toEvent(row);
+    },
+
     async insertOperation(row: NewOperation) {
       const inserted = await x
         .insert(operation)
@@ -596,7 +636,7 @@ function makeRepo(x: Executor): Repo {
           intent: row.intent,
           status: "pending",
           ownerGeneration: row.owner_generation,
-          resultRef: null,
+          resultRef: row.result_ref ?? null,
           createdAt: row.at,
           updatedAt: row.at,
         })
@@ -617,6 +657,31 @@ function makeRepo(x: Executor): Repo {
         .from(operation)
         .where(eq(operation.opKey, opKey));
       return row === undefined ? null : toOperation(row);
+    },
+
+    async launchReservations(intents) {
+      return x
+        .select({
+          op_key: operation.opKey,
+          intent: operation.intent,
+          status: operation.status,
+          result_ref: operation.resultRef,
+        })
+        .from(operation)
+        .where(
+          and(
+            inArray(operation.intent, [...intents]),
+            inArray(operation.status, ["pending", "unknown"]),
+          ),
+        )
+        .then((rows) =>
+          rows.map((row) => ({
+            op_key: row.op_key,
+            intent: Intent.parse(row.intent),
+            status: OperationStatus.parse(row.status),
+            result_ref: jsonOrNull(row.result_ref),
+          })),
+        );
     },
 
     async moveOperation(opKey, to, resultRef, at) {
