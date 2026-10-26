@@ -1,0 +1,5 @@
+kind: policy
+name: stale-dispatch-id
+schema_version: 1
+value:
+  gates: []

@@ -1,0 +1,15 @@
+kind: crew
+name: capacity-1
+schema_version: 1
+value:
+  seats:
+    - id: rec-a
+      roles: [developer]
+      runtime: claude
+      model: claude-haiku-4-5-20251001
+      effort: low
+    - id: rec-b
+      roles: [developer]
+      runtime: claude
+      model: claude-haiku-4-5-20251001
+      effort: low

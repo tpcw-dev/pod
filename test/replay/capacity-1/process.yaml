@@ -1,0 +1,11 @@
+kind: process
+name: capacity-1
+schema_version: 1
+value:
+  steps:
+    - id: build-a
+      role: developer
+      spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.
+    - id: build-b
+      role: developer
+      spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.

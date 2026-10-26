@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_4b2a6c32867e",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"49bc2ffd-f63c-4ac9-96ee-35e639710e0e\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_4b2a6c32867e\",\n    \"deliveryId\": \"delivery_1530147b7b25\",\n    \"messages\": [\n      {\n        \"id\": \"msg_c8acdd73eec6\",\n        \"run_id\": \"run_4b2a6c32867e\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_7577f610-d155-4f98-8d29-ccc509656c35\",\n        \"to_handle\": \"run:run_4b2a6c32867e\",\n        \"subject\": \"Orca worker initialization\",\n        \"body\": \"Received and understood the Orca dispatched worker preamble and task instructions. Confirmed command format and communication protocol for coordinator interaction. Task complete.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_e2eb775f72a6\\\",\\\"dispatchId\\\":\\\"ctx_c8539470d1cd\\\",\\\"outcome\\\":\\\"succeeded\\\"}\",\n        \"created_at\": \"2026-10-26T15:05:13Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"7ef6b7ea-6f92-442f-b887-bf0ff2f8185e\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-26T15:05:26.640Z"
+}
