@@ -47,6 +47,8 @@ export interface DispatchResult {
 
 const satisfied = ["passed", "done"];
 
+const DrainEnded = z.looseObject({ ended: z.literal(true) });
+
 const Recorded = z.looseObject({
   request: z.looseObject({ task_id: z.string(), seat: z.string() }),
   result: z.looseObject({}).optional(),
@@ -58,7 +60,7 @@ const Recorded = z.looseObject({
 type Gate =
   | { kind: "refused"; refusal: Refusal }
   | { kind: "existing"; operation: Operation }
-  | { kind: "launch"; manifestId: string };
+  | { kind: "launch"; manifestId: string; seat: Seat };
 
 interface Checked {
   run: Run;
@@ -70,17 +72,11 @@ async function precondition(
   tx: Repo,
   input: DispatchInput,
   checked: Checked,
-): Promise<Refusal | null> {
+): Promise<{ refusal: Refusal } | { seat: Seat }> {
   const { run, task, seat } = checked;
   const drain = await tx.latestEvent(run.run_id, "drain");
-  const ended =
-    drain !== null &&
-    typeof drain.payload === "object" &&
-    drain.payload !== null &&
-    !Array.isArray(drain.payload) &&
-    drain.payload["ended"] === true;
-  if (drain !== null && !ended)
-    return refusal("drained", `a drain is in force on Run ${run.run_id}`, [
+  if (drain !== null && !DrainEnded.safeParse(drain.payload).success)
+    return stopWith("drained", `a drain is in force on Run ${run.run_id}`, [
       "pod check",
       "pod release",
     ]);
@@ -91,18 +87,33 @@ async function precondition(
       unmet.push(`dependency ${dep} is ${row?.state ?? "missing"}`);
   }
   const blocked = await runBlocked(tx, run.run_id);
-  if (task.state !== "ready" || unmet.length > 0 || run.state !== "active" || blocked !== null)
-    return refusal("task_not_ready", `Task ${task.task_id} is not ready to dispatch`, [
-      `Task state ${task.state}`,
-      `Run state ${run.state}`,
-      ...unmet,
-      ...(blocked === null ? [] : [`Run blocked by a ${blocked.type} event`]),
-    ]);
+  if (
+    task.state !== "ready" ||
+    unmet.length > 0 ||
+    run.state !== "active" ||
+    blocked !== null
+  )
+    return stopWith(
+      "task_not_ready",
+      `Task ${task.task_id} is not ready to dispatch`,
+      [
+        `Task state ${task.state}`,
+        `Run state ${run.state}`,
+        ...unmet,
+        ...(blocked === null ? [] : [`Run blocked by a ${blocked.type} event`]),
+      ],
+    );
   const reservations = await tx.launchReservations(launchIntents);
-  const slots = freeSlots(input.capacity, await tx.hostActivities(input.host), reservations);
+  const slots = freeSlots(
+    input.capacity,
+    await tx.hostActivities(input.host),
+    reservations,
+  );
   if (slots < 1)
-    return refusal("quota_exhausted", `no free slot on host ${input.host}`, [
-      ...reservations.map((row) => `reservation ${row.op_key} is ${row.status}`),
+    return stopWith("quota_exhausted", `no free slot on host ${input.host}`, [
+      ...reservations.map(
+        (row) => `reservation ${row.op_key} is ${row.status}`,
+      ),
       "running Dispatches on this host hold the rest",
       "pod check --wait",
     ]);
@@ -111,30 +122,50 @@ async function precondition(
     !seat.roles.includes(task.role) ||
     (seat.host !== undefined && seat.host !== input.host)
   )
-    return refusal("role_unfilled", `Seat ${input.seat} cannot fill role ${task.role} on host ${input.host}`, [
-      `role ${task.role}`,
-      "pod config apply crew.yaml with a Seat that fills it",
-    ]);
+    return stopWith(
+      "role_unfilled",
+      `Seat ${input.seat} cannot fill role ${task.role} on host ${input.host}`,
+      [
+        `role ${task.role}`,
+        "pod config apply crew.yaml with a Seat that fills it",
+      ],
+    );
   if (task.role === "reviewer") {
     const held = (await tx.listDispatches(run.run_id)).filter(
       (row) => row.seat === input.seat && row.role === "developer",
     );
     if (held.length > 0)
-      return refusal(
+      return stopWith(
         "reviewer_not_independent",
         `Seat ${input.seat} holds a developer Dispatch in Run ${run.run_id}`,
-        [`Seat ${input.seat}`, ...held.map((row) => `Dispatch ${row.dispatch_id}`)],
+        [
+          `Seat ${input.seat}`,
+          ...held.map((row) => `Dispatch ${row.dispatch_id}`),
+        ],
       );
   }
-  return null;
+  return { seat };
 }
 
-function refusal(code: RefusalCode, message: string, nextSteps: string[]): Refusal {
+function stopWith(
+  code: RefusalCode,
+  message: string,
+  nextSteps: string[],
+): { refusal: Refusal } {
+  return { refusal: refusal(code, message, nextSteps) };
+}
+
+function refusal(
+  code: RefusalCode,
+  message: string,
+  nextSteps: string[],
+): Refusal {
   return { code, message, nextSteps };
 }
 
 function attribution(result: WorkerStartResult): "receipt" | "unknown" {
-  const model = result.launch?.effective?.model ?? result.launch?.requested?.model;
+  const model =
+    result.launch?.effective?.model ?? result.launch?.requested?.model;
   return typeof model === "string" && model !== "" ? "receipt" : "unknown";
 }
 
@@ -148,9 +179,14 @@ export async function dispatch(
   if (task === null)
     return refuse("task_not_ready", `no Task ${input.task}`, ["pod brief"]);
   const snapshot = await db.getSnapshot(task.run_id);
-  const crew = snapshot === null ? null : await db.getRevision(snapshot.crew_revision_id);
+  const crew =
+    snapshot === null ? null : await db.getRevision(snapshot.crew_revision_id);
   if (snapshot === null || crew === null)
-    return refuse("task_not_ready", `Run ${task.run_id} has no pinned Snapshot`, ["pod brief"]);
+    return refuse(
+      "task_not_ready",
+      `Run ${task.run_id} has no pinned Snapshot`,
+      ["pod brief"],
+    );
   let seats: Seat[];
   try {
     seats = readSeats(crew.value);
@@ -175,7 +211,8 @@ export async function dispatch(
     await tx.lockQuota(input.host);
     const run = await tx.getRun(task.run_id);
     const current = await tx.getTask(task.task_id);
-    if (run === null || current === null) throw new Error(`Run ${task.run_id} vanished`);
+    if (run === null || current === null)
+      throw new Error(`Run ${task.run_id} vanished`);
     const existing = await tx.getOperation(opKey);
     const record = async (found: Refusal): Promise<Gate> => {
       if (existing === null) {
@@ -195,12 +232,14 @@ export async function dispatch(
         refusal(
           "owner_generation_stale",
           `--generation ${input.generation} differs from the Run's owner generation ${run.owner_generation}`,
-          [`pod takeover story:${run.story_external_id} if this session should own the Run`],
+          [
+            `pod takeover story:${run.story_external_id} if this session should own the Run`,
+          ],
         ),
       );
     if (existing !== null) return { kind: "existing", operation: existing };
     const found = await precondition(tx, input, { run, task: current, seat });
-    if (found !== null) return record(found);
+    if ("refusal" in found) return record(found.refusal);
     await tx.insertOperation({
       op_key: opKey,
       intent: "dispatch",
@@ -228,26 +267,35 @@ export async function dispatch(
         revisionReference(policy),
       ],
     });
-    return { kind: "launch", manifestId: manifest.id };
+    return { kind: "launch", manifestId: manifest.id, seat: found.seat };
   });
 
   if (gate.kind === "refused") return { ok: false, refusal: gate.refusal };
-  if (gate.kind === "existing") return replayed(orca, gate.operation, request, input, opKey, version);
-  if (seat === undefined) throw new Error("a launch passed the Seat check without a Seat");
+  if (gate.kind === "existing")
+    return replayed(orca, gate.operation, request, input, opKey, version);
 
+  const { seat: chosen } = gate;
   log.at({ run_id: task.run_id, task_id: task.task_id, op_key: opKey });
   const launch = {
-    agent: seat.runtime,
-    ...(seat.model === undefined ? {} : { model: seat.model }),
-    ...(seat.effort === undefined ? {} : { effort: seat.effort }),
+    agent: chosen.runtime,
+    ...(chosen.model === undefined ? {} : { model: chosen.model }),
+    ...(chosen.effort === undefined ? {} : { effort: chosen.effort }),
     worktree: "current",
   };
-  const receipt = await orca.workerStart({ task: task.task_id, run: task.run_id, ...launch });
+  const receipt = await orca.workerStart({
+    task: task.task_id,
+    run: task.run_id,
+    ...launch,
+  });
   const outcome = launchOutcome(receipt);
   const at = input.now();
   const result = receipt.result;
 
-  if (outcome.kind === "ok" && result !== null && typeof result.dispatchId === "string") {
+  if (
+    outcome.kind === "ok" &&
+    result !== null &&
+    typeof result.dispatchId === "string"
+  ) {
     const dispatchId = result.dispatchId;
     const done: DispatchResult = {
       dispatch_id: dispatchId,
@@ -293,7 +341,11 @@ export async function dispatch(
         task_id: task.task_id,
         dispatch_id: dispatchId,
         op_key: opKey,
-        payload: { seat: input.seat, role: task.role, manifest_id: gate.manifestId },
+        payload: {
+          seat: input.seat,
+          role: task.role,
+          manifest_id: gate.manifestId,
+        },
         source: { kind: "command", verb: "dispatch" },
       });
     });
@@ -334,10 +386,11 @@ export async function dispatch(
       source: { kind: "command", verb: "dispatch" },
     });
   });
-  return refuse("launch_unknown", `worker-start for Task ${task.task_id} has no known outcome`, [
-    input.command(opKey),
-    "pod check",
-  ]);
+  return refuse(
+    "launch_unknown",
+    `worker-start for Task ${task.task_id} has no known outcome`,
+    [input.command(opKey), "pod check"],
+  );
 }
 
 async function replayed(
@@ -355,9 +408,11 @@ async function replayed(
     ref.data.request.task_id !== request.task_id ||
     ref.data.request.seat !== request.seat
   )
-    return refuse("duplicate_op", `op key ${opKey} belongs to another intent or request`, [
-      "pass a new --op-key, with retry_of for a retry",
-    ]);
+    return refuse(
+      "duplicate_op",
+      `op key ${opKey} belongs to another intent or request`,
+      ["pass a new --op-key, with retry_of for a retry"],
+    );
   if (operation.status === "unknown" || operation.status === "pending")
     return stopOnOpen(orca, operation, input.command(opKey));
   if (operation.status === "refused")
@@ -379,6 +434,10 @@ async function replayed(
     })
     .safeParse(ref.data.result);
   if (!done.success)
-    return refuse("failed", `worker-start under op key ${opKey} failed before`, ["pod check"]);
+    return refuse(
+      "failed",
+      `worker-start under op key ${opKey} failed before`,
+      ["pod check"],
+    );
   return { ok: true, result: done.data, opKey, orca: version };
 }

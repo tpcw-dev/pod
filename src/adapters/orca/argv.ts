@@ -11,7 +11,10 @@ import type {
   WorkerStopRequest,
 } from "../../core/ports/orca.ts";
 
-type Flag = readonly [string, string | readonly string[] | boolean | number | undefined];
+type Flag = readonly [
+  string,
+  string | readonly string[] | boolean | number | undefined,
+];
 
 function flags(verb: string, pairs: readonly Flag[]): string[] {
   const argv = ["orchestration", verb];

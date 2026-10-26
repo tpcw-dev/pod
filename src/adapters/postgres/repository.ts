@@ -37,15 +37,8 @@ import * as configSchema from "../../db/schema/config.ts";
 import * as ledgerSchema from "../../db/schema/ledger.ts";
 
 const { activation, revision, snapshot } = configSchema;
-const {
-  dispatch,
-  event,
-  evidenceManifest,
-  operation,
-  run,
-  story,
-  task,
-} = ledgerSchema;
+const { dispatch, event, evidenceManifest, operation, run, story, task } =
+  ledgerSchema;
 
 type Database = PostgresJsDatabase<Record<string, never>>;
 type Executor = Pick<Database, "select" | "insert" | "update" | "execute">;
@@ -104,7 +97,9 @@ function toEvent(row: typeof event.$inferSelect): Event {
   };
 }
 
-function toManifest(row: typeof evidenceManifest.$inferSelect): EvidenceManifest {
+function toManifest(
+  row: typeof evidenceManifest.$inferSelect,
+): EvidenceManifest {
   return {
     id: row.id,
     run_id: row.runId,

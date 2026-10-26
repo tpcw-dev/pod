@@ -31,7 +31,10 @@ const input: RunCreateInput = {
 
 const happy: TempEntry[] = [
   ok("run-create", { run: { id: "run_1" } }),
-  ok("task-create", { task: { id: "task_b", status: "ready" } }, ["--run", "run_1"]),
+  ok("task-create", { task: { id: "task_b", status: "ready" } }, [
+    "--run",
+    "run_1",
+  ]),
   ok("task-create", { task: { id: "task_r", status: "pending" } }, [
     "--run",
     "run_1",
@@ -57,12 +60,18 @@ describeDb("pod run create", () => {
     return { orca, log };
   }
 
-  async function create(orca: OrcaPort, log = receiptLog(conn.db, "local"), over: Partial<RunCreateInput> = {}) {
+  async function create(
+    orca: OrcaPort,
+    log = receiptLog(conn.db, "local"),
+    over: Partial<RunCreateInput> = {},
+  ) {
     return runCreate(conn.db, orca, log, { ...input, ...over });
   }
 
   async function events(type: string) {
-    const rows = await conn.sql<{ type: string; source: unknown; run_id: string | null }[]>`
+    const rows = await conn.sql<
+      { type: string; source: unknown; run_id: string | null }[]
+    >`
       select type, source, run_id from ledger.event where type = ${type} order by id`;
     return rows;
   }
@@ -80,13 +89,27 @@ describeDb("pod run create", () => {
         process: "process.impl@1",
         owner_generation: 1,
         tasks: [
-          { task_id: "task_b", step_id: "build", role: "developer", state: "ready" },
-          { task_id: "task_r", step_id: "review", role: "reviewer", state: "pending" },
+          {
+            task_id: "task_b",
+            step_id: "build",
+            role: "developer",
+            state: "ready",
+          },
+          {
+            task_id: "task_r",
+            step_id: "review",
+            role: "reviewer",
+            state: "pending",
+          },
         ],
       },
     });
     const run = await conn.db.getRun("run_1");
-    expect(run).toMatchObject({ owner_generation: 1, state: "active", coordinator: "session-1" });
+    expect(run).toMatchObject({
+      owner_generation: 1,
+      state: "active",
+      coordinator: "session-1",
+    });
     const snapshot = await conn.db.getSnapshot("run_1");
     expect(snapshot?.hash).toBe(run?.snapshot_hash);
     expect(snapshot?.effective_gate_map).toEqual({});
@@ -102,7 +125,10 @@ describeDb("pod run create", () => {
       { kind: "receipt", verb: "task-create" },
       { kind: "receipt", verb: "task-create" },
     ]);
-    expect((await conn.sql`select type from ledger.event where type <> 'receipt'`).length).toBe(0);
+    expect(
+      (await conn.sql`select type from ledger.event where type <> 'receipt'`)
+        .length,
+    ).toBe(0);
   });
 
   test("a second call for the same Story returns the recorded result with no Orca call", async () => {
@@ -115,7 +141,10 @@ describeDb("pod run create", () => {
   test("a missing --process, size, or stage is selector_none", async () => {
     for (const over of [{ process: null }, { size: null }, { stage: null }]) {
       const outcome = await create(noCalls(), undefined, over);
-      expect(outcome).toMatchObject({ ok: false, refusal: { code: "selector_none" } });
+      expect(outcome).toMatchObject({
+        ok: false,
+        refusal: { code: "selector_none" },
+      });
     }
     const outcome = await create(noCalls(), undefined, { process: null });
     expect(outcome).toMatchObject({
@@ -124,8 +153,13 @@ describeDb("pod run create", () => {
   });
 
   test("a ref with no process Revision is revision_not_found", async () => {
-    const outcome = await create(noCalls(), undefined, { process: { name: "impl", rev: 9 } });
-    expect(outcome).toMatchObject({ ok: false, refusal: { code: "revision_not_found" } });
+    const outcome = await create(noCalls(), undefined, {
+      process: { name: "impl", rev: 9 },
+    });
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: { code: "revision_not_found" },
+    });
   });
 
   test("two active global crews is selector_none naming the kind", async () => {
@@ -133,7 +167,10 @@ describeDb("pod run create", () => {
     const outcome = await create(noCalls());
     expect(outcome).toMatchObject({
       ok: false,
-      refusal: { code: "selector_none", message: expect.stringContaining("crew") },
+      refusal: {
+        code: "selector_none",
+        message: expect.stringContaining("crew"),
+      },
     });
   });
 
@@ -141,7 +178,9 @@ describeDb("pod run create", () => {
     await activeRevision(conn.db, "process", "broken", {
       steps: [{ id: "a", role: "developer", deps: ["a"] }],
     });
-    const outcome = await create(noCalls(), undefined, { process: { name: "broken", rev: 1 } });
+    const outcome = await create(noCalls(), undefined, {
+      process: { name: "broken", rev: 1 },
+    });
     expect(outcome).toMatchObject({
       ok: false,
       refusal: { code: "schema_invalid", nextSteps: ["steps: cycle a -> a"] },
@@ -154,17 +193,31 @@ describeDb("pod run create", () => {
     const outcome = await create(lostReply.orca, lostReply.log);
     expect(outcome).toMatchObject({
       ok: false,
-      refusal: { code: "launch_unknown", nextSteps: [input.command, "pod check"] },
+      refusal: {
+        code: "launch_unknown",
+        nextSteps: [input.command, "pod check"],
+      },
     });
     const [op] = await conn.sql<{ status: string; result_ref: unknown }[]>`
       select status, result_ref from ledger.operation where intent = 'run_create'`;
-    expect(op).toEqual({ status: "unknown", result_ref: { verb: "run-create", requestId } });
-    const show = replay([ok("request-show", { requestId, state: "pending" }, ["--request", requestId])]);
+    expect(op).toEqual({
+      status: "unknown",
+      result_ref: { verb: "run-create", requestId },
+    });
+    const show = replay([
+      ok("request-show", { requestId, state: "pending" }, [
+        "--request",
+        requestId,
+      ]),
+    ]);
     const again = await create(show.orca, show.log);
     show.orca.assertDone();
     expect(again).toMatchObject({
       ok: false,
-      refusal: { code: "launch_unknown", message: expect.stringContaining("pending") },
+      refusal: {
+        code: "launch_unknown",
+        message: expect.stringContaining("pending"),
+      },
     });
   });
 
@@ -172,22 +225,45 @@ describeDb("pod run create", () => {
     const { orca, log } = replay([happy[0] as TempEntry, lost("task-create")]);
     const outcome = await create(orca, log);
     orca.assertDone();
-    expect(outcome).toMatchObject({ ok: false, refusal: { code: "launch_unknown" } });
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: { code: "launch_unknown" },
+    });
     expect((await conn.db.getRun("run_1"))?.state).toBe("hold");
     const holds = await events("hold");
     expect(holds).toEqual([
-      { type: "hold", source: { kind: "command", verb: "run create" }, run_id: "run_1" },
+      {
+        type: "hold",
+        source: { kind: "command", verb: "run create" },
+        run_id: "run_1",
+      },
     ]);
     const again = await create(noCalls());
     expect(again).toMatchObject({
       ok: false,
-      refusal: { code: "launch_unknown", message: expect.stringContaining("no request id") },
+      refusal: {
+        code: "launch_unknown",
+        message: expect.stringContaining("no request id"),
+      },
     });
   });
 
   test("the CLI prints ownerGeneration in meta and needs POD_COORDINATOR", () => {
-    const args = ["run", "create", "story:S-1", "--process", "impl@1", "--size", "s", "--stage", "impl"];
-    const unset = runCli(args, { POD_COORDINATOR: "", POD_ORCA_FIXTURES: fixtures(happy) });
+    const args = [
+      "run",
+      "create",
+      "story:S-1",
+      "--process",
+      "impl@1",
+      "--size",
+      "s",
+      "--stage",
+      "impl",
+    ];
+    const unset = runCli(args, {
+      POD_COORDINATOR: "",
+      POD_ORCA_FIXTURES: fixtures(happy),
+    });
     expect(unset.status).toBe(2);
     expect(unset.json.error?.code).toBe("usage");
     const record = runCli(args, {
@@ -196,13 +272,22 @@ describeDb("pod run create", () => {
       POD_SCRUB_DENYLIST: "",
     });
     expect(record.status).toBe(2);
-    expect(record.json.error?.message).toBe("POD_ORCA_RECORD needs POD_SCRUB_DENYLIST");
-    const result = runCli(args, { POD_COORDINATOR: "session-1", POD_ORCA_FIXTURES: fixtures(happy) });
+    expect(record.json.error?.message).toBe(
+      "POD_ORCA_RECORD needs POD_SCRUB_DENYLIST",
+    );
+    const result = runCli(args, {
+      POD_COORDINATOR: "session-1",
+      POD_ORCA_FIXTURES: fixtures(happy),
+    });
     expect(result.status).toBe(0);
     expect(result.json).toMatchObject({
       ok: true,
       result: { run_id: "run_1" },
-      meta: { ownerGeneration: 1, orca: "1.4.211", opKey: expect.stringMatching(/^run_create:/) },
+      meta: {
+        ownerGeneration: 1,
+        orca: "1.4.211",
+        opKey: expect.stringMatching(/^run_create:/),
+      },
     });
   });
 });

@@ -1,0 +1,8 @@
+kind: process
+name: lost-launch-reply
+schema_version: 1
+value:
+  steps:
+    - id: build
+      role: developer
+      spec: Reply DONE and exit at once. Do not edit any file.

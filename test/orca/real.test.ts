@@ -127,10 +127,20 @@ test("a receipt record carries every field and the receipt keeps unknown fields 
 
 test("no call ever passes --terminal, and deps go as a JSON array", async () => {
   const { run, calls } = stub(() =>
-    out(JSON.stringify({ ok: true, result: { task: { id: "t", status: "pending" } } })),
+    out(
+      JSON.stringify({
+        ok: true,
+        result: { task: { id: "t", status: "pending" } },
+      }),
+    ),
   );
   const orca = makeRealOrca({ run, sink: () => Promise.resolve() });
-  await orca.taskCreate({ spec: "s", run: "run_1", deps: ["a", "b"], taskTitle: "x" });
+  await orca.taskCreate({
+    spec: "s",
+    run: "run_1",
+    deps: ["a", "b"],
+    taskTitle: "x",
+  });
   await orca.workerStart({ task: "t", agent: "claude", deps: ["a"] });
   await orca.workerStop({ dispatch: "d" });
   await orca.workerRelease({ dispatch: "d" });
@@ -160,7 +170,10 @@ test("no call ever passes --terminal, and deps go as a JSON array", async () => 
 test("exit 1 with outcome_unknown is unknown and keeps the request id", async () => {
   const stateForm = JSON.stringify({
     ok: true,
-    result: { state: "outcome_unknown", requestId: "11111111-1111-4111-8111-111111111111" },
+    result: {
+      state: "outcome_unknown",
+      requestId: "11111111-1111-4111-8111-111111111111",
+    },
   });
   const errorForm = JSON.stringify({
     ok: false,
@@ -199,7 +212,10 @@ test("a lost reply is unknown with no request id", async () => {
     const receipt = await orca.workerStart({ task: "t", agent: "claude" });
     expect(receipt.result).toBeNull();
     expect(receipt.raw).toBeNull();
-    expect(launchOutcome(receipt)).toEqual({ kind: "unknown", requestId: null });
+    expect(launchOutcome(receipt)).toEqual({
+      kind: "unknown",
+      requestId: null,
+    });
     codes.push(receipt.exitCode);
     if (reply.signal !== null) expect(records[0]?.signal).toBe("SIGKILL");
   }
@@ -208,9 +224,15 @@ test("a lost reply is unknown with no request id", async () => {
 
 test("a definite failure is failed", async () => {
   const { run } = stub(() =>
-    out(JSON.stringify({ ok: true, result: { state: "failed", lastError: "no agent" } }), {
-      code: 1,
-    }),
+    out(
+      JSON.stringify({
+        ok: true,
+        result: { state: "failed", lastError: "no agent" },
+      }),
+      {
+        code: 1,
+      },
+    ),
   );
   const orca = makeRealOrca({ run, sink: () => Promise.resolve() });
   const receipt = await orca.workerStart({ task: "t", agent: "claude" });
@@ -260,7 +282,12 @@ test("record mode numbers files after existing ones and drops free text from mat
   const dir = mkdtempSync(join(tmpdir(), "pod-record-"));
   writeFileSync(join(dir, "004-run-create.json"), "{}");
   const { run, calls } = stub(() =>
-    out(JSON.stringify({ ok: true, result: { task: { id: "task_9", status: "ready" } } })),
+    out(
+      JSON.stringify({
+        ok: true,
+        result: { task: { id: "task_9", status: "ready" } },
+      }),
+    ),
   );
   const orca = makeRealOrca({
     run,
@@ -271,7 +298,11 @@ test("record mode numbers files after existing ones and drops free text from mat
       scrubber: makeScrubber({ hosts: [], users: [], roots: [], denylist: [] }),
     },
   });
-  await orca.taskCreate({ spec: "long text", run: "run_1", taskTitle: "build" });
+  await orca.taskCreate({
+    spec: "long text",
+    run: "run_1",
+    taskTitle: "build",
+  });
   expect(calls.at(-1)?.killAfterMs).toBeNull();
   const files = readdirSync(dir).sort();
   expect(files).toEqual(["004-run-create.json", "005-task-create.json"]);
@@ -280,7 +311,9 @@ test("record mode numbers files after existing ones and drops free text from mat
   ) as Record<string, unknown>;
   expect(fixture).toMatchObject({
     verb: "task-create",
-    match: { argv: ["orchestration", "task-create", "--run", "run_1", "--json"] },
+    match: {
+      argv: ["orchestration", "task-create", "--run", "run_1", "--json"],
+    },
     exitCode: 0,
     signal: null,
     stderr: "",

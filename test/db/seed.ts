@@ -29,7 +29,13 @@ export async function activeRevision(
 
 export const crewValue = {
   seats: [
-    { id: "dev-1", roles: ["developer"], runtime: "claude", model: "m-1", effort: "low" },
+    {
+      id: "dev-1",
+      roles: ["developer"],
+      runtime: "claude",
+      model: "m-1",
+      effort: "low",
+    },
     { id: "rev-1", roles: ["reviewer"], runtime: "codex" },
     { id: "far-1", roles: ["developer"], runtime: "claude", host: "elsewhere" },
     { id: "both-1", roles: ["developer", "reviewer"], runtime: "claude" },
@@ -43,7 +49,9 @@ export const processValue = {
   ],
 };
 
-export async function seedConfig(db: Db): Promise<{ process: Revision; crew: Revision; policy: Revision }> {
+export async function seedConfig(
+  db: Db,
+): Promise<{ process: Revision; crew: Revision; policy: Revision }> {
   const policy = await activeRevision(db, "policy", "default", { gates: [] });
   const crew = await activeRevision(db, "crew", "default", crewValue);
   const process = await activeRevision(db, "process", "impl", processValue);

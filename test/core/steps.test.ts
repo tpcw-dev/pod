@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import { readSteps, StepsInvalid, topoOrder } from "../../src/core/run/steps.ts";
+import {
+  readSteps,
+  StepsInvalid,
+  topoOrder,
+} from "../../src/core/run/steps.ts";
 
 function issue(value: unknown): string {
   try {
@@ -31,7 +35,9 @@ test("a shape that is not a step list is schema_invalid naming the path", () => 
   expect(issue({ steps: "build" })).toBe("steps: expected array");
   expect(issue({})).toBe("steps: expected array");
   expect(issue({ steps: [] })).toBe("steps: expected at least one step");
-  expect(issue({ steps: [{ id: "build" }] })).toBe("steps.0.role: expected string");
+  expect(issue({ steps: [{ id: "build" }] })).toBe(
+    "steps.0.role: expected string",
+  );
 });
 
 test("an unknown dep, a duplicate id, and a cycle are schema_invalid", () => {

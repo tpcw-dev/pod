@@ -1,7 +1,10 @@
 import { afterAll, beforeEach, expect, test } from "vitest";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
-import { dispatch, type DispatchInput } from "../../src/core/dispatch/dispatch.ts";
+import {
+  dispatch,
+  type DispatchInput,
+} from "../../src/core/dispatch/dispatch.ts";
 import { launchIntents } from "../../src/core/dispatch/quota.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
@@ -39,7 +42,8 @@ function started(dispatchId: string, model: string | null): unknown {
     state: "ready",
     taskId: "task_b",
     terminalHandle: `term_${dispatchId}`,
-    launch: model === null ? null : { requested: { model }, effective: { model } },
+    launch:
+      model === null ? null : { requested: { model }, effective: { model } },
   };
 }
 
@@ -83,7 +87,8 @@ describeDb("pod dispatch", () => {
       opKey: null,
       host: "local",
       capacity: 2,
-      command: (opKey) => `pod dispatch --task task_b --seat dev-1 --generation 1 --op-key ${opKey}`,
+      command: (opKey) =>
+        `pod dispatch --task task_b --seat dev-1 --generation 1 --op-key ${opKey}`,
       now: () => new Date(),
       ...over,
     };
@@ -91,7 +96,10 @@ describeDb("pod dispatch", () => {
 
   function replay(entries: readonly TempEntry[]) {
     const log = receiptLog(conn.db, "local");
-    return { orca: makeReplayOrca({ dir: fixtures(entries), sink: log.sink }), log };
+    return {
+      orca: makeReplayOrca({ dir: fixtures(entries), sink: log.sink }),
+      log,
+    };
   }
 
   function run(orca: OrcaPort, over: Partial<DispatchInput> = {}) {
@@ -108,13 +116,18 @@ describeDb("pod dispatch", () => {
     const opKey = `k-${code}-${Math.random()}`;
     const outcome = await run(noCalls(), { ...over, opKey });
     expect(outcome).toMatchObject({ ok: false, refusal: { code } });
-    expect(await operation(opKey)).toEqual({ status: "refused", intent: "dispatch" });
+    expect(await operation(opKey)).toEqual({
+      status: "refused",
+      intent: "dispatch",
+    });
     const again = await run(noCalls(), { ...over, opKey });
     expect(again).toEqual(outcome);
   }
 
   test("dispatch records the manifest, the Dispatch, and the start event, and starts the worker", async () => {
-    const { orca, log } = replay([ok("worker-start", started("ctx_1", "m-1"), devArgv)]);
+    const { orca, log } = replay([
+      ok("worker-start", started("ctx_1", "m-1"), devArgv),
+    ]);
     const outcome = await dispatch(conn.db, orca, log, input());
     orca.assertDone();
     expect(outcome).toMatchObject({
@@ -140,10 +153,17 @@ describeDb("pod dispatch", () => {
       effective_launch: { model: "m-1" },
       op_key: outcome.opKey,
     });
-    expect(await conn.db.getManifest(outcome.result.manifest_id)).not.toBeNull();
+    expect(
+      await conn.db.getManifest(outcome.result.manifest_id),
+    ).not.toBeNull();
     expect((await conn.db.getTask("task_b"))?.state).toBe("dispatched");
-    expect(await operation(outcome.opKey)).toEqual({ status: "done", intent: "dispatch" });
-    const kinds = await conn.sql<{ type: string; dispatch_id: string | null }[]>`
+    expect(await operation(outcome.opKey)).toEqual({
+      status: "done",
+      intent: "dispatch",
+    });
+    const kinds = await conn.sql<
+      { type: string; dispatch_id: string | null }[]
+    >`
       select type, dispatch_id from ledger.event where op_key = ${outcome.opKey} order by id`;
     expect(kinds).toEqual([
       { type: "receipt", dispatch_id: null },
@@ -156,7 +176,10 @@ describeDb("pod dispatch", () => {
   test("a receipt that names no model records model_attribution unknown", async () => {
     const { orca, log } = replay([ok("worker-start", started("ctx_2", null))]);
     const outcome = await dispatch(conn.db, orca, log, input());
-    expect(outcome).toMatchObject({ ok: true, result: { model_attribution: "unknown" } });
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { model_attribution: "unknown" },
+    });
     expect((await conn.db.getDispatch("ctx_2"))?.requested_launch).toEqual({
       agent: "claude",
       model: "m-1",
@@ -185,7 +208,9 @@ describeDb("pod dispatch", () => {
     await expectRefused("role_unfilled", { seat: "nope" });
     const [row] = await conn.sql<{ op_key: string }[]>`
       select op_key from ledger.operation where status = 'refused'`;
-    expect(await run(noCalls(), { opKey: row?.op_key ?? "", seat: "dev-1" })).toMatchObject({
+    expect(
+      await run(noCalls(), { opKey: row?.op_key ?? "", seat: "dev-1" }),
+    ).toMatchObject({
       ok: false,
       refusal: { code: "duplicate_op" },
     });
@@ -213,9 +238,16 @@ describeDb("pod dispatch", () => {
   test("a Task, dependency, or Run that is not ready is task_not_ready", async () => {
     await expectRefused("task_not_ready", { task: "task_r", seat: "rev-1" });
     await conn.sql`update ledger.task set state = 'ready' where task_id = 'task_r'`;
-    const outcome = await run(noCalls(), { task: "task_r", seat: "rev-1", opKey: "dep" });
+    const outcome = await run(noCalls(), {
+      task: "task_r",
+      seat: "rev-1",
+      opKey: "dep",
+    });
     expect(outcome).toMatchObject({
-      refusal: { code: "task_not_ready", nextSteps: expect.arrayContaining(["dependency task_b is ready"]) },
+      refusal: {
+        code: "task_not_ready",
+        nextSteps: expect.arrayContaining(["dependency task_b is ready"]),
+      },
     });
     await conn.sql`update ledger.run set state = 'hold'`;
     await expectRefused("task_not_ready", {});
@@ -257,7 +289,10 @@ describeDb("pod dispatch", () => {
     expect(first.ok).toBe(true);
     await conn.sql`update ledger.task set state = 'passed' where task_id = 'task_b'`;
     await conn.sql`update ledger.task set state = 'ready' where task_id = 'task_r'`;
-    await expectRefused("reviewer_not_independent", { task: "task_r", seat: "both-1" });
+    await expectRefused("reviewer_not_independent", {
+      task: "task_r",
+      seat: "both-1",
+    });
   });
 
   test("outcome_unknown holds the Task and the slot, and a rerun asks request-show", async () => {
@@ -277,31 +312,56 @@ describeDb("pod dispatch", () => {
     expect(await conn.db.launchReservations(launchIntents)).toEqual([
       { op_key: "u-1", intent: "dispatch", status: "unknown" },
     ]);
-    const holds = await conn.sql`select 1 from ledger.event where type = 'hold' and task_id = 'task_b'`;
+    const holds =
+      await conn.sql`select 1 from ledger.event where type = 'hold' and task_id = 'task_b'`;
     expect(holds.length).toBe(1);
-    const show = replay([ok("request-show", { requestId, state: "completed" }, ["--request", requestId])]);
-    const again = await dispatch(conn.db, show.orca, show.log, input({ opKey: "u-1" }));
+    const show = replay([
+      ok("request-show", { requestId, state: "completed" }, [
+        "--request",
+        requestId,
+      ]),
+    ]);
+    const again = await dispatch(
+      conn.db,
+      show.orca,
+      show.log,
+      input({ opKey: "u-1" }),
+    );
     show.orca.assertDone();
     expect(again).toMatchObject({
       ok: false,
-      refusal: { code: "launch_unknown", message: expect.stringContaining("completed") },
+      refusal: {
+        code: "launch_unknown",
+        message: expect.stringContaining("completed"),
+      },
     });
   });
 
   test("a failed worker-start leaves the Task ready and exits failed", async () => {
     const { orca, log } = replay([
-      { verb: "worker-start", exitCode: 1, result: { state: "failed", lastError: "no agent" } },
+      {
+        verb: "worker-start",
+        exitCode: 1,
+        result: { state: "failed", lastError: "no agent" },
+      },
     ]);
     const outcome = await dispatch(conn.db, orca, log, input({ opKey: "f-1" }));
     expect(outcome).toMatchObject({ ok: false, refusal: { code: "failed" } });
     expect((await conn.db.getTask("task_b"))?.state).toBe("ready");
-    expect(await operation("f-1")).toEqual({ status: "done", intent: "dispatch" });
+    expect(await operation("f-1")).toEqual({
+      status: "done",
+      intent: "dispatch",
+    });
   });
 
   test("the CLI prints the Dispatch with the owner generation in meta", () => {
     const result = runCli(
       ["dispatch", "--task", "task_b", "--seat", "dev-1", "--generation", "1"],
-      { POD_ORCA_FIXTURES: fixtures([ok("worker-start", started("ctx_9", "m-1"), devArgv)]) },
+      {
+        POD_ORCA_FIXTURES: fixtures([
+          ok("worker-start", started("ctx_9", "m-1"), devArgv),
+        ]),
+      },
     );
     expect(result.status).toBe(0);
     expect(result.json).toMatchObject({
@@ -309,9 +369,14 @@ describeDb("pod dispatch", () => {
       result: { dispatch_id: "ctx_9" },
       meta: { ownerGeneration: 1, opKey: expect.stringMatching(/^dispatch:/) },
     });
-    const stale = runCli(["dispatch", "--task", "task_b", "--seat", "dev-1", "--generation", "2"], {
-      POD_ORCA_FIXTURES: fixtures([ok("worker-start", started("ctx_9", "m-1"))]),
-    });
+    const stale = runCli(
+      ["dispatch", "--task", "task_b", "--seat", "dev-1", "--generation", "2"],
+      {
+        POD_ORCA_FIXTURES: fixtures([
+          ok("worker-start", started("ctx_9", "m-1")),
+        ]),
+      },
+    );
     expect(stale.status).toBe(3);
     expect(stale.json.error?.code).toBe("owner_generation_stale");
   });

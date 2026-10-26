@@ -84,8 +84,8 @@ export function makeRealOrca(options: RealOrcaOptions): OrcaPort {
   let version: Promise<string> | null = null;
 
   const installed = (): Promise<string> => {
-    version ??= run(file, ["--version"], { killAfterMs: null }).then(
-      (output) => checkVersion(output.stdout),
+    version ??= run(file, ["--version"], { killAfterMs: null }).then((output) =>
+      checkVersion(output.stdout),
     );
     return version;
   };
@@ -95,7 +95,8 @@ export function makeRealOrca(options: RealOrcaOptions): OrcaPort {
     const verb = argv[1] ?? "";
     const startedAt = new Date().toISOString();
     const output = await run(file, argv, {
-      killAfterMs: record !== null && record.kill === verb ? recordKillAfterMs : null,
+      killAfterMs:
+        record !== null && record.kill === verb ? recordKillAfterMs : null,
     });
     const receipt: ReceiptRecord = {
       verb,

@@ -12,7 +12,11 @@ export interface TempEntry {
   result?: unknown;
 }
 
-export function ok(verb: string, result: unknown, argv: string[] = []): TempEntry {
+export function ok(
+  verb: string,
+  result: unknown,
+  argv: string[] = [],
+): TempEntry {
   return { verb, argv, result };
 }
 
@@ -20,7 +24,11 @@ export function lost(verb: string, argv: string[] = []): TempEntry {
   return { verb, argv, exitCode: 137, signal: "SIGKILL", stdout: "" };
 }
 
-export function unknownReply(verb: string, requestId: string, argv: string[] = []): TempEntry {
+export function unknownReply(
+  verb: string,
+  requestId: string,
+  argv: string[] = [],
+): TempEntry {
   return {
     verb,
     argv,
@@ -30,7 +38,10 @@ export function unknownReply(verb: string, requestId: string, argv: string[] = [
       error: {
         code: "runtime_timeout",
         message: "timed out",
-        data: { orchestrationRequestId: requestId, recovery: { disposition: "outcome_unknown" } },
+        data: {
+          orchestrationRequestId: requestId,
+          recovery: { disposition: "outcome_unknown" },
+        },
       },
     }),
   };
@@ -47,7 +58,8 @@ export function fixtures(entries: readonly TempEntry[]): string {
         match: { argv: item.argv ?? [] },
         exitCode: item.exitCode ?? 0,
         signal: item.signal ?? null,
-        stdout: item.stdout ?? JSON.stringify({ ok: true, result: item.result }),
+        stdout:
+          item.stdout ?? JSON.stringify({ ok: true, result: item.result }),
         stderr: "",
         orcaVersion: "1.4.211",
         recordedAt: "2026-10-26T00:00:00.000Z",

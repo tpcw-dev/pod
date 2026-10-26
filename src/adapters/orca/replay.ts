@@ -1,10 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z, type ZodType } from "zod";
-import {
-  type OrcaPort,
-  type ReceiptSink,
-} from "../../core/ports/orca.ts";
+import { type OrcaPort, type ReceiptSink } from "../../core/ports/orca.ts";
 import { methods } from "./methods.ts";
 import { checkVersion, receiptOf } from "./receipt.ts";
 
@@ -93,15 +90,21 @@ export function makeReplayOrca(options: {
     version: () => {
       const first = entries[0];
       if (first === undefined)
-        return Promise.reject(new ReplayMismatch(`no fixtures in ${options.dir}`));
-      return Promise.resolve({ version: checkVersion(first.entry.orcaVersion) });
+        return Promise.reject(
+          new ReplayMismatch(`no fixtures in ${options.dir}`),
+        );
+      return Promise.resolve({
+        version: checkVersion(first.entry.orcaVersion),
+      });
     },
     ...methods(call),
     assertDone() {
       const missing = entries.slice(next);
       if (missing.length > 0)
         throw new ReplayMismatch(
-          missing.map((item) => `${expected(item)}\n+ actual nothing`).join("\n"),
+          missing
+            .map((item) => `${expected(item)}\n+ actual nothing`)
+            .join("\n"),
         );
     },
   };

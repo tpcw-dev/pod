@@ -13,7 +13,11 @@ import {
 } from "../core/ports/orca.ts";
 import { runCreate } from "../core/run/create.ts";
 import { exitFor, PodError, usageError } from "./errors.ts";
-import { databaseUrl, readHostProfile, type HostSettings } from "./host-profile.ts";
+import {
+  databaseUrl,
+  readHostProfile,
+  type HostSettings,
+} from "./host-profile.ts";
 import { orcaFor } from "./orca.ts";
 
 interface Wiring {
@@ -54,7 +58,9 @@ async function withOrca<T>(
 }
 
 function quote(value: string): string {
-  return /^[\w@:./=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+  return /^[\w@:./=-]+$/.test(value)
+    ? value
+    : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 export const RunCreateInput = z.strictObject({
@@ -84,7 +90,9 @@ export const RunCreateOutput = z.object({
 });
 type RunCreateOutput = z.infer<typeof RunCreateOutput>;
 
-function processRef(value: string | undefined): { name: string; rev: number } | null {
+function processRef(
+  value: string | undefined,
+): { name: string; rev: number } | null {
   if (value === undefined) return null;
   const match = /^(.+)@([1-9][0-9]*)$/.exec(value);
   if (match === null || match[1] === undefined || match[2] === undefined)
@@ -92,7 +100,9 @@ function processRef(value: string | undefined): { name: string; rev: number } | 
   return { name: match[1], rev: Number(match[2]) };
 }
 
-export async function runCreateVerb(input: RunCreateInput): Promise<RunCreateOutput> {
+export async function runCreateVerb(
+  input: RunCreateInput,
+): Promise<RunCreateOutput> {
   const coordinator = process.env["POD_COORDINATOR"];
   if (coordinator === undefined || coordinator === "")
     throw usageError("POD_COORDINATOR is not set", [
@@ -111,24 +121,33 @@ export async function runCreateVerb(input: RunCreateInput): Promise<RunCreateOut
   ]
     .map(quote)
     .join(" ");
-  const { result, opKey, orca } = await withOrca(({ db, orca: port, log, host }) =>
-    runCreate(db, port, log, {
-      story: story.slice("story:".length),
-      process: ref,
-      size: input.size ?? null,
-      stage: input.stage ?? null,
-      coordinator,
-      host: host.hostId,
-      provider: host.trackerKind,
-      command,
-      now: () => new Date(),
-    }),
+  const { result, opKey, orca } = await withOrca(
+    ({ db, orca: port, log, host }) =>
+      runCreate(db, port, log, {
+        story: story.slice("story:".length),
+        process: ref,
+        size: input.size ?? null,
+        stage: input.stage ?? null,
+        coordinator,
+        host: host.hostId,
+        provider: host.trackerKind,
+        command,
+        now: () => new Date(),
+      }),
   );
   return { ...result, op_key: opKey, orca };
 }
 
-export function runMeta(output: { owner_generation: number; op_key: string; orca: string }) {
-  return { ownerGeneration: output.owner_generation, opKey: output.op_key, orca: output.orca };
+export function runMeta(output: {
+  owner_generation: number;
+  op_key: string;
+  orca: string;
+}) {
+  return {
+    ownerGeneration: output.owner_generation,
+    opKey: output.op_key,
+    orca: output.orca,
+  };
 }
 
 export const DispatchInput = z.strictObject({
@@ -154,7 +173,9 @@ export const DispatchOutput = z.object({
 });
 type DispatchOutput = z.infer<typeof DispatchOutput>;
 
-export async function dispatchVerb(input: DispatchInput): Promise<DispatchOutput> {
+export async function dispatchVerb(
+  input: DispatchInput,
+): Promise<DispatchOutput> {
   const command = (opKey: string) =>
     [
       "pod",
@@ -170,17 +191,18 @@ export async function dispatchVerb(input: DispatchInput): Promise<DispatchOutput
     ]
       .map(quote)
       .join(" ");
-  const { result, opKey, orca } = await withOrca(({ db, orca: port, log, host }) =>
-    dispatch(db, port, log, {
-      task: input.task,
-      seat: input.seat,
-      generation: Number(input.generation),
-      opKey: input["op-key"] ?? null,
-      host: host.hostId,
-      capacity: host.capacity,
-      command,
-      now: () => new Date(),
-    }),
+  const { result, opKey, orca } = await withOrca(
+    ({ db, orca: port, log, host }) =>
+      dispatch(db, port, log, {
+        task: input.task,
+        seat: input.seat,
+        generation: Number(input.generation),
+        opKey: input["op-key"] ?? null,
+        host: host.hostId,
+        capacity: host.capacity,
+        command,
+        now: () => new Date(),
+      }),
   );
   return { ...result, op_key: opKey, orca };
 }

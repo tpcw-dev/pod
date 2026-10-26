@@ -13,7 +13,10 @@ export interface ReceiptLog {
   at(context: ReceiptContext): void;
 }
 
-export function receiptLog(db: Pick<Repo, "appendEvent">, host: string): ReceiptLog {
+export function receiptLog(
+  db: Pick<Repo, "appendEvent">,
+  host: string,
+): ReceiptLog {
   let context: ReceiptContext = { run_id: null, task_id: null, op_key: null };
   return {
     at(next) {

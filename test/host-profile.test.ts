@@ -21,19 +21,35 @@ const defaults = { capacity: 2, trackerKind: "linear" };
 
 test("no profile reads the defaults", () => {
   home(null);
-  expect(readHostProfile()).toEqual({ ...defaults, hostId: "local", urlEnv: "POD_DB_URL" });
+  expect(readHostProfile()).toEqual({
+    ...defaults,
+    hostId: "local",
+    urlEnv: "POD_DB_URL",
+  });
 });
 
 test("a profile without db keeps the default variable", () => {
   home("{}\n");
-  expect(readHostProfile()).toEqual({ ...defaults, hostId: "local", urlEnv: "POD_DB_URL" });
+  expect(readHostProfile()).toEqual({
+    ...defaults,
+    hostId: "local",
+    urlEnv: "POD_DB_URL",
+  });
   home("host_id: h\n");
-  expect(readHostProfile()).toEqual({ ...defaults, hostId: "h", urlEnv: "POD_DB_URL" });
+  expect(readHostProfile()).toEqual({
+    ...defaults,
+    hostId: "h",
+    urlEnv: "POD_DB_URL",
+  });
 });
 
 test("db.url_env names the variable", () => {
   home("db:\n  url_env: X\n");
-  expect(readHostProfile()).toEqual({ ...defaults, hostId: "local", urlEnv: "X" });
+  expect(readHostProfile()).toEqual({
+    ...defaults,
+    hostId: "local",
+    urlEnv: "X",
+  });
 });
 
 test("an empty db.url_env is schema_invalid", () => {

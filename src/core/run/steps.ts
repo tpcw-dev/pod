@@ -26,7 +26,8 @@ function zodPath(error: z.ZodError): string {
   const [first] = error.issues;
   if (first === undefined) return "steps: invalid";
   const path = ["steps", ...first.path.map(String)].join(".");
-  const expected = "expected" in first ? `expected ${String(first.expected)}` : first.message;
+  const expected =
+    "expected" in first ? `expected ${String(first.expected)}` : first.message;
   return `${path}: ${expected}`;
 }
 
@@ -47,7 +48,8 @@ export function readSteps(value: unknown): Step[] {
   }));
   const ids = new Set<string>();
   for (const [i, step] of steps.entries()) {
-    if (ids.has(step.id)) throw new StepsInvalid(`steps.${i}.id: duplicate ${step.id}`);
+    if (ids.has(step.id))
+      throw new StepsInvalid(`steps.${i}.id: duplicate ${step.id}`);
     ids.add(step.id);
   }
   for (const [i, step] of steps.entries())
@@ -58,7 +60,10 @@ export function readSteps(value: unknown): Step[] {
   return steps;
 }
 
-function cyclePath(steps: readonly Step[], remaining: ReadonlySet<string>): string {
+function cyclePath(
+  steps: readonly Step[],
+  remaining: ReadonlySet<string>,
+): string {
   const byId = new Map(steps.map((step) => [step.id, step]));
   const start = steps.find((step) => remaining.has(step.id));
   const seen: string[] = [];

@@ -10,7 +10,10 @@ import {
 } from "../../core/ports/orca.ts";
 import { argvFor } from "./argv.ts";
 
-export type Call = <T>(argv: string[], schema: ZodType<T>) => Promise<Receipt<T>>;
+export type Call = <T>(
+  argv: string[],
+  schema: ZodType<T>,
+) => Promise<Receipt<T>>;
 
 export function methods(call: Call): Omit<OrcaPort, "version"> {
   return {

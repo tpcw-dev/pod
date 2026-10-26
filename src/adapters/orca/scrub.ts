@@ -47,7 +47,11 @@ export function makeScrubber(terms: ScrubTerms): Scrubber {
     }
     return mapped;
   };
-  const label = (map: Map<string, string>, key: string, make: (n: number) => string) => {
+  const label = (
+    map: Map<string, string>,
+    key: string,
+    make: (n: number) => string,
+  ) => {
     const lower = key.toLowerCase();
     let mapped = map.get(lower);
     if (mapped === undefined) {
@@ -63,8 +67,7 @@ export function makeScrubber(terms: ScrubTerms): Scrubber {
   return {
     scrub(text) {
       let out = text;
-      for (const root of roots)
-        out = out.replaceAll(root, () => pathFor(root));
+      for (const root of roots) out = out.replaceAll(root, () => pathFor(root));
       out = out.replace(homePath, (path) => pathFor(path));
       for (const host of hostTerms)
         out = out.replace(word(host), (hit) =>
