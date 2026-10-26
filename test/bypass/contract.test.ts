@@ -29,7 +29,7 @@ const expectedVerbs = [
   { story: "S3", name: "release", status: "todo" },
   { story: "S3", name: "takeover", status: "todo" },
   { story: "S3", name: "drain", status: "todo" },
-  { story: "S4", name: "brief", status: "todo" },
+  { story: "S4", name: "brief", status: "done" },
   { story: "S6", name: "verdict post", status: "todo" },
   { story: "S6", name: "hqa record", status: "todo" },
   { story: "S10", name: "learning add", status: "todo" },

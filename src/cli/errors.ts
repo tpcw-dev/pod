@@ -5,6 +5,7 @@ export type ErrorCode =
   | "revision_not_found"
   | "duplicate_op"
   | "journal_mismatch"
+  | "story_not_found"
   | "failed";
 
 export class PodError extends Error {

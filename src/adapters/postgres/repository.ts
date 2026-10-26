@@ -11,6 +11,7 @@ import {
   type Revision,
   type Snapshot,
 } from "../../core/domain/config.ts";
+import type { BriefRun, BriefTree } from "../../core/domain/brief.ts";
 import { Json } from "../../core/domain/json.ts";
 import {
   Activity,
@@ -22,6 +23,7 @@ import {
   Size,
   statusesMovingTo,
   type Dispatch,
+  type EvidenceManifest,
   type Event,
   type NewEvent,
   type NewOperation,
@@ -35,7 +37,15 @@ import * as configSchema from "../../db/schema/config.ts";
 import * as ledgerSchema from "../../db/schema/ledger.ts";
 
 const { activation, revision, snapshot } = configSchema;
-const { dispatch, event, operation, run, story, task } = ledgerSchema;
+const {
+  dispatch,
+  event,
+  evidenceManifest,
+  operation,
+  run,
+  story,
+  task,
+} = ledgerSchema;
 
 type Database = PostgresJsDatabase<Record<string, never>>;
 type Executor = Pick<Database, "select" | "insert" | "update" | "execute">;
@@ -91,6 +101,18 @@ function toEvent(row: typeof event.$inferSelect): Event {
     op_key: row.opKey,
     payload: json(row.payload),
     source: json(row.source),
+  };
+}
+
+function toManifest(row: typeof evidenceManifest.$inferSelect): EvidenceManifest {
+  return {
+    id: row.id,
+    run_id: row.runId,
+    task_id: row.taskId,
+    decision_id: row.decisionId,
+    parent_id: row.parentId,
+    references: json(row.references),
+    created_at: row.createdAt,
   };
 }
 
@@ -367,6 +389,7 @@ function makeRepo(x: Executor): Repo {
         createdAt: row.created_at,
         settledAt: row.settled_at,
         activity: row.activity,
+        manifestId: row.manifest_id,
       });
     },
 
@@ -392,7 +415,147 @@ function makeRepo(x: Executor): Repo {
         created_at: row.createdAt,
         settled_at: row.settledAt,
         activity: Activity.parse(row.activity),
+        manifest_id: row.manifestId,
       };
+    },
+
+    async insertManifest(row: EvidenceManifest) {
+      const existing = await repo.getManifest(row.id);
+      if (existing !== null) return { manifest: existing, created: false };
+      const inserted = await x
+        .insert(evidenceManifest)
+        .values({
+          id: row.id,
+          runId: row.run_id,
+          taskId: row.task_id,
+          decisionId: row.decision_id,
+          parentId: row.parent_id,
+          references: row.references,
+          createdAt: row.created_at,
+        })
+        .onConflictDoNothing({ target: evidenceManifest.id })
+        .returning();
+      const [stored] = inserted;
+      if (stored !== undefined)
+        return { manifest: toManifest(stored), created: true };
+      const raced = await repo.getManifest(row.id);
+      if (raced === null) throw new Error("manifest insert returned no row");
+      return { manifest: raced, created: false };
+    },
+
+    async getManifest(id) {
+      const [row] = await x
+        .select()
+        .from(evidenceManifest)
+        .where(eq(evidenceManifest.id, id));
+      return row === undefined ? null : toManifest(row);
+    },
+
+    async readBrief(externalId) {
+      const storyRows =
+        externalId === null
+          ? await x
+              .select()
+              .from(story)
+              .orderBy(asc(story.provider), asc(story.externalId))
+          : await x
+              .select()
+              .from(story)
+              .where(eq(story.externalId, externalId))
+              .orderBy(asc(story.provider), asc(story.externalId));
+      const stories: BriefTree["stories"][number][] = [];
+      for (const row of storyRows) {
+        const storyRow: Story = {
+          provider: row.provider,
+          external_id: row.externalId,
+          size: Size.parse(row.size),
+          stage: row.stage,
+          run_id: row.runId,
+          dependencies: json(row.dependencies),
+          synced_at: row.syncedAt,
+        };
+        const runRows = await x
+          .select()
+          .from(run)
+          .where(
+            and(
+              eq(run.storyProvider, row.provider),
+              eq(run.storyExternalId, row.externalId),
+            ),
+          )
+          .orderBy(asc(run.runId));
+        const runs: BriefRun[] = [];
+        for (const runRow of runRows) {
+          const snap = await repo.getSnapshot(runRow.runId);
+          const taskRows = await x
+            .select()
+            .from(task)
+            .where(eq(task.runId, runRow.runId))
+            .orderBy(asc(task.taskId));
+          const dispatchRows = await x
+            .select()
+            .from(dispatch)
+            .where(eq(dispatch.runId, runRow.runId))
+            .orderBy(asc(dispatch.dispatchId));
+          runs.push({
+            run: {
+              run_id: runRow.runId,
+              story_provider: runRow.storyProvider,
+              story_external_id: runRow.storyExternalId,
+              host: runRow.host,
+              coordinator: runRow.coordinator,
+              owner_generation: runRow.ownerGeneration,
+              snapshot_hash: runRow.snapshotHash,
+              state: RunState.parse(runRow.state),
+              created_at: runRow.createdAt,
+            },
+            snapshot:
+              snap === null
+                ? null
+                : {
+                    hash: snap.hash,
+                    pinned_at: snap.pinned_at,
+                    crew_revision_id: snap.crew_revision_id,
+                    process_revision_id: snap.process_revision_id,
+                    policy_revision_id: snap.policy_revision_id,
+                    crew: await repo.getRevision(snap.crew_revision_id),
+                    process: await repo.getRevision(snap.process_revision_id),
+                    policy: await repo.getRevision(snap.policy_revision_id),
+                  },
+            tasks: taskRows.map((item) => ({
+              task_id: item.taskId,
+              run_id: item.runId,
+              step_id: item.stepId,
+              lineage_id: item.lineageId,
+              role: item.role,
+              deps: json(item.deps),
+              spec_revision_id: item.specRevisionId,
+              state: item.state,
+              created_at: item.createdAt,
+            })),
+            dispatches: dispatchRows.map((item) => ({
+              dispatch_id: item.dispatchId,
+              task_id: item.taskId,
+              run_id: item.runId,
+              seat: item.seat,
+              role: item.role,
+              requested_launch: json(item.requestedLaunch),
+              effective_launch: jsonOrNull(item.effectiveLaunch),
+              model_attribution: ModelAttribution.parse(item.modelAttribution),
+              retry_of: item.retryOf,
+              op_key: item.opKey,
+              settlement: item.settlement,
+              terminal_handle: item.terminalHandle,
+              created_at: item.createdAt,
+              settled_at: item.settledAt,
+              activity: Activity.parse(item.activity),
+              manifest_id: item.manifestId,
+            })),
+          });
+        }
+        stories.push({ story: storyRow, runs });
+      }
+      return { stories };
     },
 
     async appendEvent(row: NewEvent) {

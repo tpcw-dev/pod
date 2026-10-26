@@ -7,6 +7,7 @@ Spec clarification: pod --help prints one JSON object with ok true, result.verbs
 Spec clarification: a Cancel by cell holds only operator, coordinator, and nobody. The rest of the spec's cancel-by wording is the Note cell. dispatch and retry use coordinator, operator. decide uses operator, and its Note is the escalating actor.
 Spec clarification: the bypass paragraphs are lines 744, 746, and 748 of docs/tech-spec.md at 6a7fec0. Lines 745, 747, and 749 are blank. The contract test pins 744, 746, and 748.
 Spec clarification: S2 enforces the config apply envelope and CAS; the Role and gate id checks land with S5, S8, and S13.
+Spec clarification: S4 registers brief with side effect none, so it stays out of the side-effect table; its Cancel by is nobody for the spec's not applicable.
 
 ## Authority
 

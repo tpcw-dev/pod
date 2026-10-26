@@ -15,6 +15,13 @@
       "when": 1792966836841,
       "tag": "0001_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793011501769,
+      "tag": "0002_evidence_manifest",
+      "breakpoints": true
     }
   ]
 }

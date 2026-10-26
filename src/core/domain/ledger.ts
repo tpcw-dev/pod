@@ -125,6 +125,17 @@ export interface Dispatch {
   created_at: Date;
   settled_at: Date | null;
   activity: z.infer<typeof Activity>;
+  manifest_id: string | null;
+}
+
+export interface EvidenceManifest {
+  id: string;
+  run_id: string;
+  task_id: string | null;
+  decision_id: string | null;
+  parent_id: string | null;
+  references: Json;
+  created_at: Date;
 }
 
 export interface NewEvent {

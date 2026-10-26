@@ -33,7 +33,18 @@ test("help lists the verbs sorted by name", () => {
     JSON.parse(result.stdout) as { result: { verbs: { name: string }[] } }
   ).result.verbs.map((verb) => verb.name);
   expect(names).toEqual([...names].sort());
-  expect(names).toEqual(["config apply", "config export", "db migrate"]);
+  expect(names).toEqual([
+    "brief",
+    "config apply",
+    "config export",
+    "db migrate",
+  ]);
+});
+
+test("a flag the verb does not take is usage", () => {
+  const result = run(["db", "migrate", "--html", "out.html"]);
+  expect(result.status).toBe(2);
+  expect(JSON.parse(result.stdout).error.code).toBe("usage");
 });
 
 test("an unknown verb is usage", () => {
