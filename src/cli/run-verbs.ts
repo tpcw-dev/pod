@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { FixtureRefused } from "../adapters/orca/scrub.ts";
 import { connect } from "../adapters/postgres/connection.ts";
 import { dispatch } from "../core/dispatch/dispatch.ts";
 import { Size } from "../core/domain/ledger.ts";
@@ -34,8 +33,18 @@ async function withOrca<T>(
   const connection = connect(databaseUrl(host));
   try {
     const log = receiptLog(connection.db, host.hostId);
-    const orca = orcaFor(log.sink);
-    const outcome = await work({ db: connection.db, orca, log, host });
+    const orca = orcaFor(log.sink, host.hostId);
+    const outcome = await work({
+      db: connection.db,
+      orca: orca.port,
+      log,
+      host,
+    });
+    const [refused] = orca.recordRefusals();
+    if (refused !== undefined)
+      throw new PodError("failed", 1, refused.message, [
+        "the ledger recorded the call's outcome; add the term to the scrubber inputs and record again",
+      ]);
     if (!outcome.ok) {
       const { code, message, nextSteps } = outcome.refusal;
       throw new PodError(code, exitFor(code), message, nextSteps);
@@ -46,10 +55,6 @@ async function withOrca<T>(
       throw new PodError("orca_version_unsupported", 3, error.message, [
         `supported Orca range ${orcaRangeText()}`,
         `installed Orca ${error.installed}`,
-      ]);
-    if (error instanceof FixtureRefused)
-      throw new PodError("failed", 1, error.message, [
-        "add the term to the scrubber inputs or drop the fixture",
       ]);
     throw error;
   } finally {

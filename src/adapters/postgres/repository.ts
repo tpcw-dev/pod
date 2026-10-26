@@ -665,6 +665,7 @@ function makeRepo(x: Executor): Repo {
           op_key: operation.opKey,
           intent: operation.intent,
           status: operation.status,
+          result_ref: operation.resultRef,
         })
         .from(operation)
         .where(
@@ -678,6 +679,7 @@ function makeRepo(x: Executor): Repo {
             op_key: row.op_key,
             intent: Intent.parse(row.intent),
             status: OperationStatus.parse(row.status),
+            result_ref: jsonOrNull(row.result_ref),
           })),
         );
     },

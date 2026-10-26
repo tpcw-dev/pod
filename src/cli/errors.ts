@@ -7,6 +7,7 @@ export type ErrorCode =
   | "journal_mismatch"
   | "story_not_found"
   | "selector_none"
+  | "selector_conflict"
   | "owner_generation_stale"
   | "task_not_ready"
   | "quota_exhausted"

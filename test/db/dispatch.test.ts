@@ -269,6 +269,35 @@ describeDb("pod dispatch", () => {
     await expectRefused("task_not_ready", {});
   });
 
+  test("an open launch for the same Task under another key is task_not_ready with no Orca call", async () => {
+    await conn.db.insertOperation({
+      op_key: "in-flight",
+      intent: "dispatch",
+      owner_generation: 1,
+      at: new Date(),
+      result_ref: {
+        request: { task_id: "task_b", seat: "dev-1", host: "local" },
+      },
+    });
+    const outcome = await run(noCalls(), { seat: "both-1", opKey: "second" });
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "task_not_ready",
+        nextSteps: expect.arrayContaining([
+          "launch in-flight (dispatch) is pending for Task task_b",
+        ]),
+      },
+    });
+    await conn.db.moveOperation(
+      "in-flight",
+      "unknown",
+      { request: { task_id: "task_b", seat: "dev-1", host: "local" } },
+      new Date(),
+    );
+    await expectRefused("task_not_ready", {});
+  });
+
   test("no free slot is quota_exhausted, counting reservations and running Dispatches", async () => {
     await conn.db.insertOperation({
       op_key: "held",
@@ -278,6 +307,17 @@ describeDb("pod dispatch", () => {
     });
     await conn.db.moveOperation("held", "unknown", null, new Date());
     await expectRefused("quota_exhausted", { capacity: 1 });
+    await conn.db.moveOperation("held", "refused", null, new Date());
+    await conn.db.insertOperation({
+      op_key: "far",
+      intent: "dispatch",
+      owner_generation: 1,
+      at: new Date(),
+      result_ref: {
+        request: { task_id: "other", seat: "x", host: "elsewhere" },
+      },
+    });
+    await expectRefused("role_unfilled", { capacity: 1, seat: "nope" });
   });
 
   test("a Seat outside the crew, without the role, or on another host is role_unfilled", async () => {
@@ -312,7 +352,7 @@ describeDb("pod dispatch", () => {
       },
     });
     expect((await conn.db.getTask("task_b"))?.state).toBe("hold");
-    expect(await conn.db.launchReservations(launchIntents)).toEqual([
+    expect(await conn.db.launchReservations(launchIntents)).toMatchObject([
       { op_key: "u-1", intent: "dispatch", status: "unknown" },
     ]);
     const holds =

@@ -141,6 +141,25 @@ describeDb("pod run create", () => {
     expect(two).toEqual(one);
   });
 
+  test("a second call naming another process is selector_conflict and projects nothing", async () => {
+    const first = replay(happy);
+    expect((await create(first.orca, first.log)).ok).toBe(true);
+    await activeRevision(conn.db, "process", "other", {
+      steps: [{ id: "solo", role: "developer" }],
+    });
+    const outcome = await create(noCalls(), undefined, {
+      process: { name: "other", rev: 1 },
+    });
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "selector_conflict",
+        message: "Run run_1 pins process.impl@1, not process.other@1",
+      },
+    });
+    expect(await conn.db.listTasks("run_1")).toHaveLength(2);
+  });
+
   test("a missing --process, size, or stage is selector_none", async () => {
     for (const over of [{ process: null }, { size: null }, { stage: null }]) {
       const outcome = await create(noCalls(), undefined, over);

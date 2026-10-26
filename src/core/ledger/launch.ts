@@ -2,6 +2,7 @@ import { z } from "zod";
 import { refuse, type Refusal } from "../domain/outcome.ts";
 import type { Operation } from "../domain/ledger.ts";
 import type { OrcaPort, Receipt } from "../ports/orca.ts";
+import type { ReceiptContext, ReceiptLog } from "./receipts.ts";
 
 export type LaunchOutcome =
   | { kind: "ok" }
@@ -65,6 +66,8 @@ const OpenRef = z.looseObject({ requestId: z.string().nullish() }).nullish();
 
 export async function stopOnOpen(
   orca: OrcaPort,
+  log: ReceiptLog,
+  context: ReceiptContext,
   operation: Pick<Operation, "op_key" | "status" | "result_ref">,
   retry: string,
 ): Promise<{ ok: false; refusal: Refusal }> {
@@ -72,6 +75,7 @@ export async function stopOnOpen(
   const requestId = ref.success ? (ref.data?.requestId ?? null) : null;
   let state = "no request id recorded";
   if (requestId !== null) {
+    log.at(context);
     const shown = await orca.requestShow({ request: requestId });
     state = `request-show ${requestId}: ${shown.result?.state ?? "no answer"}`;
   }

@@ -87,7 +87,7 @@ describeDb("lost-launch-reply", () => {
     expect(verbs).toEqual(["run-create", "task-create", "worker-start"]);
     expect(verbs.filter((verb) => verb === "worker-start")).toHaveLength(1);
     const reservations = await conn.db.launchReservations(launchIntents);
-    expect(reservations).toEqual([
+    expect(reservations).toMatchObject([
       { op_key: "rec-1", intent: "dispatch", status: "unknown" },
     ]);
     expect(

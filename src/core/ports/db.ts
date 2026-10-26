@@ -74,7 +74,7 @@ export interface Repo {
   getOperation(opKey: string): Promise<Operation | null>;
   launchReservations(
     intents: readonly string[],
-  ): Promise<Pick<Operation, "op_key" | "intent" | "status">[]>;
+  ): Promise<Pick<Operation, "op_key" | "intent" | "status" | "result_ref">[]>;
   moveOperation(
     opKey: string,
     to: OperationStatus,

@@ -215,7 +215,13 @@ async function recorded(
       ["pass a new --op-key"],
     );
   if (operation.status === "unknown" || operation.status === "pending")
-    return stopOnOpen(ctx.orca, operation, ctx.input.command);
+    return stopOnOpen(
+      ctx.orca,
+      ctx.log,
+      { run_id: null, task_id: null, op_key: opKey },
+      operation,
+      ctx.input.command,
+    );
   const run = RunRef.safeParse(operation.result_ref);
   if (!run.success || FailedRef.safeParse(operation.result_ref).success)
     return refuse(
@@ -223,6 +229,18 @@ async function recorded(
       `run-create for story:${ctx.input.story} failed before`,
       ["pod check"],
     );
+  const snapshot = await ctx.db.getSnapshot(run.data.run_id);
+  if (snapshot !== null && snapshot.process_revision_id !== ctx.process.id) {
+    const pinned = await ctx.db.getRevision(snapshot.process_revision_id);
+    return refuse(
+      "selector_conflict",
+      `Run ${run.data.run_id} pins ${pinned === null ? snapshot.process_revision_id : `process.${pinned.name}@${pinned.rev}`}, not process.${ctx.process.name}@${ctx.process.rev}`,
+      [
+        "drop --process or name the pinned Revision",
+        `pod brief story:${ctx.input.story}`,
+      ],
+    );
+  }
   return project(ctx, run.data.run_id, opKey, version);
 }
 
@@ -247,7 +265,13 @@ async function project(
     });
     if (!created) {
       if (operation.status === "unknown" || operation.status === "pending")
-        return stopOnOpen(orca, operation, input.command);
+        return stopOnOpen(
+          orca,
+          log,
+          { run_id: runId, task_id: null, op_key: stepKey },
+          operation,
+          input.command,
+        );
       const task = TaskRef.safeParse(operation.result_ref);
       if (!task.success)
         return refuse(

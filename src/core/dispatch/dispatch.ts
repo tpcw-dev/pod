@@ -47,6 +47,13 @@ export interface DispatchResult {
 
 const satisfied = ["passed", "done"];
 
+const LaunchRequest = z.looseObject({
+  request: z.looseObject({
+    task_id: z.string().optional(),
+    host: z.string().optional(),
+  }),
+});
+
 const DrainEnded = z.looseObject({ ended: z.literal(true) });
 
 const Recorded = z.looseObject({
@@ -79,6 +86,7 @@ async function precondition(
     return stopWith("drained", `a drain is in force on Run ${run.run_id}`, [
       "pod check",
       "pod release",
+      "this refusal is recorded under its op key; pass a new --op-key once the drain ends",
     ]);
   const unmet: string[] = [];
   for (const dep of z.array(z.string()).parse(task.deps)) {
@@ -87,9 +95,17 @@ async function precondition(
       unmet.push(`dependency ${dep} is ${row?.state ?? "missing"}`);
   }
   const blocked = await runBlocked(tx, run.run_id);
+  const launches = (await tx.launchReservations(launchIntents)).map((row) => ({
+    ...row,
+    request: LaunchRequest.safeParse(row.result_ref).data?.request ?? null,
+  }));
+  const inFlight = launches.filter(
+    (row) => row.request?.task_id === task.task_id,
+  );
   if (
     task.state !== "ready" ||
     unmet.length > 0 ||
+    inFlight.length > 0 ||
     run.state !== "active" ||
     blocked !== null
   )
@@ -100,10 +116,16 @@ async function precondition(
         `Task state ${task.state}`,
         `Run state ${run.state}`,
         ...unmet,
+        ...inFlight.map(
+          (row) =>
+            `launch ${row.op_key} (${row.intent}) is ${row.status} for Task ${task.task_id}`,
+        ),
         ...(blocked === null ? [] : [`Run blocked by a ${blocked.type} event`]),
       ],
     );
-  const reservations = await tx.launchReservations(launchIntents);
+  const reservations = launches.filter(
+    (row) => (row.request?.host ?? input.host) === input.host,
+  );
   const slots = freeSlots(
     input.capacity,
     await tx.hostActivities(input.host),
@@ -116,6 +138,7 @@ async function precondition(
       ),
       "running Dispatches on this host hold the rest",
       "pod check --wait",
+      "this refusal is recorded under its op key; pass a new --op-key once a slot frees",
     ]);
   if (
     seat === undefined ||
@@ -204,7 +227,7 @@ export async function dispatch(
       seat: input.seat,
       attempt: "1",
     });
-  const request = { task_id: task.task_id, seat: input.seat };
+  const request = { task_id: task.task_id, seat: input.seat, host: input.host };
   const now = input.now();
 
   const gate = await db.transaction(async (tx): Promise<Gate> => {
@@ -272,7 +295,15 @@ export async function dispatch(
 
   if (gate.kind === "refused") return { ok: false, refusal: gate.refusal };
   if (gate.kind === "existing")
-    return replayed(orca, gate.operation, request, input, opKey, version);
+    return replayed(gate.operation, {
+      orca,
+      log,
+      runId: task.run_id,
+      request,
+      input,
+      opKey,
+      version,
+    });
 
   const { seat: chosen } = gate;
   log.at({ run_id: task.run_id, task_id: task.task_id, op_key: opKey });
@@ -393,13 +424,19 @@ export async function dispatch(
   );
 }
 
+interface Replay {
+  orca: OrcaPort;
+  log: ReceiptLog;
+  runId: string;
+  request: { task_id: string; seat: string; host: string };
+  input: DispatchInput;
+  opKey: string;
+  version: string;
+}
+
 async function replayed(
-  orca: OrcaPort,
   operation: Operation,
-  request: { task_id: string; seat: string },
-  input: DispatchInput,
-  opKey: string,
-  version: string,
+  { orca, log, runId, request, input, opKey, version }: Replay,
 ): Promise<Outcome<DispatchResult>> {
   const ref = Recorded.safeParse(operation.result_ref);
   if (
@@ -414,7 +451,13 @@ async function replayed(
       ["pass a new --op-key, with retry_of for a retry"],
     );
   if (operation.status === "unknown" || operation.status === "pending")
-    return stopOnOpen(orca, operation, input.command(opKey));
+    return stopOnOpen(
+      orca,
+      log,
+      { run_id: runId, task_id: request.task_id, op_key: opKey },
+      operation,
+      input.command(opKey),
+    );
   if (operation.status === "refused")
     return refuse(
       ref.data.code ?? "failed",

@@ -35,7 +35,7 @@ jobs:
         run: |
           printf '%s\n' "$DENYLIST" | grep -v '^[[:space:]]*$' > "$RUNNER_TEMP/denylist" || true
           test -s "$RUNNER_TEMP/denylist" || { echo "POD_SCRUB_DENYLIST is empty"; exit 1; }
-          if grep -rnwiF -f "$RUNNER_TEMP/denylist" fixtures docs src/db/schema; then exit 1; fi
+          if grep -rlwiF -f "$RUNNER_TEMP/denylist" fixtures docs src/db/schema; then exit 1; fi
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test

@@ -11,6 +11,7 @@ Spec clarification: S4 registers brief with side effect none, so it stays out of
 Spec clarification: S3a makes the registry's cancelBy an array, because dispatch is cancelled by coordinator, operator. pod --help prints the array, and the contract test compares it joined with ", " against the Cancel by cell.
 Spec clarification: S3a takes --size and --stage on pod run create in place of the tracker read, until S6 reads the Story through a TrackerPort and keeps both flags as overrides. A missing --size or --stage is selector_none.
 Spec clarification: S3a reads the Run's coordinator from POD_COORDINATOR. pod run create exits usage when it is unset.
+Spec clarification: S3a records a dispatch refusal at steps 1 and 3 to 7 under its op key, as the spec's refused status requires, so a key-less pod dispatch for the same Task and Seat replays the refusal. After a transient quota_exhausted or drained, the caller passes a new --op-key; S3b's pod check --wait decides whether it derives the next attempt key.
 
 ## Authority
 

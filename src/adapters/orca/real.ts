@@ -9,7 +9,7 @@ import {
 import { matchArgv } from "./argv.ts";
 import { methods } from "./methods.ts";
 import { checkVersion, receiptOf } from "./receipt.ts";
-import { writeFixture, type Scrubber } from "./scrub.ts";
+import { FixtureRefused, writeFixture, type Scrubber } from "./scrub.ts";
 
 export interface RunOutput {
   code: number | null;
@@ -77,11 +77,16 @@ function exitCodeOf(output: RunOutput): number {
   return 128 + (signo ?? 0);
 }
 
-export function makeRealOrca(options: RealOrcaOptions): OrcaPort {
+export interface RealOrca extends OrcaPort {
+  recordRefusals(): readonly FixtureRefused[];
+}
+
+export function makeRealOrca(options: RealOrcaOptions): RealOrca {
   const run = options.run ?? spawnRunner;
   const file = options.executable ?? "orca";
   const record = options.record ?? null;
   let version: Promise<string> | null = null;
+  const refusals: FixtureRefused[] = [];
 
   const installed = (): Promise<string> => {
     version ??= run(file, ["--version"], { killAfterMs: null }).then((output) =>
@@ -110,13 +115,20 @@ export function makeRealOrca(options: RealOrcaOptions): OrcaPort {
       orcaVersion,
     };
     await options.sink(receipt);
-    if (record !== null)
-      writeFixture(record.dir, receipt, matchArgv(argv), record.scrubber);
+    if (record !== null) {
+      try {
+        writeFixture(record.dir, receipt, matchArgv(argv), record.scrubber);
+      } catch (error) {
+        if (!(error instanceof FixtureRefused)) throw error;
+        refusals.push(error);
+      }
+    }
     return receiptOf(receipt, schema);
   }
 
   return {
     version: async () => ({ version: await installed() }),
     ...methods(call),
+    recordRefusals: () => refusals,
   };
 }

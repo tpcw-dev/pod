@@ -323,3 +323,36 @@ test("record mode numbers files after existing ones and drops free text from mat
   await orca.workerStart({ task: "task_9", agent: "claude" }).catch(() => {});
   expect(calls.at(-1)?.killAfterMs).toBe(1500);
 });
+
+test("a fixture refused by the denylist does not fail the call, and is reported after it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pod-record-"));
+  const { run } = stub(() =>
+    out(
+      JSON.stringify({
+        ok: true,
+        result: { dispatchId: "ctx_1", state: "ready", note: "secretco" },
+      }),
+    ),
+  );
+  const records: ReceiptRecord[] = [];
+  const orca = makeRealOrca({
+    run,
+    sink: sinkInto(records),
+    record: {
+      dir,
+      kill: null,
+      scrubber: makeScrubber({
+        hosts: [],
+        users: [],
+        roots: [],
+        denylist: ["secretco"],
+      }),
+    },
+  });
+  const receipt = await orca.workerStart({ task: "t", agent: "claude" });
+  expect(launchOutcome(receipt)).toEqual({ kind: "ok" });
+  expect(records).toHaveLength(1);
+  expect(readdirSync(dir)).toEqual([]);
+  expect(orca.recordRefusals()).toHaveLength(1);
+  expect(orca.recordRefusals()[0]?.message).not.toContain("secretco");
+});
