@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   Kind,
@@ -461,6 +461,24 @@ function makeRepo(x: Executor): Repo {
       return rows.map(toDispatch);
     },
 
+    async settleDispatch(dispatchId, change) {
+      const rows = await x
+        .update(dispatch)
+        .set({
+          activity: change.activity,
+          settlement: change.settlement,
+          settledAt: change.settled_at,
+        })
+        .where(
+          and(
+            eq(dispatch.dispatchId, dispatchId),
+            eq(dispatch.settlement, "open"),
+          ),
+        )
+        .returning({ id: dispatch.dispatchId });
+      return rows.length > 0;
+    },
+
     async hostActivities(host) {
       const rows = await x
         .select({ activity: dispatch.activity })
@@ -608,14 +626,44 @@ function makeRepo(x: Executor): Repo {
       return toEvent(inserted);
     },
 
-    async firstEvent(runId, types) {
+    async firstEvent(runId, types, options) {
       const [row] = await x
         .select()
         .from(event)
-        .where(and(eq(event.runId, runId), inArray(event.type, [...types])))
+        .where(
+          and(
+            eq(event.runId, runId),
+            inArray(event.type, [...types]),
+            options?.runWide === true ? isNull(event.dispatchId) : undefined,
+          ),
+        )
         .orderBy(asc(event.ts), asc(event.id))
         .limit(1);
       return row === undefined ? null : toEvent(row);
+    },
+
+    async dispatchEvent(dispatchId, type) {
+      const [row] = await x
+        .select()
+        .from(event)
+        .where(and(eq(event.dispatchId, dispatchId), eq(event.type, type)))
+        .orderBy(asc(event.ts), asc(event.id))
+        .limit(1);
+      return row === undefined ? null : toEvent(row);
+    },
+
+    async messageRecorded(runId, messageId) {
+      const rows = await x
+        .select({ id: event.id })
+        .from(event)
+        .where(
+          and(
+            eq(event.runId, runId),
+            sql`${event.payload}->>'message_id' = ${messageId}`,
+          ),
+        )
+        .limit(1);
+      return rows.length > 0;
     },
 
     async latestEvent(runId, type) {
@@ -682,6 +730,20 @@ function makeRepo(x: Executor): Repo {
             result_ref: jsonOrNull(row.result_ref),
           })),
         );
+    },
+
+    async listOperations(intents, statuses) {
+      const rows = await x
+        .select()
+        .from(operation)
+        .where(
+          and(
+            inArray(operation.intent, [...intents]),
+            inArray(operation.status, [...statuses]),
+          ),
+        )
+        .orderBy(asc(operation.createdAt), asc(operation.opKey));
+      return rows.map(toOperation);
     },
 
     async moveOperation(opKey, to, resultRef, at) {

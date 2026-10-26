@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { canonicalJson, sha256Hex } from "../config/canonical-json.ts";
 import type { Revision } from "../domain/config.ts";
 import type { Run, Story, Task } from "../domain/ledger.ts";
@@ -12,13 +13,14 @@ export const manifestSources = [
   "git_status",
 ] as const;
 
-export interface ManifestReference {
-  source: (typeof manifestSources)[number];
-  revision: string;
-  observed_at: string;
-  coverage: "full";
-  excerpt: string;
-}
+export const ManifestReference = z.object({
+  source: z.enum(manifestSources),
+  revision: z.string(),
+  observed_at: z.string(),
+  coverage: z.literal("full"),
+  excerpt: z.string(),
+});
+export type ManifestReference = z.infer<typeof ManifestReference>;
 
 function iso(date: Date): string {
   return date.toISOString();

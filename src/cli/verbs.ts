@@ -10,9 +10,19 @@ import {
 import { BriefInput, BriefOutput, brief } from "./brief.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
 import {
+  CheckInput,
+  checkMeta,
+  CheckOutput,
+  checkVerb,
   DispatchInput,
   DispatchOutput,
   dispatchVerb,
+  ReleaseInput,
+  ReleaseOutput,
+  releaseVerb,
+  RetryInput,
+  RetryOutput,
+  retryVerb,
   RunCreateInput,
   RunCreateOutput,
   runCreateVerb,
@@ -107,6 +117,42 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     cancelBy: ["coordinator", "operator"],
     evidenceRequired: [
       'Task state `ready`, every dependency satisfied as "Task states" defines, a free quota slot, which on an xl Run counts the coordinator\'s slot as released by the dispatch transaction, an authorized Seat for the Role, reviewer independent of developer, no drain in force',
+    ],
+    meta: runMeta,
+  }),
+  row({
+    name: "check",
+    input: CheckInput,
+    output: CheckOutput,
+    handler: checkVerb,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "the delivery's `payload.dispatchId` matches a recorded Dispatch, and its owner generation matches the Run",
+    ],
+    meta: checkMeta,
+  }),
+  row({
+    name: "retry",
+    input: RetryInput,
+    output: RetryOutput,
+    handler: retryVerb,
+    sideEffect: "orca",
+    cancelBy: ["coordinator", "operator"],
+    evidenceRequired: [
+      "Task state `blocked`, the original placement in `ledger.dispatch`, the worktree `git status` in the task view",
+    ],
+    meta: runMeta,
+  }),
+  row({
+    name: "release",
+    input: ReleaseInput,
+    output: ReleaseOutput,
+    handler: releaseVerb,
+    sideEffect: "orca",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "the Dispatch is settled or the caller gives a retain reason, and this host owns the terminal",
     ],
     meta: runMeta,
   }),

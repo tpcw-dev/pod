@@ -1,0 +1,494 @@
+import { z } from "zod";
+import { deliveryOutcome, type DeliveryRow } from "../domain/delivery.ts";
+import { Json } from "../domain/json.ts";
+import type { Dispatch, Run } from "../domain/ledger.ts";
+import { refuse, type Checked, type Refused } from "../domain/outcome.ts";
+import { hostFreeSlots, openLaunches } from "../dispatch/quota.ts";
+import { derivedOpKey } from "../ledger/op-key.ts";
+import type { ReceiptLog } from "../ledger/receipts.ts";
+import type { Db, Repo } from "../ports/db.ts";
+import type { OrcaMessage, OrcaPort, WorkerRow } from "../ports/orca.ts";
+import { reconcileLaunches, type Reconciled } from "./reconcile.ts";
+import { memoWorkers } from "./workers.ts";
+
+export interface CheckInput {
+  run: string;
+  generation: number;
+  host: string;
+  capacity: number;
+  now: () => Date;
+}
+
+export interface CheckResult {
+  run_id: string;
+  reconciled: Reconciled[];
+  deliveries: { message_id: string; dispatch_id: string; outcome: string }[];
+  ignored: number;
+  acked: string[];
+  stopped: string[];
+  unknown_workers: string[];
+  free_slots: number;
+  nextSteps: string[];
+}
+
+const openTaskStates = ["ready", "dispatched", "delivered"];
+const nextKeyCodes = ["quota_exhausted", "drained"];
+
+class StaleGeneration extends Error {
+  constructor(readonly run: Run) {
+    super("stale generation");
+  }
+}
+
+function stale(run: Run, generation: number): Refused {
+  return refuse(
+    "owner_generation_stale",
+    `--generation ${generation} differs from the Run's owner generation ${run.owner_generation}`,
+    [
+      `pod takeover story:${run.story_external_id} if this session should own the Run`,
+    ],
+  );
+}
+
+async function ownedRun(
+  repo: Repo,
+  runId: string,
+  generation: number,
+): Promise<{ run: Run } | Refused> {
+  const run = await repo.getRun(runId);
+  if (run === null)
+    return refuse("task_not_ready", `no Run ${runId}`, ["pod brief"]);
+  if (run.owner_generation !== generation) return stale(run, generation);
+  return { run };
+}
+
+export async function checkPass(
+  db: Db,
+  orca: OrcaPort,
+  log: ReceiptLog,
+  input: CheckInput,
+): Promise<Checked<CheckResult>> {
+  const owned = await ownedRun(db, input.run, input.generation);
+  if ("ok" in owned) return owned;
+  const { run } = owned;
+  const { version } = await orca.version();
+  const workers = memoWorkers(orca, run.run_id);
+  const reconciled = await reconcileLaunches(db, orca, log, {
+    run,
+    workers,
+    now: input.now,
+  });
+
+  const result: CheckResult = {
+    run_id: run.run_id,
+    reconciled,
+    deliveries: [],
+    ignored: 0,
+    acked: [],
+    stopped: [],
+    unknown_workers: [],
+    free_slots: 0,
+    nextSteps: reconciled
+      .filter((row) => row.to === "unknown")
+      .map((row) => `pod check: launch ${row.op_key} is still unknown`),
+  };
+  try {
+    const read = await readDeliveries(db, orca, log, input, result);
+    if (read !== null) return read;
+  } catch (error) {
+    if (error instanceof StaleGeneration)
+      return stale(error.run, input.generation);
+    throw error;
+  }
+
+  const rows = await workers();
+  if (rows === null)
+    result.nextSteps.push("worker-list unreadable; run pod check again");
+  else {
+    result.stopped = await recordStops(db, run, rows, input);
+    result.unknown_workers = await recordUnknownWorkers(db, run, rows, input);
+  }
+
+  result.free_slots = await hostFreeSlots(db, input.host, input.capacity);
+  if (result.free_slots >= 1)
+    result.nextSteps.push(...(await nextKeys(db, run, input.generation)));
+  return { ok: true, result, orca: version };
+}
+
+async function readDeliveries(
+  db: Db,
+  orca: OrcaPort,
+  log: ReceiptLog,
+  input: CheckInput,
+  result: CheckResult,
+): Promise<Refused | null> {
+  log.at({ run_id: input.run, task_id: null, op_key: null });
+  let batch = await orca.check({ run: input.run });
+  for (;;) {
+    if (batch.exitCode !== 0 || batch.result === null)
+      return refuse("failed", `check --run ${input.run} failed`, [
+        errorCode(batch.raw),
+        "run pod check again from the Run's coordinator terminal",
+      ]);
+    const { deliveryId, messages } = batch.result;
+    if (messages.length === 0 || deliveryId === null) return null;
+    await db.transaction(async (tx) => {
+      const run = await tx.getRun(input.run);
+      if (run === null) throw new Error(`Run ${input.run} vanished`);
+      if (run.owner_generation !== input.generation)
+        throw new StaleGeneration(run);
+      for (const message of messages)
+        await recordMessage(tx, run, deliveryId, message, input, result);
+    });
+    result.acked.push(deliveryId);
+    batch = await orca.check({ run: input.run, ack: deliveryId });
+  }
+}
+
+const ErrorEnvelope = z.looseObject({
+  error: z.looseObject({ code: z.string() }),
+});
+
+function errorCode(raw: unknown): string {
+  const parsed = ErrorEnvelope.safeParse(raw);
+  return parsed.success
+    ? `Orca error ${parsed.data.error.code}`
+    : "Orca gave no readable reply";
+}
+
+async function matchOf(tx: Repo, run: Run, dispatch: Dispatch | null) {
+  if (dispatch === null || dispatch.run_id !== run.run_id) return null;
+  const operation = await tx.getOperation(dispatch.op_key);
+  const siblings = (await tx.listDispatches(run.run_id)).filter(
+    (row) => row.task_id === dispatch.task_id,
+  );
+  return {
+    settlement: dispatch.settlement,
+    generation: operation?.owner_generation ?? -1,
+    latest: siblings.every(
+      (row) => row.created_at.getTime() <= dispatch.created_at.getTime(),
+    ),
+  };
+}
+
+async function recordMessage(
+  tx: Repo,
+  run: Run,
+  deliveryId: string,
+  message: OrcaMessage,
+  input: CheckInput,
+  result: CheckResult,
+): Promise<void> {
+  if (await tx.messageRecorded(run.run_id, message.id)) return;
+  const id = message.payload.dispatchId;
+  const dispatch = id === undefined ? null : await tx.getDispatch(id);
+  const known = dispatch?.run_id === run.run_id ? dispatch : null;
+  const row: DeliveryRow = deliveryOutcome(
+    message,
+    await matchOf(tx, run, known),
+    run.owner_generation,
+  );
+  if (row.kind === "none") return;
+  const at = input.now();
+  const base = {
+    ts: at,
+    host: input.host,
+    run_id: run.run_id,
+    task_id: known?.task_id ?? null,
+    dispatch_id: known?.dispatch_id ?? null,
+    op_key: null,
+    source: { kind: "command", verb: "check" },
+  };
+  const said = {
+    message_id: message.id,
+    delivery_id: deliveryId,
+    type: message.type,
+  };
+  if (row.kind === "ignored") {
+    await tx.appendEvent({
+      ...base,
+      type: "ignored",
+      payload: { ...said, reason: row.reason },
+    });
+    result.ignored += 1;
+    return;
+  }
+  if (known === null) return;
+  await tx.appendEvent({
+    ...base,
+    type: "delivery",
+    payload: Json.parse({
+      ...said,
+      outcome: row.outcome,
+      subject: message.subject ?? null,
+    }),
+  });
+  result.deliveries.push({
+    message_id: message.id,
+    dispatch_id: known.dispatch_id,
+    outcome: row.outcome,
+  });
+  const task = await tx.getTask(known.task_id);
+  if (task === null) return;
+  if (row.outcome === "unknown") {
+    if (task.state !== "dispatched") return;
+    await tx.setTaskState(task.task_id, "hold");
+    await tx.appendEvent({
+      ...base,
+      type: "hold",
+      payload: { reason: "unknown_delivery", message_id: message.id },
+    });
+    return;
+  }
+  const moved = await tx.settleDispatch(known.dispatch_id, {
+    activity: row.activity,
+    settlement: row.settlement,
+    settled_at: row.settlement === "open" ? null : at,
+  });
+  if (moved && task.state === "dispatched")
+    await tx.setTaskState(task.task_id, "delivered");
+}
+
+async function recordStops(
+  db: Db,
+  run: Run,
+  rows: readonly WorkerRow[],
+  input: CheckInput,
+): Promise<string[]> {
+  return db.transaction(async (tx) => {
+    const stopped: string[] = [];
+    for (const row of rows) {
+      if (row.workerState !== "stopped") continue;
+      const dispatch = await tx.getDispatch(row.dispatchId);
+      if (dispatch?.run_id !== run.run_id || dispatch.settlement !== "open")
+        continue;
+      const at = input.now();
+      await tx.settleDispatch(dispatch.dispatch_id, {
+        activity: "settled",
+        settlement: "stopped",
+        settled_at: at,
+      });
+      await tx.appendEvent({
+        type: "stop",
+        ts: at,
+        host: input.host,
+        run_id: run.run_id,
+        task_id: dispatch.task_id,
+        dispatch_id: dispatch.dispatch_id,
+        op_key: null,
+        payload: { worker_state: row.workerState },
+        source: { kind: "command", verb: "check" },
+      });
+      const task = await tx.getTask(dispatch.task_id);
+      if (task?.state === "dispatched")
+        await tx.setTaskState(task.task_id, "blocked");
+      stopped.push(dispatch.dispatch_id);
+    }
+    return stopped;
+  });
+}
+
+async function recordUnknownWorkers(
+  db: Db,
+  run: Run,
+  rows: readonly WorkerRow[],
+  input: CheckInput,
+): Promise<string[]> {
+  return db.transaction(async (tx) => {
+    const known = new Set(
+      (await tx.listDispatches(run.run_id)).map((row) => row.dispatch_id),
+    );
+    const inFlight = new Set(
+      (await openLaunches(tx)).map((row) => row.request?.task_id),
+    );
+    const at = input.now();
+    const found: string[] = [];
+    for (const row of rows) {
+      if (known.has(row.dispatchId)) continue;
+      if (row.taskId != null && inFlight.has(row.taskId)) continue;
+      if ((await tx.dispatchEvent(row.dispatchId, "unknown_launch")) !== null)
+        continue;
+      await tx.appendEvent({
+        type: "unknown_launch",
+        ts: at,
+        host: input.host,
+        run_id: run.run_id,
+        task_id: null,
+        dispatch_id: row.dispatchId,
+        op_key: null,
+        payload: Json.parse({
+          worker_task_id: row.taskId ?? null,
+          worker_state: row.workerState,
+        }),
+        source: { kind: "command", verb: "check" },
+      });
+      found.push(row.dispatchId);
+    }
+    const current = await tx.getRun(run.run_id);
+    if (found.length === 0 || current?.state !== "active") return found;
+    const hold = (task_id: string | null) =>
+      tx.appendEvent({
+        type: "hold",
+        ts: at,
+        host: input.host,
+        run_id: run.run_id,
+        task_id,
+        dispatch_id: null,
+        op_key: null,
+        payload: { reason: "unknown_launch", dispatch_ids: found },
+        source: { kind: "command", verb: "check" },
+      });
+    await tx.setRunState(run.run_id, "hold");
+    await hold(null);
+    for (const task of await tx.listTasks(run.run_id)) {
+      if (!openTaskStates.includes(task.state)) continue;
+      await tx.setTaskState(task.task_id, "hold");
+      await hold(task.task_id);
+    }
+    return found;
+  });
+}
+
+const Refusal = z.looseObject({
+  request: z.looseObject({ task_id: z.string(), seat: z.string() }),
+  code: z.string(),
+});
+
+async function nextKeys(
+  db: Db,
+  run: Run,
+  generation: number,
+): Promise<string[]> {
+  const tasks = await db.listTasks(run.run_id);
+  const ready = new Set(
+    tasks.filter((task) => task.state === "ready").map((task) => task.task_id),
+  );
+  const seen = new Set<string>();
+  const steps: string[] = [];
+  for (const operation of await db.listOperations(["dispatch"], ["refused"])) {
+    const ref = Refusal.safeParse(operation.result_ref);
+    if (!ref.success || !nextKeyCodes.includes(ref.data.code)) continue;
+    const { task_id, seat } = ref.data.request;
+    const pair = `${task_id}\n${seat}`;
+    if (!ready.has(task_id) || seen.has(pair)) continue;
+    seen.add(pair);
+    let attempt = 1;
+    let key = derivedOpKey("dispatch", {
+      run_id: run.run_id,
+      task_id,
+      seat,
+      attempt: "1",
+    });
+    while ((await db.getOperation(key)) !== null) {
+      attempt += 1;
+      key = derivedOpKey("dispatch", {
+        run_id: run.run_id,
+        task_id,
+        seat,
+        attempt: String(attempt),
+      });
+    }
+    steps.push(
+      `pod dispatch --task ${task_id} --seat ${seat} --generation ${generation} --op-key ${key}`,
+    );
+  }
+  return steps;
+}
+
+export interface WaitInput extends CheckInput {
+  interval: number;
+  timeout: number;
+  sleep: (seconds: number) => Promise<void>;
+}
+
+export async function checkWait(
+  db: Db,
+  orca: OrcaPort,
+  log: ReceiptLog,
+  input: WaitInput,
+): Promise<Checked<CheckResult>> {
+  const start = input.now().getTime();
+  for (;;) {
+    const pass = await checkPass(db, orca, log, input);
+    if (!pass.ok) return pass;
+    if (pass.result.deliveries.length > 0 || pass.result.free_slots >= 1)
+      return pass;
+    const waited = Math.floor((input.now().getTime() - start) / 1000);
+    if (waited >= input.timeout)
+      return refuse(
+        "failed",
+        `pod check --wait waited ${waited} seconds with no delivery and no free slot`,
+        [...pass.result.nextSteps, "pod check --wait"],
+      );
+    await input.sleep(input.interval);
+  }
+}
+
+export interface ResumeInput {
+  run: string | null;
+  task: string | null;
+  generation: number;
+  host: string;
+  now: () => Date;
+}
+
+export interface ResumeResult {
+  run_id: string;
+  resumed: { kind: "run" | "task"; id: string }[];
+}
+
+type Resumed = { ok: true; result: ResumeResult } | Refused;
+
+export async function resume(db: Db, input: ResumeInput): Promise<Resumed> {
+  return db.transaction(async (tx): Promise<Resumed> => {
+    const task = input.task === null ? null : await tx.getTask(input.task);
+    if (input.task !== null && task === null)
+      return refuse("task_not_ready", `no Task ${input.task}`, ["pod brief"]);
+    const runId = task?.run_id ?? input.run ?? "";
+    const owned = await ownedRun(tx, runId, input.generation);
+    if ("ok" in owned) return owned;
+    const { run } = owned;
+    const at = input.now();
+    const resumed: ResumeResult["resumed"] = [];
+    const record = (task_id: string | null) =>
+      tx.appendEvent({
+        type: "resume",
+        ts: at,
+        host: input.host,
+        run_id: run.run_id,
+        task_id,
+        dispatch_id: null,
+        op_key: null,
+        payload: { reason: "operator" },
+        source: { kind: "command", verb: "check" },
+      });
+    if (task !== null) {
+      if (task.state !== "hold")
+        return refuse(
+          "task_not_ready",
+          `Task ${task.task_id} is ${task.state}, not hold`,
+          [`Task state ${task.state}`],
+        );
+      await tx.setTaskState(task.task_id, "ready");
+      await record(task.task_id);
+      resumed.push({ kind: "task", id: task.task_id });
+    } else {
+      if (run.state !== "hold")
+        return refuse(
+          "task_not_ready",
+          `Run ${run.run_id} is ${run.state}, not hold`,
+          [`Run state ${run.state}`],
+        );
+      await tx.setRunState(run.run_id, "active");
+      await record(null);
+      resumed.push({ kind: "run", id: run.run_id });
+      for (const held of await tx.listTasks(run.run_id)) {
+        if (held.state !== "hold") continue;
+        await tx.setTaskState(held.task_id, "ready");
+        await record(held.task_id);
+        resumed.push({ kind: "task", id: held.task_id });
+      }
+    }
+    return { ok: true, result: { run_id: run.run_id, resumed } };
+  });
+}
