@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
@@ -12,7 +12,7 @@ import {
   unknownReply,
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
-import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { activeRevision, seedConfig } from "./seed.ts";
 
 const requestId = "33333333-3333-4333-8333-333333333333";
@@ -46,10 +46,13 @@ const happy: TempEntry[] = [
 describeDb("pod run create", () => {
   let conn: Connection;
 
-  beforeEach(async () => {
-    await conn?.close();
+  beforeAll(async () => {
     await resetDb();
     conn = openDb();
+  });
+
+  beforeEach(async () => {
+    await clearDb(conn);
     await seedConfig(conn.db);
   });
   afterAll(() => conn.close());

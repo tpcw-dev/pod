@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import {
@@ -16,7 +16,7 @@ import {
   unknownReply,
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
-import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { seedConfig } from "./seed.ts";
 
 const requestId = "44444444-4444-4444-8444-444444444444";
@@ -50,10 +50,13 @@ function started(dispatchId: string, model: string | null): unknown {
 describeDb("pod dispatch", () => {
   let conn: Connection;
 
-  beforeEach(async () => {
-    await conn?.close();
+  beforeAll(async () => {
     await resetDb();
     conn = openDb();
+  });
+
+  beforeEach(async () => {
+    await clearDb(conn);
     await seedConfig(conn.db);
     const log = receiptLog(conn.db, "local");
     const orca = makeReplayOrca({

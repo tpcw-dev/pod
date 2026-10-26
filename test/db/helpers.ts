@@ -76,3 +76,12 @@ export function runCli(
     json: JSON.parse(result.stdout) as CliResult["json"],
   };
 }
+
+export async function clearDb(connection: Connection): Promise<void> {
+  const tables = await connection.sql<{ name: string }[]>`
+    select format('%I.%I', schemaname, tablename) as name
+    from pg_tables where schemaname in ('config', 'ledger')`;
+  await connection.sql.unsafe(
+    `truncate ${tables.map((table) => table.name).join(", ")} cascade`,
+  );
+}
