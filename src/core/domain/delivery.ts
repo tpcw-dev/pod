@@ -13,7 +13,7 @@ const AckedOnly = z.enum([
 const WorkerOutcome = z.enum(["succeeded", "failed"]);
 
 export type IgnoredReason =
-  "no_dispatch" | "unknown_dispatch" | "stale_generation" | "settled_dispatch";
+  "no_dispatch" | "unknown_dispatch" | "settled_dispatch";
 
 export type DeliveryRow =
   | { kind: "ignored"; reason: IgnoredReason }
@@ -28,20 +28,16 @@ export type DeliveryRow =
 
 export interface DeliveryMatch {
   settlement: string;
-  generation: number;
   latest: boolean;
 }
 
 export function deliveryOutcome(
   message: OrcaMessage,
   match: DeliveryMatch | null,
-  runGeneration: number,
 ): DeliveryRow {
   if (message.payload.dispatchId === undefined)
     return { kind: "ignored", reason: "no_dispatch" };
   if (match === null) return { kind: "ignored", reason: "unknown_dispatch" };
-  if (match.generation !== runGeneration)
-    return { kind: "ignored", reason: "stale_generation" };
   if (match.settlement !== "open" || !match.latest)
     return { kind: "ignored", reason: "settled_dispatch" };
   if (AckedOnly.safeParse(message.type).success) return { kind: "none" };

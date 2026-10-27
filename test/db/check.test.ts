@@ -97,44 +97,34 @@ describeDb("pod check", () => {
     ]);
   });
 
-  test("a mismatched dispatchId and a stale generation record ignored and move nothing", async () => {
-    await conn.sql`update ledger.run set owner_generation = 2`;
-    const outcome = await pass(
-      [
-        ok(
-          "check",
-          batch("delivery_1", [
-            done("msg_1", "ctx_other"),
-            done("msg_2", "ctx_1"),
-            message("msg_3", "heartbeat", {
-              dispatchId: "ctx_1",
-              phase: "waiting",
-            }),
-            message("msg_4", "status", "not json"),
-          ]),
-          run,
-        ),
-        ok("check", empty("delivery_1"), ack("delivery_1")),
-        ok(
-          "worker-list",
-          workers([{ dispatchId: "ctx_1", workerState: "ready" }]),
-          run,
-        ),
-      ],
-      { generation: 2 },
-    );
+  test("a mismatched dispatchId records ignored and moves nothing", async () => {
+    const outcome = await pass([
+      ok(
+        "check",
+        batch("delivery_1", [
+          done("msg_1", "ctx_other"),
+          message("msg_2", "heartbeat", {
+            dispatchId: "ctx_other",
+            phase: "waiting",
+          }),
+          message("msg_3", "status", "not json"),
+        ]),
+        run,
+      ),
+      ok("check", empty("delivery_1"), ack("delivery_1")),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_1", workerState: "ready" }]),
+        run,
+      ),
+    ]);
     expect(outcome).toMatchObject({
       ok: true,
-      result: { deliveries: [], ignored: 4 },
+      result: { deliveries: [], ignored: 3 },
     });
     expect(
       (await events(conn, "ignored")).map((row) => row.payload["reason"]),
-    ).toEqual([
-      "unknown_dispatch",
-      "stale_generation",
-      "stale_generation",
-      "no_dispatch",
-    ]);
+    ).toEqual(["unknown_dispatch", "unknown_dispatch", "no_dispatch"]);
     expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
       settlement: "open",
       activity: "running",

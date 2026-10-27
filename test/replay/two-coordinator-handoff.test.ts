@@ -41,7 +41,7 @@ describeDb(scenario, () => {
   });
   afterAll(() => conn.close());
 
-  test("after the takeover the old coordinator's dispatch, check, and release are refused before the side effect", async () => {
+  test("after the takeover the old coordinator's dispatch, check, and release are refused before the side effect, and the new coordinator's check records the old Dispatch's delivery", async () => {
     const log = receiptLog(conn.db, "rec");
     const verbs: string[] = [];
     const orca = makeReplayOrca({
@@ -140,7 +140,15 @@ describeDb(scenario, () => {
       leaseSeconds: launchLeaseSeconds,
       now,
     });
-    expect(checked).toMatchObject({ ok: true, result: { ignored: 1 } });
+    expect(checked).toMatchObject({
+      ok: true,
+      result: {
+        deliveries: [
+          { dispatch_id: first.result.dispatch_id, outcome: "done" },
+        ],
+        ignored: 0,
+      },
+    });
     orca.assertDone();
     expect(verbs).toEqual([
       "run-create",
@@ -156,6 +164,11 @@ describeDb(scenario, () => {
     ]);
     const run = await conn.db.getRun(run_id);
     expect(run).toMatchObject({ owner_generation: 2, coordinator: newHandle });
+    expect(await conn.db.getDispatch(first.result.dispatch_id)).toMatchObject({
+      settlement: "done",
+      activity: "settled",
+    });
+    expect((await conn.db.getTask(t1 ?? ""))?.state).toBe("delivered");
   });
 
   test.todo(
