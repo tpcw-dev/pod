@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
+import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { dispatch } from "../../src/core/dispatch/dispatch.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { runCreate } from "../../src/core/run/create.ts";
@@ -75,6 +76,7 @@ describeDb("stale-dispatch-id", () => {
       generation: 2,
       host: "rec",
       capacity: 2,
+      leaseSeconds: launchLeaseSeconds,
       now: () => new Date(),
     });
     orca.assertDone();

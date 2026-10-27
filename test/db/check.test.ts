@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass, type CheckInput } from "../../src/core/check/check.ts";
+import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { runBlocked } from "../../src/core/ledger/run-blocked.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
@@ -27,6 +28,7 @@ function input(over: Partial<CheckInput> = {}): CheckInput {
     generation: 1,
     host: "local",
     capacity: 1,
+    leaseSeconds: launchLeaseSeconds,
     now: () => new Date(),
     ...over,
   };

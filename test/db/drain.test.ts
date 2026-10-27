@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass, resume } from "../../src/core/check/check.ts";
+import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { dispatch } from "../../src/core/dispatch/dispatch.ts";
 import { release } from "../../src/core/dispatch/release.ts";
 import { retry } from "../../src/core/dispatch/retry.ts";
@@ -144,6 +145,7 @@ describeDb("pod drain", () => {
       generation: 1,
       host: "local",
       capacity: 2,
+      leaseSeconds: launchLeaseSeconds,
       now: () => new Date(),
     });
     orca.assertDone();
@@ -260,6 +262,7 @@ describeDb("pod drain", () => {
       generation: 1,
       host: "local",
       capacity: 2,
+      leaseSeconds: launchLeaseSeconds,
       now: () => new Date(),
     });
     checked.orca.assertDone();

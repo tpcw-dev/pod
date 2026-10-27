@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
 import { checkPass, checkWait, resume } from "../core/check/check.ts";
+import { launchLeaseSeconds } from "../core/check/reconcile.ts";
 import { dispatch } from "../core/dispatch/dispatch.ts";
 import { release } from "../core/dispatch/release.ts";
 import { retry, retryPlan } from "../core/dispatch/retry.ts";
@@ -249,7 +250,7 @@ const PassOutput = z.object({
   reconciled: z.array(
     z.object({
       op_key: z.string(),
-      to: z.enum(["dispatched", "ready", "unknown"]),
+      to: z.enum(["dispatched", "ready", "closed", "unknown"]),
     }),
   ),
   deliveries: z.array(
@@ -281,7 +282,21 @@ const ResumeOutput = z.object({
 export const CheckOutput = z.union([PassOutput, ResumeOutput]);
 type CheckOutput = z.infer<typeof CheckOutput>;
 
+function leaseSeconds(): number {
+  const value = process.env["POD_LAUNCH_LEASE_SECONDS"];
+  if (value === undefined || value === "") return launchLeaseSeconds;
+  if (!Seconds.safeParse(value).success)
+    throw usageError(
+      `POD_LAUNCH_LEASE_SECONDS must be a positive whole number of seconds, got ${JSON.stringify(value)}`,
+      [
+        `unset POD_LAUNCH_LEASE_SECONDS for the ${launchLeaseSeconds}-second default`,
+      ],
+    );
+  return Number(value);
+}
+
 export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
+  const lease = leaseSeconds();
   const generation = Number(input.generation);
   const now = () => new Date();
   if (input.resume === true) {
@@ -304,6 +319,7 @@ export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
       host: host.hostId,
       capacity: host.capacity,
       now,
+      leaseSeconds: lease,
     };
     return input.wait === true
       ? checkWait(db, port, log, {

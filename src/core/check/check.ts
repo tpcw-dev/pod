@@ -21,6 +21,7 @@ export interface CheckInput {
   host: string;
   capacity: number;
   now: () => Date;
+  leaseSeconds: number;
 }
 
 export interface CheckResult {
@@ -95,15 +96,20 @@ export async function checkPass(
         result: { ...result, nextSteps: takeover },
         orca: version,
       };
-    result.reconciled = await reconcileLaunches(db, orca, log, {
+    const launches = await reconcileLaunches(db, orca, log, {
       run,
       generation: input.generation,
       workers,
       now: input.now,
+      leaseSeconds: input.leaseSeconds,
     });
-    result.nextSteps = result.reconciled
-      .filter((row) => row.to === "unknown")
-      .map((row) => `pod check: launch ${row.op_key} is still unknown`);
+    result.reconciled = launches.reconciled;
+    result.nextSteps = [
+      ...launches.reconciled
+        .filter((row) => row.to === "unknown")
+        .map((row) => `pod check: launch ${row.op_key} is still unknown`),
+      ...launches.nextSteps,
+    ];
     const read = await readDeliveries(db, orca, log, input, result);
     if (read !== null) return read;
     const rows = await workers();

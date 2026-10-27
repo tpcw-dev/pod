@@ -1,8 +1,13 @@
 import { z } from "zod";
 import { Json } from "../domain/json.ts";
 import type { Dispatch, Task } from "../domain/ledger.ts";
-import type { Repo } from "../ports/db.ts";
-import type { WorkerStartRequest, WorkerStartResult } from "../ports/orca.ts";
+import { launchOutcome } from "../ledger/launch.ts";
+import type { Db, Repo } from "../ports/db.ts";
+import type {
+  Receipt,
+  WorkerStartRequest,
+  WorkerStartResult,
+} from "../ports/orca.ts";
 
 export type LaunchArgs = Omit<WorkerStartRequest, "task" | "spec" | "run">;
 
@@ -84,32 +89,61 @@ function requestedLaunch(input: StartedInput): Json {
   return Json.parse(base);
 }
 
-export async function recordStarted(
-  tx: Repo,
-  input: StartedInput,
-): Promise<DispatchResult> {
-  const { launched, task, request } = input;
-  const done: DispatchResult = {
+function dispatchResult(input: StartedInput): DispatchResult {
+  const { launched, task } = input;
+  return {
     dispatch_id: launched.dispatchId,
     task_id: task.task_id,
     run_id: task.run_id,
-    seat: request.seat,
+    seat: input.request.seat,
     manifest_id: input.manifestId,
     model_attribution: attribution(launched),
     terminal_handle: launched.terminalHandle,
     owner_generation: input.generation,
   };
+}
+
+export async function recordStarted(
+  tx: Repo,
+  input: StartedInput,
+): Promise<DispatchResult> {
+  const done = dispatchResult(input);
   await tx.moveOperation(
     input.opKey,
     "done",
     Json.parse({
-      request,
+      request: input.request,
       launch: input.launch,
       manifest_id: input.manifestId,
       result: done,
     }),
     input.at,
   );
+  await tx.setTaskState(input.task.task_id, "dispatched");
+  await insertStart(tx, input, done, false);
+  return done;
+}
+
+export async function recordLate(
+  tx: Repo,
+  input: StartedInput,
+): Promise<DispatchResult> {
+  const done = dispatchResult(input);
+  if ((await tx.getDispatch(done.dispatch_id)) !== null) return done;
+  const left = input.request.retry_of === undefined ? "ready" : "blocked";
+  if ((await tx.getTask(input.task.task_id))?.state === left)
+    await tx.setTaskState(input.task.task_id, "dispatched");
+  await insertStart(tx, input, done, true);
+  return done;
+}
+
+async function insertStart(
+  tx: Repo,
+  input: StartedInput,
+  done: DispatchResult,
+  late: boolean,
+): Promise<void> {
+  const { launched, task, request } = input;
   const row: Dispatch = {
     dispatch_id: launched.dispatchId,
     task_id: task.task_id,
@@ -129,7 +163,6 @@ export async function recordStarted(
     manifest_id: input.manifestId,
   };
   await tx.insertDispatch(row);
-  await tx.setTaskState(task.task_id, "dispatched");
   await tx.appendEvent({
     type: "start",
     ts: input.at,
@@ -143,10 +176,10 @@ export async function recordStarted(
       role: task.role,
       manifest_id: input.manifestId,
       ...(request.retry_of === undefined ? {} : { retry_of: request.retry_of }),
+      ...(late ? { late: true } : {}),
     },
     source: { kind: "command", verb: input.verb },
   });
-  return done;
 }
 
 export interface UnknownInput {
@@ -191,5 +224,60 @@ export async function recordUnknown(
       ...(from === undefined ? {} : { from }),
     },
     source: { kind: "command", verb: input.verb },
+  });
+}
+
+export type ReceiptInput = Omit<StartedInput, "launched" | "launch"> & {
+  launch: LaunchArgs;
+  receipt: Receipt<WorkerStartResult>;
+};
+
+export type Recorded =
+  | { kind: "started"; done: DispatchResult }
+  | { kind: "failed" }
+  | { kind: "unknown" };
+
+export async function recordReceipt(
+  db: Db,
+  input: ReceiptInput,
+): Promise<Recorded> {
+  const { receipt, ...rest } = input;
+  const outcome = launchOutcome(receipt);
+  const launched =
+    outcome.kind === "ok" && receipt.result !== null
+      ? fromReceipt(receipt.result)
+      : null;
+  return db.transaction(async (tx): Promise<Recorded> => {
+    await tx.lockQuota(input.request.host);
+    const pending = (await tx.getOperation(input.opKey))?.status === "pending";
+    if (launched !== null) {
+      const started = { ...rest, launched };
+      return {
+        kind: "started",
+        done: pending
+          ? await recordStarted(tx, started)
+          : await recordLate(tx, started),
+      };
+    }
+    if (outcome.kind === "failed") {
+      if (pending)
+        await tx.moveOperation(
+          input.opKey,
+          "done",
+          Json.parse({
+            request: input.request,
+            outcome: "failed",
+            raw: receipt.raw ?? null,
+          }),
+          input.at,
+        );
+      return { kind: "failed" };
+    }
+    if (pending)
+      await recordUnknown(tx, {
+        ...rest,
+        requestId: outcome.kind === "unknown" ? outcome.requestId : null,
+      });
+    return { kind: "unknown" };
   });
 }

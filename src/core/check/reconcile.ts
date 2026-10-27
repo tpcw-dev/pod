@@ -9,7 +9,7 @@ import {
 } from "../dispatch/launch-record.ts";
 import { launchOutcome } from "../ledger/launch.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
-import type { Db } from "../ports/db.ts";
+import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort, Receipt, WorkerRow } from "../ports/orca.ts";
 import { fence } from "./fence.ts";
 
@@ -33,9 +33,11 @@ const RecordedRefusal = z.looseObject({
   error: z.looseObject({ code: z.string().min(1) }),
 });
 
+export const launchLeaseSeconds = 300;
+
 export interface Reconciled {
   op_key: string;
-  to: "dispatched" | "ready" | "unknown";
+  to: "dispatched" | "ready" | "closed" | "unknown";
 }
 
 export interface ReconcileInput {
@@ -43,6 +45,12 @@ export interface ReconcileInput {
   generation: number;
   workers: () => Promise<WorkerRow[] | null>;
   now: () => Date;
+  leaseSeconds: number;
+}
+
+interface Outcome {
+  to: Reconciled["to"];
+  nextStep?: string;
 }
 
 export async function reconcileLaunches(
@@ -50,23 +58,41 @@ export async function reconcileLaunches(
   orca: OrcaPort,
   log: ReceiptLog,
   input: ReconcileInput,
-): Promise<Reconciled[]> {
+): Promise<{ reconciled: Reconciled[]; nextSteps: string[] }> {
   const tasks = new Set(
     (await db.listTasks(input.run.run_id)).map((task) => task.task_id),
   );
-  const done: Reconciled[] = [];
+  const leaseStart = input.now().getTime() - input.leaseSeconds * 1000;
+  const reconciled: Reconciled[] = [];
+  const nextSteps: string[] = [];
   for (const operation of await db.listOperations(
     ["dispatch", "retry"],
-    ["unknown"],
+    ["unknown", "pending"],
   )) {
+    if (
+      operation.status === "pending" &&
+      operation.updated_at.getTime() >= leaseStart
+    )
+      continue;
     const ref = UnknownRef.safeParse(operation.result_ref);
     if (!ref.success || !tasks.has(ref.data.request.task_id)) continue;
-    done.push({
-      op_key: operation.op_key,
-      to: await reconcileOne(db, orca, log, input, operation, ref.data),
-    });
+    const outcome = await reconcileOne(
+      db,
+      orca,
+      log,
+      input,
+      operation,
+      ref.data,
+    );
+    if (outcome === null) continue;
+    reconciled.push({ op_key: operation.op_key, to: outcome.to });
+    if (outcome.nextStep !== undefined) nextSteps.push(outcome.nextStep);
   }
-  return done;
+  return { reconciled, nextSteps };
+}
+
+function leaseLine(input: ReconcileInput, operation: Operation): string {
+  return `pod check: launch ${operation.op_key} was pending past the ${input.leaseSeconds}-second lease`;
 }
 
 async function reconcileOne(
@@ -76,9 +102,10 @@ async function reconcileOne(
   input: ReconcileInput,
   operation: Operation,
   ref: UnknownRef,
-): Promise<Reconciled["to"]> {
+): Promise<Outcome | null> {
   const { request, launch } = ref;
   const runId = input.run.run_id;
+  const abandoned = operation.status === "pending";
   log.at({ run_id: runId, task_id: request.task_id, op_key: operation.op_key });
   let shown: string | null = null;
   let refused: string | null = null;
@@ -97,32 +124,38 @@ async function reconcileOne(
         launchOutcome(receipt).kind === "ok" && receipt.result !== null
           ? fromReceipt(receipt.result)
           : null;
-      if (launched !== null) {
-        await started(db, input, operation, ref, launched);
-        return "dispatched";
-      }
+      if (launched !== null)
+        return (await started(db, input, operation, ref, launched))
+          ? { to: "dispatched" }
+          : null;
       refused = recordedRefusal(receipt);
     }
   }
   const rows = await input.workers();
-  if (rows === null) return "unknown";
+  if (rows === null) return { to: "unknown" };
   const candidates = rows.filter((row) => row.taskId === request.task_id);
   for (const row of candidates) {
     if ((await db.getDispatch(row.dispatchId)) !== null) continue;
-    await started(db, input, operation, ref, {
+    const recorded = await started(db, input, operation, ref, {
       dispatchId: row.dispatchId,
       terminalHandle: null,
       requested: null,
       effective: null,
       worktreeId: row.resource?.worktreeId ?? null,
     });
-    return "dispatched";
+    if (!recorded) return null;
+    return abandoned
+      ? {
+          to: "dispatched",
+          nextStep: `${leaseLine(input, operation)}; recorded Dispatch ${row.dispatchId}`,
+        }
+      : { to: "dispatched" };
   }
   if (ref.requestId != null && shown !== "absent" && refused === null)
-    return "unknown";
+    return { to: "unknown" };
   const at = input.now();
-  await db.transaction(async (tx) => {
-    await fence(tx, runId, input.generation);
+  const closed = await db.transaction(async (tx) => {
+    if (!(await claim(tx, input, operation, ref))) return null;
     await tx.moveOperation(
       operation.op_key,
       "done",
@@ -131,13 +164,14 @@ async function reconcileOne(
         launch: launch ?? null,
         outcome: "failed",
         ...(refused === null
-          ? { reconciled: "no_worker" }
+          ? { reconciled: abandoned ? "lease_no_worker" : "no_worker" }
           : { reconciled: "recorded_refusal", code: refused }),
       }),
       at,
     );
     const task = await tx.getTask(request.task_id);
-    if (task?.state !== "hold") return;
+    if (abandoned || task?.state !== "hold")
+      return { state: task?.state ?? "missing" };
     await tx.setTaskState(request.task_id, "ready");
     await tx.appendEvent({
       type: "resume",
@@ -150,8 +184,25 @@ async function reconcileOne(
       payload: { reason: "reconciled_no_worker", op_key: operation.op_key },
       source: { kind: "command", verb: "check" },
     });
+    return { state: "ready" };
   });
-  return "ready";
+  if (closed === null) return null;
+  if (!abandoned) return { to: "ready" };
+  return {
+    to: "closed",
+    nextStep: `${leaseLine(input, operation)}; closed with no worker, Task ${request.task_id} is ${closed.state}`,
+  };
+}
+
+async function claim(
+  tx: Repo,
+  input: ReconcileInput,
+  operation: Operation,
+  ref: UnknownRef,
+): Promise<boolean> {
+  await fence(tx, input.run.run_id, input.generation);
+  await tx.lockQuota(ref.request.host);
+  return (await tx.getOperation(operation.op_key))?.status === operation.status;
 }
 
 function recordedRefusal(receipt: Receipt<unknown>): string | null {
@@ -168,9 +219,9 @@ async function started(
   operation: Operation,
   ref: UnknownRef,
   launched: Launched,
-): Promise<void> {
-  await db.transaction(async (tx) => {
-    await fence(tx, input.run.run_id, input.generation);
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    if (!(await claim(tx, input, operation, ref))) return false;
     const task = await tx.getTask(ref.request.task_id);
     if (task === null) throw new Error(`Task ${ref.request.task_id} vanished`);
     await recordStarted(tx, {
@@ -184,5 +235,6 @@ async function started(
       verb: "check",
       at: input.now(),
     });
+    return true;
   });
 }

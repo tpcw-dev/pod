@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
+import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { dispatch } from "../../src/core/dispatch/dispatch.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import {
@@ -54,6 +55,7 @@ describeDb("pod check stops at a moved owner generation", () => {
       generation: 1,
       host: "local",
       capacity: 1,
+      leaseSeconds: launchLeaseSeconds,
       now: () => new Date(),
     });
     orca.assertDone();
