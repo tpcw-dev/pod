@@ -284,6 +284,15 @@ describeDb("pod takeover", () => {
     ).toMatchObject({ ok: true, result: { owner_generation: 2 } });
   });
 
+  test("a caller naming the live recorded coordinator is still takeover_unsafe", async () => {
+    expect(
+      await run([runShow(), terminal(oldHandle, true)], {
+        coordinator: oldHandle,
+      }),
+    ).toMatchObject({ ok: false, refusal: { code: "takeover_unsafe" } });
+    expect(await owner()).toEqual({ generation: 1, coordinator: oldHandle });
+  });
+
   test("a stale caller is owner_generation_stale, recorded refused", async () => {
     expect(await run(stopped(), { generation: 2 })).toMatchObject({
       ok: false,

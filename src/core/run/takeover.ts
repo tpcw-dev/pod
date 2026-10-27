@@ -138,9 +138,11 @@ async function readEvidence(
   const shown = await orca.runShow({ run: run.run_id });
   if (shown.exitCode !== 0 || shown.result === null)
     return { live: [run.coordinator], readable: false };
+  const bound = shown.result.run.coordinator_handle;
   const handles = [
-    ...new Set([run.coordinator, shown.result.run.coordinator_handle]),
-  ].filter((handle) => handle !== caller);
+    run.coordinator,
+    ...(bound !== run.coordinator && bound !== caller ? [bound] : []),
+  ];
   const live: string[] = [];
   for (const handle of handles)
     if (!coordinatorStopped(await orca.terminalShow({ terminal: handle })))
