@@ -260,6 +260,12 @@ describeDb("pod run create", () => {
         run_id: "run_1",
       },
     ]);
+    const [payload] =
+      await conn.sql`select payload from ledger.event where type = 'hold'`;
+    expect(payload?.["payload"]).toMatchObject({
+      reason: "launch_unknown",
+      from: "active",
+    });
     const again = await create(noCalls());
     expect(again).toMatchObject({
       ok: false,

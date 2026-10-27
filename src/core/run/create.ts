@@ -305,6 +305,7 @@ async function project(
             : failure("task-create", receipt.raw, receipt.exitCode),
           at,
         );
+        const from = (await tx.getRun(runId))?.state;
         await tx.setRunState(runId, "hold");
         await tx.appendEvent({
           type: "hold",
@@ -317,6 +318,7 @@ async function project(
           payload: {
             reason: unknown ? "launch_unknown" : "failed",
             op_key: stepKey,
+            ...(from === undefined ? {} : { from }),
           },
           source: { kind: "command", verb: "run create" },
         });

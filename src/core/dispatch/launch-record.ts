@@ -175,6 +175,7 @@ export async function recordUnknown(
     }),
     input.at,
   );
+  const from = (await tx.getTask(input.task.task_id))?.state;
   await tx.setTaskState(input.task.task_id, "hold");
   await tx.appendEvent({
     type: "hold",
@@ -184,7 +185,11 @@ export async function recordUnknown(
     task_id: input.task.task_id,
     dispatch_id: null,
     op_key: input.opKey,
-    payload: { reason: "launch_unknown", op_key: input.opKey },
+    payload: {
+      reason: "launch_unknown",
+      op_key: input.opKey,
+      ...(from === undefined ? {} : { from }),
+    },
     source: { kind: "command", verb: input.verb },
   });
 }

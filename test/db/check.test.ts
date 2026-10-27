@@ -215,6 +215,7 @@ describeDb("pod check", () => {
     expect((await events(conn, "hold")).at(-1)?.payload).toMatchObject({
       reason: "unknown_delivery",
       message_id: "msg_2",
+      from: "dispatched",
     });
   });
 
@@ -272,9 +273,14 @@ describeDb("pod check", () => {
     expect((await conn.db.getRun("run_1"))?.state).toBe("hold");
     expect(await taskState(conn, "task_b")).toBe("hold");
     expect(await taskState(conn, "task_r")).toBe("pending");
-    expect((await events(conn, "hold")).map((row) => row.task_id)).toEqual([
-      null,
-      "task_b",
+    expect(
+      (await events(conn, "hold")).map((row) => [
+        row.task_id,
+        row.payload["from"],
+      ]),
+    ).toEqual([
+      [null, "active"],
+      ["task_b", "dispatched"],
     ]);
     await pass([ok("check", empty(), run), ok("worker-list", list, run)]);
     expect(await events(conn, "unknown_launch")).toHaveLength(1);
@@ -377,6 +383,23 @@ describeDb("pod check", () => {
     expect(resumed.json.error).toMatchObject({
       code: "task_not_ready",
       nextSteps: ["Run state active"],
+    });
+  });
+
+  test("the CLI prints each resumed row's to", async () => {
+    await conn.sql`update ledger.task set state = 'hold' where task_id = 'task_b'`;
+    const resumed = runCli([
+      "check",
+      "--resume",
+      "--task",
+      "task_b",
+      "--generation",
+      "1",
+    ]);
+    expect(resumed.status).toBe(0);
+    expect(resumed.json).toMatchObject({
+      ok: true,
+      result: { resumed: [{ kind: "task", id: "task_b", to: "ready" }] },
     });
   });
 });

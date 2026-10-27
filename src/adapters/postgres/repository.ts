@@ -687,11 +687,19 @@ function makeRepo(x: Executor): Repo {
       return rows.length > 0;
     },
 
-    async latestEvent(runId, type) {
+    async latestEvent(runId, type, options) {
       const [row] = await x
         .select()
         .from(event)
-        .where(and(eq(event.runId, runId), eq(event.type, type)))
+        .where(
+          and(
+            eq(event.runId, runId),
+            eq(event.type, type),
+            options?.taskId === undefined
+              ? undefined
+              : eq(event.taskId, options.taskId),
+          ),
+        )
         .orderBy(desc(event.ts), desc(event.id))
         .limit(1);
       return row === undefined ? null : toEvent(row);

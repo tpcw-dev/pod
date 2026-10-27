@@ -382,8 +382,10 @@ describeDb("pod dispatch", () => {
       { op_key: "u-1", intent: "dispatch", status: "unknown" },
     ]);
     const holds =
-      await conn.sql`select 1 from ledger.event where type = 'hold' and task_id = 'task_b'`;
-    expect(holds.length).toBe(1);
+      await conn.sql`select payload from ledger.event where type = 'hold' and task_id = 'task_b'`;
+    expect(holds.map((row) => row["payload"])).toMatchObject([
+      { reason: "launch_unknown", from: "ready" },
+    ]);
     const show = replay([
       ok("request-show", { requestId, state: "completed" }, [
         "--request",
