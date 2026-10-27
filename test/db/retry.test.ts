@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { z } from "zod";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
+import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import {
   retry,
   retryPlan,
@@ -166,6 +167,7 @@ describeDb("pod retry", () => {
       generation: 1,
       host: "local",
       capacity: 2,
+      leaseSeconds: launchLeaseSeconds,
       now: () => new Date(),
     });
     expect(

@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
+import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import {
   recordTakeover,
@@ -155,6 +156,7 @@ describeDb("pod takeover", () => {
       generation,
       host: "local",
       capacity: 2,
+      leaseSeconds: launchLeaseSeconds,
       now: () => new Date(),
     });
     orca.assertDone();

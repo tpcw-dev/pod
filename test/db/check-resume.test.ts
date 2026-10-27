@@ -5,6 +5,7 @@ import {
   resume,
   type ResumeInput,
 } from "../../src/core/check/check.ts";
+import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { ok, type TempEntry } from "../orca/temp-fixtures.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
 import {
@@ -57,6 +58,7 @@ describeDb("pod check --resume", () => {
       generation: 1,
       host: "local",
       capacity: 2,
+      leaseSeconds: launchLeaseSeconds,
       now: () => new Date(),
     });
     orca.assertDone();

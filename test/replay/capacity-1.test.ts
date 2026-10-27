@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
+import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import {
   dispatch,
   type DispatchInput,
@@ -93,6 +94,7 @@ describeDb("capacity-1", () => {
       generation: 1,
       host: "rec",
       capacity: 1,
+      leaseSeconds: launchLeaseSeconds,
       now: () => new Date(),
     });
     expect(checked).toMatchObject({

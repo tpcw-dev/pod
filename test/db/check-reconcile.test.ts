@@ -1,9 +1,13 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
+import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { dispatch } from "../../src/core/dispatch/dispatch.ts";
+import { retry } from "../../src/core/dispatch/retry.ts";
+import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import {
   lost,
+  noCalls,
   ok,
   unknownReply,
   type TempEntry,
@@ -62,7 +66,10 @@ describeDb("pod check reconciles unknown launches", () => {
     opKey = row?.op_key ?? "";
   }
 
-  async function pass(entries: readonly TempEntry[]) {
+  async function pass(
+    entries: readonly TempEntry[],
+    over: { now?: () => Date; leaseSeconds?: number } = {},
+  ) {
     const { orca, log } = replay(conn, entries);
     const outcome = await checkPass(conn.db, orca, log, {
       run: "run_1",
@@ -70,6 +77,8 @@ describeDb("pod check reconciles unknown launches", () => {
       host: "local",
       capacity: 1,
       now: () => new Date(),
+      leaseSeconds: launchLeaseSeconds,
+      ...over,
     });
     orca.assertDone();
     return outcome;
@@ -337,7 +346,7 @@ describeDb("pod check reconciles unknown launches", () => {
     expect(await taskState(conn, "task_b")).toBe("ready");
   });
 
-  test("a pending launch row is never reconciled", async () => {
+  test("a pending launch row younger than the lease is never reconciled", async () => {
     await conn.db.insertOperation({
       op_key: "in-flight",
       intent: "dispatch",
@@ -360,5 +369,165 @@ describeDb("pod check reconciles unknown launches", () => {
       result: { reconciled: [], unknown_workers: [] },
     });
     expect((await conn.db.getOperation("in-flight"))?.status).toBe("pending");
+  });
+  const late = (seconds: number) => () => new Date(Date.now() + seconds * 1000);
+  const killed = "no Orca call expected";
+
+  async function abandonDispatch(at = new Date()): Promise<void> {
+    await expect(
+      dispatch(
+        conn.db,
+        noCalls(),
+        receiptLog(conn.db, "local"),
+        dispatchInput({ capacity: 1, now: () => at }),
+      ),
+    ).rejects.toThrow(killed);
+    const [row] = await conn.sql<{ op_key: string }[]>`
+      select op_key from ledger.operation where intent = 'dispatch' and status = 'pending'`;
+    opKey = row?.op_key ?? "";
+  }
+
+  async function gateManifest(): Promise<unknown> {
+    const operation = await conn.db.getOperation(opKey);
+    return (operation?.result_ref as { manifest_id?: unknown } | null)
+      ?.manifest_id;
+  }
+
+  test("an abandoned pending dispatch with a listed worker records the Dispatch", async () => {
+    await abandonDispatch();
+    const manifestId = await gateManifest();
+    expect(manifestId).toEqual(expect.any(String));
+    const outcome = await pass(
+      [
+        ok(
+          "worker-list",
+          workers([{ dispatchId: "ctx_9", workerState: "ready" }]),
+          run,
+        ),
+        ok("check", empty(), run),
+      ],
+      { now: late(launchLeaseSeconds + 1) },
+    );
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        reconciled: [{ op_key: opKey, to: "dispatched" }],
+        unknown_workers: [],
+        free_slots: 0,
+        nextSteps: expect.arrayContaining([
+          `pod check: launch ${opKey} was pending past the ${launchLeaseSeconds}-second lease; recorded Dispatch ctx_9`,
+        ]),
+      },
+    });
+    expect(await status()).toBe("done");
+    expect(await taskState(conn, "task_b")).toBe("dispatched");
+    expect(await conn.db.getDispatch("ctx_9")).toMatchObject({
+      op_key: opKey,
+      manifest_id: manifestId,
+    });
+    expect((await events(conn, "start")).map((row) => row.dispatch_id)).toEqual(
+      ["ctx_9"],
+    );
+  });
+
+  test("an abandoned pending dispatch with no worker frees the slot", async () => {
+    await abandonDispatch();
+    const outcome = await pass(
+      [ok("worker-list", workers([]), run), ok("check", empty(), run)],
+      { now: late(launchLeaseSeconds + 1) },
+    );
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        reconciled: [{ op_key: opKey, to: "closed" }],
+        free_slots: 1,
+        nextSteps: expect.arrayContaining([
+          `pod check: launch ${opKey} was pending past the ${launchLeaseSeconds}-second lease; closed with no worker, Task task_b is ready`,
+        ]),
+      },
+    });
+    expect(await conn.db.getOperation(opKey)).toMatchObject({
+      status: "done",
+      result_ref: { outcome: "failed", reconciled: "lease_no_worker" },
+    });
+    expect(await taskState(conn, "task_b")).toBe("ready");
+    expect(await events(conn, "resume")).toEqual([]);
+  });
+
+  test("an abandoned pending retry with no worker leaves the Task blocked", async () => {
+    const { orca, log } = replay(conn, [ok("worker-start", started("ctx_1"))]);
+    const first = await dispatch(conn.db, orca, log, dispatchInput());
+    expect(first.ok).toBe(true);
+    await conn.sql`
+      update ledger.dispatch set activity = 'settled', settlement = 'stopped', settled_at = now()
+      where dispatch_id = 'ctx_1'`;
+    await conn.sql`update ledger.task set state = 'blocked' where task_id = 'task_b'`;
+    await expect(
+      retry(conn.db, noCalls(), receiptLog(conn.db, "local"), {
+        dispatch: "ctx_1",
+        generation: 1,
+        opKey: "retry-abandoned",
+        host: "local",
+        capacity: 1,
+        gitStatus: "## main",
+        command: (key) => `pod retry --dispatch ctx_1 --op-key ${key}`,
+        now: () => new Date(),
+      }),
+    ).rejects.toThrow(killed);
+    opKey = "retry-abandoned";
+    const outcome = await pass(
+      [ok("worker-list", workers([]), run), ok("check", empty(), run)],
+      { now: late(launchLeaseSeconds + 1) },
+    );
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        reconciled: [{ op_key: opKey, to: "closed" }],
+        free_slots: 1,
+        nextSteps: expect.arrayContaining([
+          `pod check: launch ${opKey} was pending past the ${launchLeaseSeconds}-second lease; closed with no worker, Task task_b is blocked`,
+        ]),
+      },
+    });
+    expect(await status()).toBe("done");
+    expect(await taskState(conn, "task_b")).toBe("blocked");
+  });
+
+  test("a held Task keeps hold when its abandoned row closes", async () => {
+    await abandonDispatch();
+    await conn.sql`update ledger.task set state = 'hold' where task_id = 'task_b'`;
+    const outcome = await pass(
+      [ok("worker-list", workers([]), run), ok("check", empty(), run)],
+      { now: late(launchLeaseSeconds + 1) },
+    );
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { reconciled: [{ op_key: opKey, to: "closed" }] },
+    });
+    expect(await status()).toBe("done");
+    expect(await taskState(conn, "task_b")).toBe("hold");
+    expect(await events(conn, "resume")).toEqual([]);
+  });
+
+  test("leaseSeconds 60 reconciles a row 61 seconds old and leaves one 59 seconds old", async () => {
+    const at = new Date();
+    await abandonDispatch(at);
+    const after = (seconds: number) => () =>
+      new Date(at.getTime() + seconds * 1000);
+    const young = await pass(
+      [ok("check", empty(), run), ok("worker-list", workers([]), run)],
+      { now: after(59), leaseSeconds: 60 },
+    );
+    expect(young).toMatchObject({ ok: true, result: { reconciled: [] } });
+    expect(await status()).toBe("pending");
+    const old = await pass(
+      [ok("worker-list", workers([]), run), ok("check", empty(), run)],
+      { now: after(61), leaseSeconds: 60 },
+    );
+    expect(old).toMatchObject({
+      ok: true,
+      result: { reconciled: [{ op_key: opKey, to: "closed" }] },
+    });
+    expect(await status()).toBe("done");
   });
 });

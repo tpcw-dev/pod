@@ -8,7 +8,7 @@ import {
   type Refusal,
 } from "../domain/outcome.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
-import { launchOutcome, stopOnOpen } from "../ledger/launch.ts";
+import { stopOnOpen } from "../ledger/launch.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import { runBlocked } from "../ledger/run-blocked.ts";
@@ -22,9 +22,7 @@ import {
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import {
-  fromReceipt,
-  recordStarted,
-  recordUnknown,
+  recordReceipt,
   type DispatchResult,
   type LaunchArgs,
 } from "./launch-record.ts";
@@ -251,13 +249,6 @@ export async function dispatch(
     const found = await precondition(tx, input, { run, task: current, seat });
     if ("refusal" in found) return record(found.refusal);
     const launch = seatLaunch(found.seat);
-    await tx.insertOperation({
-      op_key: opKey,
-      intent: "dispatch",
-      owner_generation: input.generation,
-      at: now,
-      result_ref: Json.parse({ request, launch }),
-    });
     const story = await tx.getStory(run.story_provider, run.story_external_id);
     const process = await tx.getRevision(snapshot.process_revision_id);
     const policy = await tx.getRevision(snapshot.policy_revision_id);
@@ -277,6 +268,13 @@ export async function dispatch(
         revisionReference(process),
         revisionReference(policy),
       ],
+    });
+    await tx.insertOperation({
+      op_key: opKey,
+      intent: "dispatch",
+      owner_generation: input.generation,
+      at: now,
+      result_ref: Json.parse({ request, launch, manifest_id: manifest.id }),
     });
     return { kind: "launch", manifestId: manifest.id, launch };
   });
@@ -300,55 +298,24 @@ export async function dispatch(
     run: task.run_id,
     ...launch,
   });
-  const outcome = launchOutcome(receipt);
-  const at = input.now();
-  const result = receipt.result;
-  const launched =
-    outcome.kind === "ok" && result !== null ? fromReceipt(result) : null;
-
-  if (launched !== null) {
-    const done = await db.transaction((tx) =>
-      recordStarted(tx, {
-        opKey,
-        request,
-        launch,
-        task,
-        manifestId: gate.manifestId,
-        generation: input.generation,
-        launched,
-        verb: "dispatch",
-        at,
-      }),
-    );
-    return { ok: true, result: done, opKey, orca: version };
-  }
-
-  if (outcome.kind === "failed") {
-    await db.moveOperation(
-      opKey,
-      "done",
-      Json.parse({ request, outcome: "failed", raw: receipt.raw ?? null }),
-      at,
-    );
+  const recorded = await recordReceipt(db, {
+    opKey,
+    request,
+    launch,
+    task,
+    manifestId: gate.manifestId,
+    generation: input.generation,
+    verb: "dispatch",
+    at: input.now(),
+    receipt,
+  });
+  if (recorded.kind === "started")
+    return { ok: true, result: recorded.done, opKey, orca: version };
+  if (recorded.kind === "failed")
     return refuse("failed", `worker-start for Task ${task.task_id} failed`, [
-      ...(result?.lastError == null ? [] : [result.lastError]),
+      ...(receipt.result?.lastError == null ? [] : [receipt.result.lastError]),
       "pod check",
     ]);
-  }
-
-  const requestId = outcome.kind === "unknown" ? outcome.requestId : null;
-  await db.transaction((tx) =>
-    recordUnknown(tx, {
-      opKey,
-      request,
-      launch,
-      task,
-      manifestId: gate.manifestId,
-      requestId,
-      verb: "dispatch",
-      at,
-    }),
-  );
   return refuse(
     "launch_unknown",
     `worker-start for Task ${task.task_id} has no known outcome`,
