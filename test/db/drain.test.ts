@@ -96,15 +96,25 @@ describeDb("pod drain", () => {
     expect(await drainOps()).toHaveLength(1);
   });
 
-  test("two drains racing on one derived key record one event", async () => {
-    const [a, b] = await Promise.all([
-      drain(conn.db, input()),
-      drain(conn.db, input()),
-    ]);
-    expect(a).toMatchObject({ ok: true, result: { state: "drained" } });
-    expect(b).toMatchObject({ ok: true, result: { state: "drained" } });
-    expect(await events(conn, "drain")).toHaveLength(1);
-    expect(await drainOps()).toHaveLength(1);
+  test("racing drains and ends serialize on the Run: one event per change, and every reply matches the Run", async () => {
+    for (let round = 0; round < 8; round += 1) {
+      const end = round % 2 === 1;
+      const replies = await Promise.all([
+        drain(conn.db, input({ end })),
+        drain(conn.db, input({ end })),
+        drain(conn.db, input({ end })),
+      ]);
+      const want = end ? "active" : "drained";
+      for (const reply of replies)
+        expect(reply).toMatchObject({
+          ok: true,
+          result: { state: want, drain_in_force: !end },
+        });
+      expect(replies.filter((r) => r.ok && r.result.recorded)).toHaveLength(1);
+      expect(await runState()).toBe(want);
+    }
+    expect(await events(conn, "drain")).toHaveLength(8);
+    expect(await drainOps()).toHaveLength(8);
   });
 
   test("a held Run keeps hold and still records the drain", async () => {

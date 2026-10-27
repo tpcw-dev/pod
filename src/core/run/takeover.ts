@@ -133,13 +133,14 @@ function staleRefusal(run: Run, generation: number): Refusal {
 async function readEvidence(
   orca: OrcaPort,
   run: Run,
+  caller: string,
 ): Promise<{ live: string[]; readable: boolean }> {
   const shown = await orca.runShow({ run: run.run_id });
   if (shown.exitCode !== 0 || shown.result === null)
     return { live: [run.coordinator], readable: false };
   const handles = [
     ...new Set([run.coordinator, shown.result.run.coordinator_handle]),
-  ];
+  ].filter((handle) => handle !== caller);
   const live: string[] = [];
   for (const handle of handles)
     if (!coordinatorStopped(await orca.terminalShow({ terminal: handle })))
@@ -359,7 +360,7 @@ export async function takeover(
   }
 
   log.at(context);
-  const evidence = await readEvidence(orca, run);
+  const evidence = await readEvidence(orca, run, input.coordinator);
   const request: TakeoverRequest = {
     run_id: run.run_id,
     story: input.story,
@@ -370,7 +371,7 @@ export async function takeover(
   };
   const now = input.now();
   const gate = await db.transaction(async (tx): Promise<Refusal | null> => {
-    const current = await tx.getRun(run.run_id);
+    const current = await tx.lockRun(run.run_id);
     if (current === null) throw new Error(`Run ${run.run_id} vanished`);
     const record = async (refusal: Refusal) => {
       const { created } = await tx.insertOperation({

@@ -77,7 +77,7 @@ function moved(state: RunState, ended: boolean): RunState {
 
 export async function drain(db: Db, input: DrainInput): Promise<Drained> {
   return db.transaction(async (tx): Promise<Drained> => {
-    const run = await tx.getRun(input.run);
+    const run = await tx.lockRun(input.run);
     if (run === null)
       return refuse("task_not_ready", `no Run ${input.run}`, ["pod brief"]);
     const ended = input.end;

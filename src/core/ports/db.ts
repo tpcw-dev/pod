@@ -50,6 +50,7 @@ export interface Repo {
   getStory(provider: string, externalId: string): Promise<Story | null>;
   insertRun(row: Run): Promise<void>;
   getRun(runId: string): Promise<Run | null>;
+  lockRun(runId: string): Promise<Run | null>;
   setRunState(runId: string, state: RunState): Promise<void>;
   advanceOwner(
     runId: string,

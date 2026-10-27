@@ -278,6 +278,12 @@ describeDb("pod takeover", () => {
     ).toMatchObject({ ok: true, result: { owner_generation: 2 } });
   });
 
+  test("the caller's own terminal is not evidence against it", async () => {
+    expect(
+      await run([runShow(newHandle), terminal(oldHandle, false), runUse()]),
+    ).toMatchObject({ ok: true, result: { owner_generation: 2 } });
+  });
+
   test("a stale caller is owner_generation_stale, recorded refused", async () => {
     expect(await run(stopped(), { generation: 2 })).toMatchObject({
       ok: false,
