@@ -96,6 +96,17 @@ describeDb("pod drain", () => {
     expect(await drainOps()).toHaveLength(1);
   });
 
+  test("two drains racing on one derived key record one event", async () => {
+    const [a, b] = await Promise.all([
+      drain(conn.db, input()),
+      drain(conn.db, input()),
+    ]);
+    expect(a).toMatchObject({ ok: true, result: { state: "drained" } });
+    expect(b).toMatchObject({ ok: true, result: { state: "drained" } });
+    expect(await events(conn, "drain")).toHaveLength(1);
+    expect(await drainOps()).toHaveLength(1);
+  });
+
   test("a held Run keeps hold and still records the drain", async () => {
     await conn.sql`update ledger.run set state = 'hold'`;
     expect(await drain(conn.db, input())).toMatchObject({

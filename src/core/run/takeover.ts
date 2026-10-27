@@ -71,6 +71,12 @@ export const TakeoverRecorded = z.looseObject({
   nextSteps: z.array(z.string()).optional(),
 });
 
+const MutationId = z.looseObject({
+  result: z.looseObject({
+    mutation: z.looseObject({ requestId: z.string().min(1) }),
+  }),
+});
+
 const ErrorCode = z.looseObject({
   error: z.looseObject({ code: z.string() }),
 });
@@ -155,7 +161,7 @@ function unsafe(live: readonly string[], readable: boolean): Refusal {
 }
 
 export type Recorded =
-  { kind: "taken"; taken: Taken } | { kind: "stale"; refusal: Refusal };
+  { kind: "taken"; taken: Taken } | { kind: "refused"; refusal: Refusal };
 
 export async function recordTakeover(
   db: Db,
@@ -170,11 +176,21 @@ export async function recordTakeover(
 ): Promise<Recorded> {
   const { opKey, request, at } = record;
   return db.transaction(async (tx): Promise<Recorded> => {
-    const current = TakeoverRecorded.safeParse(
-      (await tx.getOperation(opKey))?.result_ref,
-    );
+    const row = await tx.getOperation(opKey);
+    const current = TakeoverRecorded.safeParse(row?.result_ref);
     if (current.success && current.data.result !== undefined)
       return { kind: "taken", taken: current.data.result };
+    if (row?.status !== "pending" && row?.status !== "unknown")
+      return {
+        kind: "refused",
+        refusal: {
+          code: "failed",
+          message: `takeover ${opKey} was closed before its run-use answered`,
+          nextSteps: [
+            `pod takeover story:${request.story} --generation ${request.generation}`,
+          ],
+        },
+      };
     const next = request.generation + 1;
     const moved = await tx.advanceOwner(request.run_id, {
       from: request.generation,
@@ -197,7 +213,7 @@ export async function recordTakeover(
         Json.parse({ request, ...refusal }),
         at,
       );
-      return { kind: "stale", refusal };
+      return { kind: "refused", refusal };
     }
     const story = await tx.getStory(run.story_provider, run.story_external_id);
     const snapshot = await tx.getSnapshot(run.run_id);
@@ -323,7 +339,8 @@ export async function takeover(
     if (
       existing.intent !== "takeover" ||
       !ref.success ||
-      ref.data.request.run_id !== run.run_id
+      ref.data.request.run_id !== run.run_id ||
+      ref.data.request.generation !== input.generation
     )
       return duplicate(opKey);
     if (existing.status === "pending" || existing.status === "unknown")
@@ -408,7 +425,7 @@ export async function takeover(
       verb: "takeover",
       at,
     });
-    if (recorded.kind === "stale")
+    if (recorded.kind === "refused")
       return { ok: false, refusal: recorded.refusal };
     return finished(db, recorded.taken, opKey, version);
   }
@@ -430,7 +447,12 @@ export async function takeover(
     "unknown",
     Json.parse({
       request,
-      requestId: outcome.kind === "unknown" ? outcome.requestId : null,
+      requestId:
+        outcome.kind === "unknown"
+          ? (outcome.requestId ??
+            MutationId.safeParse(receipt.raw).data?.result.mutation.requestId ??
+            null)
+          : null,
     }),
     at,
   );

@@ -12,12 +12,14 @@ import {
 } from "../orca/temp-fixtures.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
 import {
+  devArgv,
   dispatched,
   dispatchInput,
   empty,
   events,
   freshRun,
   replay,
+  started,
   taskState,
   workers,
 } from "./run-fixture.ts";
@@ -99,5 +101,50 @@ describeDb("pod check stops at a moved owner generation", () => {
       "unknown",
     );
     expect(await events(conn, "resume")).toEqual([]);
+  });
+
+  test("an unknown worker read after the bump records no unknown_launch and no hold", async () => {
+    const outcome = await passBumpingOn("worker-list", [
+      ok("check", empty(), run),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_stray", workerState: "running" }]),
+        run,
+      ),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: { code: "owner_generation_stale" },
+    });
+    expect(await events(conn, "unknown_launch")).toEqual([]);
+    expect((await conn.db.getRun("run_1"))?.state).toBe("active");
+  });
+
+  test("a bump before a completed launch is recorded leaves the operation unknown and no Dispatch", async () => {
+    const launch = replay(conn, [unknownReply("worker-start", requestId)]);
+    await dispatch(conn.db, launch.orca, launch.log, dispatchInput());
+    const [row] = await conn.sql<{ op_key: string }[]>`
+      select op_key from ledger.operation where intent = 'dispatch'`;
+    const outcome = await passBumpingOn("worker-start", [
+      ok("request-show", { requestId, state: "completed" }, [
+        "--request",
+        requestId,
+      ]),
+      ok("worker-start", started("ctx_1"), [
+        ...devArgv,
+        "--worktree",
+        "current",
+        "--retry-request",
+        requestId,
+      ]),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: { code: "owner_generation_stale" },
+    });
+    expect((await conn.db.getOperation(row?.op_key ?? ""))?.status).toBe(
+      "unknown",
+    );
+    expect(await conn.db.getDispatch("ctx_1")).toBeNull();
   });
 });

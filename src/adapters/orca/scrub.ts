@@ -103,6 +103,25 @@ function nextNumber(dir: string): number {
   return top + 1;
 }
 
+const blankedTerminalFields = ["title", "branch", "preview"] as const;
+
+export function blankTerminalFields(verb: string, stdout: string): string {
+  if (verb !== "terminal-show") return stdout;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return stdout;
+  }
+  const terminal = (
+    parsed as { result?: { terminal?: Record<string, unknown> } }
+  ).result?.terminal;
+  if (terminal === undefined) return stdout;
+  for (const field of blankedTerminalFields)
+    if (field in terminal) terminal[field] = "";
+  return `${JSON.stringify(parsed, null, 2)}\n`;
+}
+
 export function writeFixture(
   dir: string,
   record: ReceiptRecord,
@@ -115,7 +134,7 @@ export function writeFixture(
     match: { argv: match },
     exitCode: record.exitCode,
     signal: record.signal,
-    stdout: record.stdout,
+    stdout: blankTerminalFields(record.verb, record.stdout),
     stderr: record.stderr,
     orcaVersion: record.orcaVersion,
     recordedAt: record.endedAt,

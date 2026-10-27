@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Json } from "../domain/json.ts";
-import { RunState, type Run } from "../domain/ledger.ts";
+import { RunState, type Operation, type Run } from "../domain/ledger.ts";
 import { refuse, RefusalCode, type Refusal } from "../domain/outcome.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
@@ -48,6 +48,27 @@ async function freeKey(tx: Repo, run: Run, ended: boolean): Promise<string> {
   }
 }
 
+function replayed(existing: Operation, opKey: string, ended: boolean): Drained {
+  const ref = Recorded.safeParse(existing.result_ref);
+  if (
+    existing.intent !== "drain" ||
+    !ref.success ||
+    ref.data.request.ended !== ended
+  )
+    return refuse(
+      "duplicate_op",
+      `op key ${opKey} belongs to another intent or request`,
+      ["pass a new --op-key"],
+    );
+  if (ref.data.result === undefined)
+    return refuse(
+      ref.data.code ?? "failed",
+      ref.data.message ?? `op key ${opKey} was refused`,
+      ref.data.nextSteps ?? [],
+    );
+  return { ok: true, result: ref.data.result, opKey };
+}
+
 function moved(state: RunState, ended: boolean): RunState {
   if (!ended && state === "active") return "drained";
   if (ended && state === "drained") return "active";
@@ -64,26 +85,7 @@ export async function drain(db: Db, input: DrainInput): Promise<Drained> {
     const now = input.now();
     if (input.opKey !== null) {
       const existing = await tx.getOperation(input.opKey);
-      if (existing !== null) {
-        const ref = Recorded.safeParse(existing.result_ref);
-        if (
-          existing.intent !== "drain" ||
-          !ref.success ||
-          ref.data.request.ended !== ended
-        )
-          return refuse(
-            "duplicate_op",
-            `op key ${input.opKey} belongs to another intent or request`,
-            ["pass a new --op-key"],
-          );
-        if (ref.data.result === undefined)
-          return refuse(
-            ref.data.code ?? "failed",
-            ref.data.message ?? `op key ${input.opKey} was refused`,
-            ref.data.nextSteps ?? [],
-          );
-        return { ok: true, result: ref.data.result, opKey: input.opKey };
-      }
+      if (existing !== null) return replayed(existing, input.opKey, ended);
     }
     const opKey = input.opKey ?? (await freeKey(tx, run, ended));
     if (input.generation !== run.owner_generation) {
@@ -94,13 +96,14 @@ export async function drain(db: Db, input: DrainInput): Promise<Drained> {
           `pod takeover story:${run.story_external_id} if this session should own the Run`,
         ],
       };
-      await tx.insertOperation({
+      const inserted = await tx.insertOperation({
         op_key: opKey,
         intent: "drain",
         owner_generation: input.generation,
         at: now,
         result_ref: { request },
       });
+      if (!inserted.created) return replayed(inserted.operation, opKey, ended);
       await tx.moveOperation(
         opKey,
         "refused",
@@ -122,13 +125,14 @@ export async function drain(db: Db, input: DrainInput): Promise<Drained> {
       return { ok: true, result: result(run.state, false), opKey };
     const state = moved(run.state, ended);
     const done = result(state, true);
-    await tx.insertOperation({
+    const inserted = await tx.insertOperation({
       op_key: opKey,
       intent: "drain",
       owner_generation: input.generation,
       at: now,
       result_ref: { request },
     });
+    if (!inserted.created) return replayed(inserted.operation, opKey, ended);
     await tx.moveOperation(
       opKey,
       "done",

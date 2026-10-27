@@ -6,7 +6,12 @@ import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
-import { takeover, type TakeoverInput } from "../../src/core/run/takeover.ts";
+import {
+  recordTakeover,
+  takeover,
+  type TakeoverInput,
+  type TakeoverRequest,
+} from "../../src/core/run/takeover.ts";
 import {
   fixtures,
   lost,
@@ -16,7 +21,16 @@ import {
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
 import { describeDb, openDb, podHome, resetDb, runCli } from "./helpers.ts";
-import { dispatched, events, freshRun, replay } from "./run-fixture.ts";
+import {
+  dispatched,
+  empty,
+  events,
+  freshRun,
+  replay,
+  workers,
+} from "./run-fixture.ts";
+
+const run1 = ["--run", "run_1"];
 
 const oldHandle = "term_138f909e-aaa2-496c-97ea-796ec49e4fb8";
 const newHandle = "term_new";
@@ -77,10 +91,10 @@ const staleHandle = (handle: string): TempEntry => ({
   verb: "terminal-show",
   argv: ["--terminal", handle],
   exitCode: 1,
-  stdout: JSON.stringify({
-    ok: false,
-    error: { code: "terminal_handle_stale", message: "terminal_handle_stale" },
-  }),
+  stdout: readFileSync(
+    "test/db/takeover-unsafe/terminal-show-missing.stdout",
+    "utf8",
+  ),
 });
 
 const runUse = (from = newHandle) =>
@@ -134,11 +148,11 @@ describeDb("pod takeover", () => {
     return outcome;
   }
 
-  async function pass(entries: readonly TempEntry[]) {
+  async function pass(entries: readonly TempEntry[], generation = 1) {
     const { orca, log } = replay(conn, entries);
     const outcome = await checkPass(conn.db, orca, log, {
       run: "run_1",
-      generation: 1,
+      generation,
       host: "local",
       capacity: 2,
       now: () => new Date(),
@@ -337,6 +351,40 @@ describeDb("pod takeover", () => {
     expect(await owner()).toEqual({ generation: 1, coordinator: oldHandle });
   });
 
+  test("an exit-0 run-use with no readable Run keeps the mutation request id", async () => {
+    await run([
+      ...stopped(),
+      ok("run-use", { mutation: { requestId, replayed: false } }, [
+        "--id",
+        "run_1",
+        "--from",
+        newHandle,
+      ]),
+    ]);
+    const [row] = await operations();
+    expect(row?.status).toBe("unknown");
+    expect(
+      (
+        (await conn.db.getOperation(row?.op_key ?? ""))?.result_ref as {
+          requestId: string | null;
+        }
+      ).requestId,
+    ).toBe(requestId);
+  });
+
+  test("an op key reused with another generation is duplicate_op", async () => {
+    const taken = await run([...stopped(), runUse()], { opKey: "k-gen" });
+    expect(taken).toMatchObject({ ok: true });
+    expect(
+      await takeover(
+        conn.db,
+        noCalls(),
+        receiptLog(conn.db, "local"),
+        input({ opKey: "k-gen", generation: 2 }),
+      ),
+    ).toMatchObject({ ok: false, refusal: { code: "duplicate_op" } });
+  });
+
   async function unknownTakeover(): Promise<string> {
     await run([...stopped(), unknownReply("run-use", requestId)]);
     const [row] = await operations();
@@ -422,6 +470,81 @@ describeDb("pod takeover", () => {
     expect(outcome.ok && outcome.opKey).not.toBe(opKey);
   });
 
+  const reconciledAs = async (opKey: string) =>
+    (
+      (await conn.db.getOperation(opKey))?.result_ref as {
+        reconciled?: string;
+      } | null
+    )?.reconciled;
+
+  const lostNoId = () =>
+    run([
+      ...stopped(),
+      lost("run-use", ["--id", "run_1", "--from", newHandle]),
+    ]);
+
+  test("pod check closes a takeover left open under an older generation and runs the pass", async () => {
+    await lostNoId();
+    const [open] = await operations();
+    expect(
+      await run([...stopped(), runUse()], { opKey: "k-later" }),
+    ).toMatchObject({ ok: true, result: { owner_generation: 2 } });
+    const checked = await pass(
+      [ok("check", empty(), run1), ok("worker-list", workers([]), run1)],
+      2,
+    );
+    expect(checked).toMatchObject({ ok: true, result: { run_id: "run_1" } });
+    expect((await conn.db.getOperation(open?.op_key ?? ""))?.status).toBe(
+      "done",
+    );
+    expect(await reconciledAs(open?.op_key ?? "")).toBe("superseded");
+  });
+
+  test("pod check closes a takeover with no request id when run-show names another handle", async () => {
+    await lostNoId();
+    const [open] = await operations();
+    expect(await pass([runShow()])).toMatchObject({
+      ok: true,
+      result: {
+        nextSteps: [
+          "pod takeover story:S-1 --generation 1",
+          "pod check --run run_1 --generation 1",
+        ],
+      },
+    });
+    expect(await reconciledAs(open?.op_key ?? "")).toBe("not_bound");
+    const retaken = await run([...stopped(), runUse()]);
+    expect(retaken).toMatchObject({
+      ok: true,
+      result: { owner_generation: 2 },
+    });
+    expect(retaken.ok && retaken.opKey).not.toBe(open?.op_key);
+  });
+
+  test("a run-use that answers after pod check closed its takeover records nothing", async () => {
+    await lostNoId();
+    const [open] = await operations();
+    await pass([runShow()]);
+    const recorded = await recordTakeover(conn.db, {
+      opKey: open?.op_key ?? "",
+      request: (
+        (await conn.db.getOperation(open?.op_key ?? ""))?.result_ref as {
+          request: TakeoverRequest;
+        }
+      ).request,
+      consumerGeneration: 2,
+      host: "local",
+      verb: "takeover",
+      at: new Date(),
+    });
+    expect(recorded).toMatchObject({
+      kind: "refused",
+      refusal: { code: "failed" },
+    });
+    expect(await owner()).toEqual({ generation: 1, coordinator: oldHandle });
+    expect(await events(conn, "takeover")).toEqual([]);
+  });
+
   test("pod check settles a reply lost with no request id through run-show", async () => {
     await run([
       ...stopped(),
@@ -476,7 +599,7 @@ describeDb("pod takeover", () => {
       ],
       {
         POD_COORDINATOR: newHandle,
-        POD_ORCA_FIXTURES: fixtures([runShow()]),
+        POD_ORCA_FIXTURES: fixtures([ok("no-call-expected", {})]),
       },
     );
     expect(rerun.json).toMatchObject({ ok: true, result: { view_path: out } });

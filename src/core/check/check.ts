@@ -109,8 +109,9 @@ export async function checkPass(
     if (rows === null)
       result.nextSteps.push("worker-list unreadable; run pod check again");
     else {
-      result.stopped = await recordStops(db, run, rows, input);
-      result.unknown_workers = await recordUnknownWorkers(db, run, rows, input);
+      const recorded = await recordWorkers(db, run, rows, input);
+      result.stopped = recorded.stopped;
+      result.unknown_workers = recorded.unknown;
     }
   } catch (error) {
     if (error instanceof StaleGeneration)
@@ -255,110 +256,119 @@ async function recordMessage(
     await tx.setTaskState(task.task_id, "delivered");
 }
 
-async function recordStops(
+async function recordWorkers(
   db: Db,
   run: Run,
   rows: readonly WorkerRow[],
   input: CheckInput,
-): Promise<string[]> {
+): Promise<{ stopped: string[]; unknown: string[] }> {
   return db.transaction(async (tx) => {
     await fence(tx, run.run_id, input.generation);
-    const stopped: string[] = [];
-    for (const row of rows) {
-      if (row.workerState !== "stopped") continue;
-      const dispatch = await tx.getDispatch(row.dispatchId);
-      if (dispatch?.run_id !== run.run_id || dispatch.settlement !== "open")
-        continue;
-      const at = input.now();
-      await tx.settleDispatch(dispatch.dispatch_id, {
-        activity: "settled",
-        settlement: "stopped",
-        settled_at: at,
-      });
-      await tx.appendEvent({
-        type: "stop",
-        ts: at,
-        host: input.host,
-        run_id: run.run_id,
-        task_id: dispatch.task_id,
-        dispatch_id: dispatch.dispatch_id,
-        op_key: null,
-        payload: { worker_state: row.workerState },
-        source: { kind: "command", verb: "check" },
-      });
-      const task = await tx.getTask(dispatch.task_id);
-      if (task?.state === "dispatched")
-        await tx.setTaskState(task.task_id, "blocked");
-      stopped.push(dispatch.dispatch_id);
-    }
-    return stopped;
+    return {
+      stopped: await recordStops(tx, run, rows, input),
+      unknown: await recordUnknownWorkers(tx, run, rows, input),
+    };
   });
 }
 
-async function recordUnknownWorkers(
-  db: Db,
+async function recordStops(
+  tx: Repo,
   run: Run,
   rows: readonly WorkerRow[],
   input: CheckInput,
 ): Promise<string[]> {
-  return db.transaction(async (tx) => {
-    await fence(tx, run.run_id, input.generation);
-    const known = new Set(
-      (await tx.listDispatches(run.run_id)).map((row) => row.dispatch_id),
-    );
-    const inFlight = new Set(
-      (await openLaunches(tx)).map((row) => row.request?.task_id),
-    );
+  const stopped: string[] = [];
+  for (const row of rows) {
+    if (row.workerState !== "stopped") continue;
+    const dispatch = await tx.getDispatch(row.dispatchId);
+    if (dispatch?.run_id !== run.run_id || dispatch.settlement !== "open")
+      continue;
     const at = input.now();
-    const found: string[] = [];
-    for (const row of rows) {
-      if (known.has(row.dispatchId)) continue;
-      if (row.taskId != null && inFlight.has(row.taskId)) continue;
-      if ((await tx.dispatchEvent(row.dispatchId, "unknown_launch")) !== null)
-        continue;
-      await tx.appendEvent({
-        type: "unknown_launch",
-        ts: at,
-        host: input.host,
-        run_id: run.run_id,
-        task_id: null,
-        dispatch_id: row.dispatchId,
-        op_key: null,
-        payload: Json.parse({
-          worker_task_id: row.taskId ?? null,
-          worker_state: row.workerState,
-        }),
-        source: { kind: "command", verb: "check" },
-      });
-      found.push(row.dispatchId);
-    }
-    const current = await tx.getRun(run.run_id);
-    if (
-      found.length === 0 ||
-      (current?.state !== "active" && current?.state !== "drained")
-    )
-      return found;
-    const hold = (task_id: string | null) =>
-      tx.appendEvent({
-        type: "hold",
-        ts: at,
-        host: input.host,
-        run_id: run.run_id,
-        task_id,
-        dispatch_id: null,
-        op_key: null,
-        payload: { reason: "unknown_launch", dispatch_ids: found },
-        source: { kind: "command", verb: "check" },
-      });
-    await tx.setRunState(run.run_id, "hold");
-    await hold(null);
-    for (const task of await tx.listTasks(run.run_id)) {
-      if (!openTaskStates.includes(task.state)) continue;
-      await tx.setTaskState(task.task_id, "hold");
-      await hold(task.task_id);
-    }
+    await tx.settleDispatch(dispatch.dispatch_id, {
+      activity: "settled",
+      settlement: "stopped",
+      settled_at: at,
+    });
+    await tx.appendEvent({
+      type: "stop",
+      ts: at,
+      host: input.host,
+      run_id: run.run_id,
+      task_id: dispatch.task_id,
+      dispatch_id: dispatch.dispatch_id,
+      op_key: null,
+      payload: { worker_state: row.workerState },
+      source: { kind: "command", verb: "check" },
+    });
+    const task = await tx.getTask(dispatch.task_id);
+    if (task?.state === "dispatched")
+      await tx.setTaskState(task.task_id, "blocked");
+    stopped.push(dispatch.dispatch_id);
+  }
+  return stopped;
+}
+
+async function recordUnknownWorkers(
+  tx: Repo,
+  run: Run,
+  rows: readonly WorkerRow[],
+  input: CheckInput,
+): Promise<string[]> {
+  const known = new Set(
+    (await tx.listDispatches(run.run_id)).map((row) => row.dispatch_id),
+  );
+  const inFlight = new Set(
+    (await openLaunches(tx)).map((row) => row.request?.task_id),
+  );
+  const at = input.now();
+  const found: string[] = [];
+  for (const row of rows) {
+    if (known.has(row.dispatchId)) continue;
+    if (row.taskId != null && inFlight.has(row.taskId)) continue;
+    if ((await tx.dispatchEvent(row.dispatchId, "unknown_launch")) !== null)
+      continue;
+    await tx.appendEvent({
+      type: "unknown_launch",
+      ts: at,
+      host: input.host,
+      run_id: run.run_id,
+      task_id: null,
+      dispatch_id: row.dispatchId,
+      op_key: null,
+      payload: Json.parse({
+        worker_task_id: row.taskId ?? null,
+        worker_state: row.workerState,
+      }),
+      source: { kind: "command", verb: "check" },
+    });
+    found.push(row.dispatchId);
+  }
+  const current = await tx.getRun(run.run_id);
+  if (
+    found.length === 0 ||
+    (current?.state !== "active" && current?.state !== "drained")
+  )
     return found;
-  });
+  const hold = (task_id: string | null) =>
+    tx.appendEvent({
+      type: "hold",
+      ts: at,
+      host: input.host,
+      run_id: run.run_id,
+      task_id,
+      dispatch_id: null,
+      op_key: null,
+      payload: { reason: "unknown_launch", dispatch_ids: found },
+      source: { kind: "command", verb: "check" },
+    });
+  await tx.setRunState(run.run_id, "hold");
+  await hold(null);
+  for (const task of await tx.listTasks(run.run_id)) {
+    if (!openTaskStates.includes(task.state)) continue;
+    await tx.setTaskState(task.task_id, "hold");
+    await hold(task.task_id);
+  }
+  return found;
 }
 
 const Refusal = z.looseObject({

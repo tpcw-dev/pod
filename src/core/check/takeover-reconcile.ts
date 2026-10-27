@@ -31,6 +31,10 @@ export async function reconcileTakeovers(
   )) {
     const ref = TakeoverRecorded.safeParse(operation.result_ref);
     if (!ref.success || ref.data.request.run_id !== input.run.run_id) continue;
+    if (ref.data.request.generation !== input.run.owner_generation) {
+      await close(db, input, operation.op_key, ref.data.request, "superseded");
+      continue;
+    }
     log.at({
       run_id: input.run.run_id,
       task_id: null,
@@ -58,6 +62,10 @@ async function reconcileOne(
 ): Promise<string[]> {
   const opKey = operation.op_key;
   const runId = input.run.run_id;
+  const nextAttempt = [
+    `pod takeover story:${request.story} --generation ${request.generation}`,
+    checkStep(runId, input.generation),
+  ];
   const stillOpen = [
     `pod check: takeover ${opKey} is still ${operation.status}`,
     checkStep(runId, input.generation),
@@ -71,7 +79,7 @@ async function reconcileOne(
       verb: "check",
       at: input.now(),
     });
-    if (recorded.kind === "stale") return recorded.refusal.nextSteps;
+    if (recorded.kind === "refused") return recorded.refusal.nextSteps;
     return [
       checkStep(runId, recorded.taken.owner_generation),
       `pod takeover story:${request.story} --generation ${request.generation} --op-key ${opKey}`,
@@ -81,9 +89,11 @@ async function reconcileOne(
   if (requestId === null) {
     const shown = await orca.runShow({ run: runId });
     const bound = shown.result?.run;
-    if (shown.exitCode === 0 && bound?.coordinator_handle === request.to_handle)
+    if (shown.exitCode !== 0 || bound === undefined) return stillOpen;
+    if (bound.coordinator_handle === request.to_handle)
       return record(bound.consumer_generation);
-    return stillOpen;
+    await close(db, input, opKey, request, "not_bound");
+    return nextAttempt;
   }
 
   const state = (await orca.requestShow({ request: requestId })).result?.state;
@@ -98,17 +108,24 @@ async function reconcileOne(
     return stillOpen;
   }
   if (state !== "absent") return stillOpen;
+  await close(db, input, opKey, request, "absent");
+  return nextAttempt;
+}
+
+async function close(
+  db: Db,
+  input: TakeoverReconcileInput,
+  opKey: string,
+  request: TakeoverRequest,
+  reconciled: "absent" | "not_bound" | "superseded",
+): Promise<void> {
   await db.transaction(async (tx) => {
-    await fence(tx, runId, input.generation);
+    await fence(tx, input.run.run_id, input.generation);
     await tx.moveOperation(
       opKey,
       "done",
-      Json.parse({ request, outcome: "failed", reconciled: "absent" }),
+      Json.parse({ request, outcome: "failed", reconciled }),
       input.now(),
     );
   });
-  return [
-    `pod takeover story:${request.story} --generation ${request.generation}`,
-    checkStep(runId, input.generation),
-  ];
 }
