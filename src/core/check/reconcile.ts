@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HoldPayload, latestDispatch, resumeTarget } from "../domain/hold.ts";
 import { Json } from "../domain/json.ts";
 import type { Operation, Run } from "../domain/ledger.ts";
 import {
@@ -37,7 +38,7 @@ export const launchLeaseSeconds = 300;
 
 export interface Reconciled {
   op_key: string;
-  to: "dispatched" | "ready" | "closed" | "unknown";
+  to: string;
 }
 
 export interface ReconcileInput {
@@ -172,7 +173,16 @@ async function reconcileOne(
     const task = await tx.getTask(request.task_id);
     if (abandoned || task?.state !== "hold")
       return { state: task?.state ?? "missing" };
-    await tx.setTaskState(request.task_id, "ready");
+    const hold = await tx.latestEvent(runId, "hold", {
+      taskId: request.task_id,
+    });
+    const to = resumeTarget(
+      hold === null
+        ? undefined
+        : HoldPayload.safeParse(hold.payload).data?.from,
+      latestDispatch(await tx.listDispatches(runId), request.task_id),
+    );
+    await tx.setTaskState(request.task_id, to);
     await tx.appendEvent({
       type: "resume",
       ts: at,
@@ -181,13 +191,13 @@ async function reconcileOne(
       task_id: request.task_id,
       dispatch_id: null,
       op_key: operation.op_key,
-      payload: { reason: "reconciled_no_worker", op_key: operation.op_key },
+      payload: { reason: "reconciled_no_worker", op_key: operation.op_key, to },
       source: { kind: "command", verb: "check" },
     });
-    return { state: "ready" };
+    return { state: to };
   });
   if (closed === null) return null;
-  if (!abandoned) return { to: "ready" };
+  if (!abandoned) return { to: closed.state };
   return {
     to: "closed",
     nextStep: `${leaseLine(input, operation)}; closed with no worker, Task ${request.task_id} is ${closed.state}`,

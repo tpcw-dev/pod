@@ -250,7 +250,7 @@ const PassOutput = z.object({
   reconciled: z.array(
     z.object({
       op_key: z.string(),
-      to: z.enum(["dispatched", "ready", "closed", "unknown"]),
+      to: z.string(),
     }),
   ),
   deliveries: z.array(

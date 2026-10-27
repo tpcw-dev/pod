@@ -700,7 +700,7 @@ function makeRepo(x: Executor): Repo {
               : eq(event.taskId, options.taskId),
           ),
         )
-        .orderBy(desc(event.ts), desc(event.id))
+        .orderBy(desc(event.id))
         .limit(1);
       return row === undefined ? null : toEvent(row);
     },

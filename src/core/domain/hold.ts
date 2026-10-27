@@ -33,3 +33,15 @@ export function resumeTarget(
   );
   return row?.to ?? "blocked";
 }
+
+export function latestDispatch(rows: readonly Dispatch[], taskId: string) {
+  let latest: Dispatch | null = null;
+  for (const row of rows)
+    if (
+      row.task_id === taskId &&
+      (latest === null ||
+        row.created_at.getTime() > latest.created_at.getTime())
+    )
+      latest = row;
+  return latest;
+}

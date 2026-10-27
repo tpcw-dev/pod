@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { deliveryOutcome, type DeliveryRow } from "../domain/delivery.ts";
-import { HoldPayload, resumeTarget } from "../domain/hold.ts";
+import { HoldPayload, latestDispatch, resumeTarget } from "../domain/hold.ts";
 import { Json } from "../domain/json.ts";
 import type { Dispatch, Run, Task } from "../domain/ledger.ts";
 import { refuse, type Checked, type Refused } from "../domain/outcome.ts";
@@ -531,16 +531,4 @@ export async function resume(db: Db, input: ResumeInput): Promise<Resumed> {
     }
     return { ok: true, result: { run_id: run.run_id, resumed } };
   });
-}
-
-function latestDispatch(rows: readonly Dispatch[], taskId: string) {
-  let latest: Dispatch | null = null;
-  for (const row of rows)
-    if (
-      row.task_id === taskId &&
-      (latest === null ||
-        row.created_at.getTime() > latest.created_at.getTime())
-    )
-      latest = row;
-  return latest;
 }
