@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_2504596fe174",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"5904460d-4269-407f-9cea-243b0113ed87\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_2504596fe174\",\n    \"deliveryId\": \"delivery_61bed11d1a71\",\n    \"messages\": [\n      {\n        \"id\": \"msg_c3d61d2ca4df\",\n        \"run_id\": \"run_2504596fe174\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_3398b12a-cc6b-48e7-8c5d-a17645137275\",\n        \"to_handle\": \"run:run_2504596fe174\",\n        \"subject\": \"Task completed\",\n        \"body\": \"Received dispatch task and initiated completion sequence. Executed the worker_done command with outcome succeeded as instructed. Task workflow is now complete with no further actions required.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_2b3ff5a78b43\\\",\\\"dispatchId\\\":\\\"ctx_8ff80391dd2c\\\",\\\"outcome\\\":\\\"succeeded\\\"}\",\n        \"created_at\": \"2026-10-27T00:02:57Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"32d0babb-fee7-41fb-a58d-be248dbf5da5\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-27T00:03:54.270Z"
+}

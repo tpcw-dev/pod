@@ -75,6 +75,7 @@ export function noCalls(): OrcaPort {
     version: () => Promise.resolve({ version: "1.4.211" }),
     runCreate: refuse,
     runUse: refuse,
+    runShow: refuse,
     taskCreate: refuse,
     workerStart: refuse,
     workerStop: refuse,
@@ -83,5 +84,6 @@ export function noCalls(): OrcaPort {
     send: refuse,
     requestShow: refuse,
     workerList: refuse,
+    terminalShow: refuse,
   };
 }

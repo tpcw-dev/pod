@@ -31,7 +31,7 @@ interface Wiring {
   host: HostSettings;
 }
 
-async function withOrca<R extends { ok: true }>(
+export async function withOrca<R extends { ok: true }>(
   work: (wiring: Wiring) => Promise<R | Refused>,
 ): Promise<R> {
   const host = readHostProfile();
@@ -67,7 +67,7 @@ async function withOrca<R extends { ok: true }>(
   }
 }
 
-function quote(value: string): string {
+export function quote(value: string): string {
   return /^[\w@:./=-]+$/.test(value)
     ? value
     : `'${value.replaceAll("'", "'\\''")}'`;
@@ -217,7 +217,7 @@ export async function dispatchVerb(
   return { ...result, op_key: opKey, orca };
 }
 
-const Generation = z.string().regex(/^[1-9][0-9]*$/);
+export const Generation = z.string().regex(/^[1-9][0-9]*$/);
 const Seconds = z.string().regex(/^[1-9][0-9]*$/);
 
 export const CheckInput = z

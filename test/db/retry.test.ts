@@ -242,7 +242,7 @@ describeDb("pod retry", () => {
       task_id: null,
       dispatch_id: null,
       op_key: null,
-      payload: {},
+      payload: { ended: false, op_key: "k-drain-event" },
       source: { kind: "command", verb: "drain" },
     });
     await refused("drained", { opKey: "k-drain" });
@@ -254,7 +254,7 @@ describeDb("pod retry", () => {
       task_id: null,
       dispatch_id: null,
       op_key: null,
-      payload: { ended: true },
+      payload: { ended: true, op_key: "k-end-event" },
       source: { kind: "command", verb: "drain" },
     });
     await refused("quota_exhausted", { capacity: 0, opKey: "k-quota" });

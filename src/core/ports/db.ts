@@ -51,6 +51,10 @@ export interface Repo {
   insertRun(row: Run): Promise<void>;
   getRun(runId: string): Promise<Run | null>;
   setRunState(runId: string, state: RunState): Promise<void>;
+  advanceOwner(
+    runId: string,
+    change: { from: number; to: number; coordinator: string },
+  ): Promise<boolean>;
   insertTask(row: Task): Promise<void>;
   getTask(taskId: string): Promise<Task | null>;
   listTasks(runId: string): Promise<Task[]>;

@@ -11,6 +11,7 @@ import { launchOutcome } from "../ledger/launch.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db } from "../ports/db.ts";
 import type { OrcaPort, WorkerRow } from "../ports/orca.ts";
+import { fence } from "./fence.ts";
 
 const UnknownRef = z.looseObject({
   request: z.looseObject({
@@ -32,6 +33,7 @@ export interface Reconciled {
 
 export interface ReconcileInput {
   run: Run;
+  generation: number;
   workers: () => Promise<WorkerRow[] | null>;
   now: () => Date;
 }
@@ -110,6 +112,7 @@ async function reconcileOne(
   if (ref.requestId != null && shown !== "absent") return "unknown";
   const at = input.now();
   await db.transaction(async (tx) => {
+    await fence(tx, runId, input.generation);
     await tx.moveOperation(
       operation.op_key,
       "done",
@@ -147,6 +150,7 @@ async function started(
   launched: Launched,
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    await fence(tx, input.run.run_id, input.generation);
     const task = await tx.getTask(ref.request.task_id);
     if (task === null) throw new Error(`Task ${ref.request.task_id} vanished`);
     await recordStarted(tx, {

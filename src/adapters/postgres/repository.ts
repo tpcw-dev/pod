@@ -391,6 +391,15 @@ function makeRepo(x: Executor): Repo {
       await x.update(run).set({ state }).where(eq(run.runId, runId));
     },
 
+    async advanceOwner(runId, change) {
+      const rows = await x
+        .update(run)
+        .set({ ownerGeneration: change.to, coordinator: change.coordinator })
+        .where(and(eq(run.runId, runId), eq(run.ownerGeneration, change.from)))
+        .returning({ id: run.runId });
+      return rows.length > 0;
+    },
+
     async insertTask(row: Task) {
       await x.insert(task).values({
         taskId: row.task_id,

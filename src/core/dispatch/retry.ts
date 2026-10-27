@@ -7,6 +7,7 @@ import {
   type Refusal,
   type Refused,
 } from "../domain/outcome.ts";
+import { drainInForce } from "../ledger/drain-in-force.ts";
 import { launchOutcome } from "../ledger/launch.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
@@ -19,7 +20,7 @@ import {
 import { renderTaskView } from "../manifest/task-view.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
-import { drainInForce, replayed } from "./dispatch.ts";
+import { replayed } from "./dispatch.ts";
 import {
   fromReceipt,
   recordStarted,
@@ -213,6 +214,16 @@ export async function retry(
         ],
       });
     if (existing !== null) return { kind: "existing", operation: existing };
+    if (await drainInForce(tx, run.run_id))
+      return record({
+        code: "drained",
+        message: `a drain is in force on Run ${run.run_id}`,
+        nextSteps: [
+          "pod check",
+          "pod release",
+          "this refusal is recorded under its op key; pass a new --op-key once the drain ends",
+        ],
+      });
     const siblings = (await tx.listDispatches(run.run_id)).filter(
       (row) => row.task_id === current.task_id,
     );
@@ -249,16 +260,6 @@ export async function retry(
           ...(blocked === null
             ? []
             : [`Run blocked by a ${blocked.type} event`]),
-        ],
-      });
-    if (await drainInForce(tx, run.run_id))
-      return record({
-        code: "drained",
-        message: `a drain is in force on Run ${run.run_id}`,
-        nextSteps: [
-          "pod check",
-          "pod release",
-          "this refusal is recorded under its op key; pass a new --op-key once the drain ends",
         ],
       });
     const reservations = onHost(launches, input.host);

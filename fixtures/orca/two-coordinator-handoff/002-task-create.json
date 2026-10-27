@@ -1,0 +1,18 @@
+{
+  "verb": "task-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "task-create",
+      "--run",
+      "run_2504596fe174",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"21499da2-4fe7-4c3e-a5f4-67eb4e2f2119\",\n  \"ok\": true,\n  \"result\": {\n    \"task\": {\n      \"id\": \"task_2b3ff5a78b43\",\n      \"run_id\": \"run_2504596fe174\",\n      \"parent_id\": null,\n      \"created_by_terminal_handle\": \"term_138f909e-aaa2-496c-97ea-796ec49e4fb8\",\n      \"created_by_pane_key\": \"8847104e-d0bd-46c9-ab1c-4bc208e5c41c:6d6ef062-0768-4655-b64b-cff6a2e3a931\",\n      \"created_by_process_incarnation\": \"902f0fc5-edba-4879-a032-58e853f081bb::/w/1@@c05e7420:2d873810-a40e-4319-8148-bbb535504739\",\n      \"created_by_run_generation\": 1,\n      \"task_title\": \"build-a\",\n      \"display_name\": \"build-a\",\n      \"spec\": \"Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.\",\n      \"status\": \"ready\",\n      \"deps\": \"[]\",\n      \"result\": null,\n      \"created_at\": \"2026-10-27 00:02:34\",\n      \"completed_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"105c185c-b316-41b6-a30e-d9f9b99824a2\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-27T00:02:34.123Z"
+}

@@ -4,6 +4,7 @@ export interface OrcaPort {
   version(): Promise<OrcaVersion>
   runCreate(req: RunCreateRequest): Promise<Receipt<RunCreateResult>>
   runUse(req: RunUseRequest): Promise<Receipt<RunUseResult>>
+  runShow(req: RunShowRequest): Promise<Receipt<RunShowResult>>
   taskCreate(req: TaskCreateRequest): Promise<Receipt<TaskCreateResult>>
   workerStart(req: WorkerStartRequest): Promise<Receipt<WorkerStartResult>>
   workerStop(req: WorkerStopRequest): Promise<Receipt<WorkerStopResult>>
@@ -12,6 +13,7 @@ export interface OrcaPort {
   send(req: SendRequest): Promise<Receipt<SendResult>>
   requestShow(req: RequestShowRequest): Promise<Receipt<RequestShowResult>>
   workerList(req: WorkerListRequest): Promise<Receipt<WorkerListResult>>
+  terminalShow(req: TerminalShowRequest): Promise<Receipt<TerminalShowResult>>
 }
 
 export interface Receipt<T> {
@@ -60,7 +62,16 @@ export interface RunCreateRequest {
 
 export interface RunUseRequest {
   run: string;
+  from?: string;
   retryRequest?: string;
+}
+
+export interface RunShowRequest {
+  run: string;
+}
+
+export interface TerminalShowRequest {
+  terminal: string;
 }
 
 export interface TaskCreateRequest {
@@ -236,6 +247,26 @@ export const WorkerReleaseResult = z.looseObject({
 });
 export type WorkerReleaseResult = z.infer<typeof WorkerReleaseResult>;
 
+const OrcaRun = z.looseObject({
+  id: z.string().min(1),
+  coordinator_handle: z.string().min(1),
+  consumer_generation: z.int(),
+});
+
+export const RunShowResult = z.looseObject({ run: OrcaRun });
+export type RunShowResult = z.infer<typeof RunShowResult>;
+
+export const RunUseResult = RunShowResult;
+export type RunUseResult = RunShowResult;
+
+export const TerminalShowResult = z.looseObject({
+  terminal: z.looseObject({
+    handle: z.string(),
+    connected: z.boolean(),
+    exitCause: z.looseObject({}).nullish(),
+  }),
+});
+export type TerminalShowResult = z.infer<typeof TerminalShowResult>;
+
 export const LooseResult = z.looseObject({});
-export type RunUseResult = z.infer<typeof LooseResult>;
 export type SendResult = z.infer<typeof LooseResult>;

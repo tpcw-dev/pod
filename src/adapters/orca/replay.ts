@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z, type ZodType } from "zod";
 import { type OrcaPort, type ReceiptSink } from "../../core/ports/orca.ts";
+import { verbOf } from "./argv.ts";
 import { methods } from "./methods.ts";
 import { checkVersion, receiptOf } from "./receipt.ts";
 
@@ -59,7 +60,7 @@ export function makeReplayOrca(options: {
   let next = 0;
 
   async function call<T>(argv: string[], schema: ZodType<T>) {
-    const verb = argv[1] ?? "";
+    const verb = verbOf(argv);
     const item = entries[next];
     if (
       item === undefined ||

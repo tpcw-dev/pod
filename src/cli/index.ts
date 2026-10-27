@@ -61,6 +61,7 @@ function parse() {
         resume: { type: "boolean" },
         dispatch: { type: "string" },
         retain: { type: "boolean" },
+        end: { type: "boolean" },
       },
       strict: true,
       allowPositionals: true,
