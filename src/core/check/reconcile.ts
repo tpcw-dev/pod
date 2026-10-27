@@ -10,7 +10,7 @@ import {
 import { launchOutcome } from "../ledger/launch.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db } from "../ports/db.ts";
-import type { OrcaPort, WorkerRow } from "../ports/orca.ts";
+import type { OrcaPort, Receipt, WorkerRow } from "../ports/orca.ts";
 import { fence } from "./fence.ts";
 
 const UnknownRef = z.looseObject({
@@ -25,6 +25,13 @@ const UnknownRef = z.looseObject({
   manifest_id: z.string(),
 });
 type UnknownRef = z.infer<typeof UnknownRef>;
+
+const freshCodes = ["orca_version_unsupported", "consumer_fenced"];
+
+const RecordedRefusal = z.looseObject({
+  ok: z.literal(false),
+  error: z.looseObject({ code: z.string().min(1) }),
+});
 
 export interface Reconciled {
   op_key: string;
@@ -74,6 +81,7 @@ async function reconcileOne(
   const runId = input.run.run_id;
   log.at({ run_id: runId, task_id: request.task_id, op_key: operation.op_key });
   let shown: string | null = null;
+  let refused: string | null = null;
   if (ref.requestId != null) {
     shown =
       (await orca.requestShow({ request: ref.requestId })).result?.state ??
@@ -93,6 +101,7 @@ async function reconcileOne(
         await started(db, input, operation, ref, launched);
         return "dispatched";
       }
+      refused = recordedRefusal(receipt);
     }
   }
   const rows = await input.workers();
@@ -109,7 +118,8 @@ async function reconcileOne(
     });
     return "dispatched";
   }
-  if (ref.requestId != null && shown !== "absent") return "unknown";
+  if (ref.requestId != null && shown !== "absent" && refused === null)
+    return "unknown";
   const at = input.now();
   await db.transaction(async (tx) => {
     await fence(tx, runId, input.generation);
@@ -120,7 +130,9 @@ async function reconcileOne(
         request,
         launch: launch ?? null,
         outcome: "failed",
-        reconciled: "no_worker",
+        ...(refused === null
+          ? { reconciled: "no_worker" }
+          : { reconciled: "recorded_refusal", code: refused }),
       }),
       at,
     );
@@ -140,6 +152,14 @@ async function reconcileOne(
     });
   });
   return "ready";
+}
+
+function recordedRefusal(receipt: Receipt<unknown>): string | null {
+  if (launchOutcome(receipt).kind !== "failed") return null;
+  const parsed = RecordedRefusal.safeParse(receipt.raw);
+  if (!parsed.success) return null;
+  const { code } = parsed.data.error;
+  return freshCodes.includes(code) ? null : code;
 }
 
 async function started(

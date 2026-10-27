@@ -182,20 +182,86 @@ describeDb("pod check reconciles unknown launches", () => {
     expect(await taskState(conn, "task_b")).toBe("hold");
   });
 
-  test("a completed request whose replay fails keeps the operation unknown and sends no second start", async () => {
+  const replayed = (stdout: string): TempEntry => ({
+    verb: "worker-start",
+    argv: replayArgv,
+    exitCode: 1,
+    stdout,
+  });
+  const refusal = (code: string, data?: object) =>
+    replayed(
+      JSON.stringify({ ok: false, error: { code, message: "no", data } }),
+    );
+
+  test.each([
+    ["a runtime_unavailable envelope", refusal("runtime_unavailable")],
+    [
+      "an orca_version_unsupported envelope",
+      refusal("orca_version_unsupported"),
+    ],
+    ["a consumer_fenced envelope", refusal("consumer_fenced")],
+    [
+      "an outcome_unknown disposition",
+      refusal("task_not_startable", {
+        recovery: { disposition: "outcome_unknown" },
+      }),
+    ],
+    ["stdout that is not json", replayed("not json")],
+    [
+      "an envelope without ok: false",
+      replayed(JSON.stringify({ error: { code: "task_not_startable" } })),
+    ],
+  ])(
+    "a completed request whose replay fails keeps the operation unknown and sends no second start: %s",
+    async (_name, reply) => {
+      await launchUnknown(unknownReply("worker-start", requestId));
+      const outcome = await pass([
+        shown("completed"),
+        reply,
+        ok("worker-list", workers([]), run),
+        ok("check", empty(), run),
+      ]);
+      expect(outcome).toMatchObject({
+        ok: true,
+        result: { reconciled: [{ to: "unknown" }], free_slots: 0 },
+      });
+      expect(await status()).toBe("unknown");
+      expect(await taskState(conn, "task_b")).toBe("hold");
+    },
+  );
+
+  test("a completed request whose replay returns a recorded refusal and no worker frees the Task", async () => {
     await launchUnknown(unknownReply("worker-start", requestId));
     const outcome = await pass([
       shown("completed"),
-      {
-        verb: "worker-start",
-        argv: replayArgv,
-        exitCode: 1,
-        stdout: JSON.stringify({
-          ok: false,
-          error: { code: "task_not_startable", message: "no" },
-        }),
-      },
+      refusal("task_not_startable"),
       ok("worker-list", workers([]), run),
+      ok("check", empty(), run),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { reconciled: [{ op_key: opKey, to: "ready" }], free_slots: 1 },
+    });
+    expect(await conn.db.getOperation(opKey)).toMatchObject({
+      status: "done",
+      result_ref: {
+        outcome: "failed",
+        reconciled: "recorded_refusal",
+        code: "task_not_startable",
+      },
+    });
+    expect(await taskState(conn, "task_b")).toBe("ready");
+    expect(
+      (await events(conn, "resume")).map((row) => row.payload["reason"]),
+    ).toEqual(["reconciled_no_worker"]);
+  });
+
+  test("a recorded refusal with an unreadable worker list keeps the operation unknown", async () => {
+    await launchUnknown(unknownReply("worker-start", requestId));
+    const outcome = await pass([
+      shown("completed"),
+      refusal("task_not_startable"),
+      { verb: "worker-list", argv: run, exitCode: 1, stdout: "not json" },
       ok("check", empty(), run),
     ]);
     expect(outcome).toMatchObject({
@@ -204,6 +270,27 @@ describeDb("pod check reconciles unknown launches", () => {
     });
     expect(await status()).toBe("unknown");
     expect(await taskState(conn, "task_b")).toBe("hold");
+  });
+
+  test("a recorded refusal with an unrecorded worker for the Task records its Dispatch", async () => {
+    await launchUnknown(unknownReply("worker-start", requestId));
+    const outcome = await pass([
+      shown("completed"),
+      refusal("task_not_startable"),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_4", workerState: "ready" }]),
+        run,
+      ),
+      ok("check", empty(), run),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { reconciled: [{ to: "dispatched" }] },
+    });
+    expect(await status()).toBe("done");
+    expect(await conn.db.getDispatch("ctx_4")).toMatchObject({ op_key: opKey });
+    expect(await taskState(conn, "task_b")).toBe("dispatched");
   });
 
   test("absent with no worker finishes the operation and frees the Task with a resume event", async () => {
