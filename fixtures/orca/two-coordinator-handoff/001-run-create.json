@@ -1,0 +1,16 @@
+{
+  "verb": "run-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "run-create",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"4c14f32d-f684-4217-a587-9560f7698250\",\n  \"ok\": true,\n  \"result\": {\n    \"run\": {\n      \"id\": \"run_2504596fe174\",\n      \"objective\": \"Pod Run for story:host-a-H\",\n      \"coordinator_handle\": \"term_138f909e-aaa2-496c-97ea-796ec49e4fb8\",\n      \"consumer_generation\": 1,\n      \"legacy\": 0,\n      \"created_at\": \"2026-10-27T00:02:33Z\",\n      \"updated_at\": \"2026-10-27T00:02:33Z\"\n    },\n    \"mutation\": {\n      \"requestId\": \"72c6ff90-0592-4f54-aa9a-71e5eac3bb4b\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-27T00:02:33.041Z"
+}

@@ -6,7 +6,7 @@ import {
   type ReceiptRecord,
   type ReceiptSink,
 } from "../../core/ports/orca.ts";
-import { matchArgv } from "./argv.ts";
+import { matchArgv, verbOf } from "./argv.ts";
 import { methods } from "./methods.ts";
 import { checkVersion, receiptOf } from "./receipt.ts";
 import { FixtureRefused, writeFixture, type Scrubber } from "./scrub.ts";
@@ -97,7 +97,7 @@ export function makeRealOrca(options: RealOrcaOptions): RealOrca {
 
   async function call<T>(argv: string[], schema: ZodType<T>) {
     const orcaVersion = await installed();
-    const verb = argv[1] ?? "";
+    const verb = verbOf(argv);
     const startedAt = new Date().toISOString();
     const output = await run(file, argv, {
       killAfterMs:

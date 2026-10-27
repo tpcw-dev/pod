@@ -86,3 +86,55 @@ test("a denylist hit refuses the write and leaves no file", () => {
     recordedAt: "2026-10-26T00:00:01.000Z",
   });
 });
+
+test("a terminal-show fixture keeps no title, branch, or preview text", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pod-scrub-"));
+  const scrubber = makeScrubber({
+    hosts: [],
+    users: [],
+    roots: [],
+    denylist: [],
+  });
+  const stdout = JSON.stringify({
+    ok: true,
+    result: {
+      terminal: {
+        handle: "term_1",
+        title: "me@box:~/work/TPC-9",
+        branch: "refs/heads/me/tpc-9",
+        preview: "$ bash .tmp/run.sh",
+        connected: false,
+        exitCause: { kind: "operator_close" },
+      },
+    },
+  });
+  const name = writeFixture(
+    dir,
+    { ...record(stdout), verb: "terminal-show" },
+    [],
+    scrubber,
+  );
+  const written = JSON.parse(readFileSync(join(dir, name), "utf8")) as {
+    stdout: string;
+  };
+  expect(JSON.parse(written.stdout)).toEqual({
+    ok: true,
+    result: {
+      terminal: {
+        handle: "term_1",
+        title: "",
+        branch: "",
+        preview: "",
+        connected: false,
+        exitCause: { kind: "operator_close" },
+      },
+    },
+  });
+  expect(writeFixture(dir, record(stdout), [], scrubber)).toBe(
+    "002-worker-start.json",
+  );
+  const other = JSON.parse(
+    readFileSync(join(dir, "002-worker-start.json"), "utf8"),
+  ) as { stdout: string };
+  expect(other.stdout).toBe(stdout);
+});

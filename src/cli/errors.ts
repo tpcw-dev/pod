@@ -16,6 +16,7 @@ export type ErrorCode =
   | "launch_unknown"
   | "drained"
   | "release_refused"
+  | "takeover_unsafe"
   | "orca_version_unsupported"
   | "failed";
 

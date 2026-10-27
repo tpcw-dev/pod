@@ -89,7 +89,11 @@ export function renderTaskView(input: TaskViewInput): TaskView {
   const kept = [...trimmable];
   const dropped: Block[] = [];
   const render = (): string =>
-    joinBlocks([prefix, ...kept.map((item) => item.body), ...dropped.map((item) => item.routing)]);
+    joinBlocks([
+      prefix,
+      ...kept.map((item) => item.body),
+      ...dropped.map((item) => item.routing),
+    ]);
   let text = render();
   while (countWords(text) > WORD_BUDGET && kept.length > 0) {
     const last = kept.pop();

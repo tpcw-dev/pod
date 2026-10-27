@@ -40,9 +40,11 @@ test("help lists the verbs sorted by name", () => {
     "config export",
     "db migrate",
     "dispatch",
+    "drain",
     "release",
     "retry",
     "run create",
+    "takeover",
   ]);
 });
 

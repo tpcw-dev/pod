@@ -1,0 +1,18 @@
+{
+  "verb": "worker-release",
+  "match": {
+    "argv": [
+      "orchestration",
+      "worker-release",
+      "--dispatch",
+      "ctx_512d32b7222d",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"d0436fd7-4646-457c-9edc-f73469ddc7dc\",\n  \"ok\": true,\n  \"result\": {\n    \"dispatchId\": \"ctx_512d32b7222d\",\n    \"state\": \"released\",\n    \"processAction\": \"closed_agent_terminal\",\n    \"archive\": {\n      \"source\": \"transcript\",\n      \"status\": \"captured\"\n    },\n    \"mutation\": {\n      \"requestId\": \"fae99bda-9427-4c10-ba9a-999bbd7a49eb\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-27T00:05:49.691Z"
+}

@@ -492,3 +492,89 @@ test("worker-release parses each named state and leaves an unnamed one unparsed"
     );
   expect(parsed).toEqual([...states.slice(0, 5), null]);
 });
+
+const orcaRun = {
+  id: "run_1",
+  objective: "o",
+  coordinator_handle: "term_new",
+  consumer_generation: 2,
+  legacy: 0,
+};
+
+test("run-use names the coordinator terminal with --from and parses the Run", async () => {
+  const { run, calls } = stub(() =>
+    out(
+      JSON.stringify({
+        ok: true,
+        result: {
+          run: orcaRun,
+          mutation: { requestId: "q1", replayed: false },
+        },
+      }),
+    ),
+  );
+  const orca = makeRealOrca({ run, sink: () => Promise.resolve() });
+  const receipt = await orca.runUse({ run: "run_1", from: "term_new" });
+  expect(calls[1]?.args).toEqual([
+    "orchestration",
+    "run-use",
+    "--id",
+    "run_1",
+    "--from",
+    "term_new",
+    "--json",
+  ]);
+  expect(receipt.result?.run.consumer_generation).toBe(2);
+  expect(receipt.result?.run.coordinator_handle).toBe("term_new");
+});
+
+test("run-show reads the Run's coordinator handle", async () => {
+  const { run, calls } = stub(() =>
+    out(JSON.stringify({ ok: true, result: { run: orcaRun } })),
+  );
+  const orca = makeRealOrca({ run, sink: () => Promise.resolve() });
+  const receipt = await orca.runShow({ run: "run_1" });
+  expect(calls[1]?.args).toEqual([
+    "orchestration",
+    "run-show",
+    "--id",
+    "run_1",
+    "--json",
+  ]);
+  expect(receipt.verb).toBe("run-show");
+  expect(receipt.result?.run.coordinator_handle).toBe("term_new");
+});
+
+test("terminal show is the terminal-show receipt verb", async () => {
+  const records: ReceiptRecord[] = [];
+  const { run, calls } = stub(() =>
+    out(
+      JSON.stringify({
+        ok: true,
+        result: {
+          terminal: {
+            handle: "term_old",
+            connected: false,
+            writable: false,
+            exitCause: { kind: "operator_close" },
+          },
+        },
+      }),
+    ),
+  );
+  const orca = makeRealOrca({ run, sink: sinkInto(records) });
+  const receipt = await orca.terminalShow({ terminal: "term_old" });
+  expect(calls[1]?.args).toEqual([
+    "terminal",
+    "show",
+    "--terminal",
+    "term_old",
+    "--json",
+  ]);
+  expect(receipt.verb).toBe("terminal-show");
+  expect(records[0]?.verb).toBe("terminal-show");
+  expect(receipt.result?.terminal).toMatchObject({
+    connected: false,
+    exitCause: { kind: "operator_close" },
+  });
+});

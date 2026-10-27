@@ -124,7 +124,9 @@ function fileMatches(path: string, revision: Revision): boolean {
   return revisionId(envelope.data) === revision.id;
 }
 
-function driftFor(tree: BriefTree): Map<string, BriefResult["stories"][number]["drift"]> {
+function driftFor(
+  tree: BriefTree,
+): Map<string, BriefResult["stories"][number]["drift"]> {
   const byStory = new Map<string, BriefResult["stories"][number]["drift"]>();
   for (const item of tree.stories) {
     const seen = new Set<string>();

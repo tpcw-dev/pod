@@ -2,9 +2,11 @@ import type {
   CheckRequest,
   RequestShowRequest,
   RunCreateRequest,
+  RunShowRequest,
   RunUseRequest,
   SendRequest,
   TaskCreateRequest,
+  TerminalShowRequest,
   WorkerListRequest,
   WorkerReleaseRequest,
   WorkerStartRequest,
@@ -16,8 +18,12 @@ type Flag = readonly [
   string | readonly string[] | boolean | number | undefined,
 ];
 
-function flags(verb: string, pairs: readonly Flag[]): string[] {
-  const argv = ["orchestration", verb];
+function flags(
+  verb: string,
+  pairs: readonly Flag[],
+  group = "orchestration",
+): string[] {
+  const argv = [group, verb];
   for (const [name, value] of pairs) {
     if (value === undefined || value === false) continue;
     if (value === true) argv.push(name);
@@ -46,8 +52,10 @@ export const argvFor = {
   runUse: (req: RunUseRequest) =>
     flags("run-use", [
       ["--id", req.run],
+      ["--from", req.from],
       ["--retry-request", req.retryRequest],
     ]),
+  runShow: (req: RunShowRequest) => flags("run-show", [["--id", req.run]]),
   taskCreate: (req: TaskCreateRequest) =>
     flags("task-create", [
       ["--spec", req.spec],
@@ -103,7 +111,14 @@ export const argvFor = {
       ["--cursor", req.cursor],
       ["--limit", req.limit],
     ]),
+  terminalShow: (req: TerminalShowRequest) =>
+    flags("show", [["--terminal", req.terminal]], "terminal"),
 };
+
+export function verbOf(argv: readonly string[]): string {
+  const [group = "", verb = ""] = argv;
+  return group === "orchestration" ? verb : `${group}-${verb}`;
+}
 
 export function matchArgv(argv: readonly string[]): string[] {
   const kept: string[] = [];

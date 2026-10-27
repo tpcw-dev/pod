@@ -111,6 +111,20 @@ function toManifest(
   };
 }
 
+function toRun(row: typeof run.$inferSelect): Run {
+  return {
+    run_id: row.runId,
+    story_provider: row.storyProvider,
+    story_external_id: row.storyExternalId,
+    host: row.host,
+    coordinator: row.coordinator,
+    owner_generation: row.ownerGeneration,
+    snapshot_hash: row.snapshotHash,
+    state: RunState.parse(row.state),
+    created_at: row.createdAt,
+  };
+}
+
 function toTask(row: typeof task.$inferSelect): Task {
   return {
     task_id: row.taskId,
@@ -373,22 +387,29 @@ function makeRepo(x: Executor): Repo {
 
     async getRun(runId) {
       const [row] = await x.select().from(run).where(eq(run.runId, runId));
-      if (row === undefined) return null;
-      return {
-        run_id: row.runId,
-        story_provider: row.storyProvider,
-        story_external_id: row.storyExternalId,
-        host: row.host,
-        coordinator: row.coordinator,
-        owner_generation: row.ownerGeneration,
-        snapshot_hash: row.snapshotHash,
-        state: RunState.parse(row.state),
-        created_at: row.createdAt,
-      };
+      return row === undefined ? null : toRun(row);
+    },
+
+    async lockRun(runId) {
+      const [row] = await x
+        .select()
+        .from(run)
+        .where(eq(run.runId, runId))
+        .for("update");
+      return row === undefined ? null : toRun(row);
     },
 
     async setRunState(runId, state) {
       await x.update(run).set({ state }).where(eq(run.runId, runId));
+    },
+
+    async advanceOwner(runId, change) {
+      const rows = await x
+        .update(run)
+        .set({ ownerGeneration: change.to, coordinator: change.coordinator })
+        .where(and(eq(run.runId, runId), eq(run.ownerGeneration, change.from)))
+        .returning({ id: run.runId });
+      return rows.length > 0;
     },
 
     async insertTask(row: Task) {

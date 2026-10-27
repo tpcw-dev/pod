@@ -10,6 +10,15 @@ import {
 import { BriefInput, BriefOutput, brief } from "./brief.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
 import {
+  DrainInput,
+  drainMeta,
+  DrainOutput,
+  drainVerb,
+  TakeoverInput,
+  TakeoverOutput,
+  takeoverVerb,
+} from "./owner-verbs.ts";
+import {
   CheckInput,
   checkMeta,
   CheckOutput,
@@ -153,6 +162,28 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     cancelBy: ["nobody"],
     evidenceRequired: [
       "the Dispatch is settled or the caller gives a retain reason, and this host owns the terminal",
+    ],
+    meta: runMeta,
+  }),
+  row({
+    name: "drain",
+    input: DrainInput,
+    output: DrainOutput,
+    handler: drainVerb,
+    sideEffect: "ledger",
+    cancelBy: ["operator"],
+    evidenceRequired: ["an owner generation that matches the Run"],
+    meta: drainMeta,
+  }),
+  row({
+    name: "takeover",
+    input: TakeoverInput,
+    output: TakeoverOutput,
+    handler: takeoverVerb,
+    sideEffect: "orca",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "evidence that the old coordinator has stopped, which on an xl Run is the decider Dispatch",
     ],
     meta: runMeta,
   }),

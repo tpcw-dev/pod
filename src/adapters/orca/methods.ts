@@ -4,7 +4,10 @@ import {
   LooseResult,
   RequestShowResult,
   RunCreateResult,
+  RunShowResult,
+  RunUseResult,
   TaskCreateResult,
+  TerminalShowResult,
   WorkerListResult,
   WorkerReleaseResult,
   WorkerStartResult,
@@ -22,7 +25,8 @@ export type Call = <T>(
 export function methods(call: Call): Omit<OrcaPort, "version"> {
   return {
     runCreate: (req) => call(argvFor.runCreate(req), RunCreateResult),
-    runUse: (req) => call(argvFor.runUse(req), LooseResult),
+    runUse: (req) => call(argvFor.runUse(req), RunUseResult),
+    runShow: (req) => call(argvFor.runShow(req), RunShowResult),
     taskCreate: (req) => call(argvFor.taskCreate(req), TaskCreateResult),
     workerStart: (req) => call(argvFor.workerStart(req), WorkerStartResult),
     workerStop: (req) => call(argvFor.workerStop(req), WorkerStopResult),
@@ -32,5 +36,6 @@ export function methods(call: Call): Omit<OrcaPort, "version"> {
     send: (req) => call(argvFor.send(req), LooseResult),
     requestShow: (req) => call(argvFor.requestShow(req), RequestShowResult),
     workerList: (req) => call(argvFor.workerList(req), WorkerListResult),
+    terminalShow: (req) => call(argvFor.terminalShow(req), TerminalShowResult),
   };
 }

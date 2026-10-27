@@ -23,12 +23,13 @@ export interface HostSettings {
   trackerKind: string;
 }
 
-function profilePath(): string {
+export function podHome(): string {
   const home = process.env["POD_HOME"];
-  return join(
-    home === undefined || home === "" ? join(homedir(), ".pod") : home,
-    "host.yaml",
-  );
+  return home === undefined || home === "" ? join(homedir(), ".pod") : home;
+}
+
+function profilePath(): string {
+  return join(podHome(), "host.yaml");
 }
 
 function readProfileText(path: string): string | null {

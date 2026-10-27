@@ -7,6 +7,7 @@ import {
   type Outcome,
   type Refusal,
 } from "../domain/outcome.ts";
+import { drainInForce } from "../ledger/drain-in-force.ts";
 import { launchOutcome, stopOnOpen } from "../ledger/launch.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
@@ -44,13 +45,6 @@ export interface DispatchInput {
 export type { DispatchResult } from "./launch-record.ts";
 
 const satisfied = ["passed", "done"];
-
-const DrainEnded = z.looseObject({ ended: z.literal(true) });
-
-export async function drainInForce(tx: Repo, runId: string): Promise<boolean> {
-  const drain = await tx.latestEvent(runId, "drain");
-  return drain !== null && !DrainEnded.safeParse(drain.payload).success;
-}
 
 const Recorded = z.looseObject({
   request: z.looseObject({ task_id: z.string(), seat: z.string() }),

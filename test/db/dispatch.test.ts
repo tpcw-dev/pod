@@ -246,7 +246,7 @@ describeDb("pod dispatch", () => {
   });
 
   test("a drain in force is drained, and an ended drain is not", async () => {
-    const drain = (payload: Record<string, boolean>) =>
+    const drain = (payload: { ended: boolean; op_key: string }) =>
       conn.db.appendEvent({
         type: "drain",
         ts: new Date(),
@@ -258,9 +258,9 @@ describeDb("pod dispatch", () => {
         payload,
         source: { kind: "command", verb: "drain" },
       });
-    await drain({});
+    await drain({ ended: false, op_key: "k-drain" });
     await expectRefused("drained", {});
-    await drain({ ended: true });
+    await drain({ ended: true, op_key: "k-end" });
     await expectRefused("role_unfilled", { seat: "nope" });
   });
 

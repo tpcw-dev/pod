@@ -86,9 +86,7 @@ export const evidenceManifest = ledger.table(
     references: jsonb("references").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   },
-  (t) => [
-    foreignKey({ columns: [t.parentId], foreignColumns: [t.id] }),
-  ],
+  (t) => [foreignKey({ columns: [t.parentId], foreignColumns: [t.id] })],
 );
 
 export const operation = ledger.table(

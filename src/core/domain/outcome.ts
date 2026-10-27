@@ -14,6 +14,8 @@ export const RefusalCode = z.enum([
   "reviewer_not_independent",
   "launch_unknown",
   "release_refused",
+  "takeover_unsafe",
+  "story_not_found",
   "failed",
 ]);
 export type RefusalCode = z.infer<typeof RefusalCode>;

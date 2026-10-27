@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
-import type { Dispatch, Run, Story, Task } from "../../src/core/domain/ledger.ts";
+import type {
+  Dispatch,
+  Run,
+  Story,
+  Task,
+} from "../../src/core/domain/ledger.ts";
 import { recordManifest } from "../../src/core/manifest/record.ts";
 import { storyReference } from "../../src/core/manifest/references.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
@@ -83,7 +88,9 @@ describeDb("evidence manifest", () => {
     expect(first.created).toBe(true);
     expect(second.created).toBe(false);
     expect(second.manifest).toEqual(first.manifest);
-    expect(await conn.db.getManifest(first.manifest.id)).toEqual(first.manifest);
+    expect(await conn.db.getManifest(first.manifest.id)).toEqual(
+      first.manifest,
+    );
   });
 
   test("a dispatch round-trips manifest_id and rejects an unknown id", async () => {
@@ -116,7 +123,11 @@ describeDb("evidence manifest", () => {
     };
     await conn.db.insertDispatch(dispatch);
     expect(await conn.db.getDispatch("ctx-manifest")).toEqual(dispatch);
-    const missing: Dispatch = { ...dispatch, dispatch_id: "ctx-missing", manifest_id: "missing" };
+    const missing: Dispatch = {
+      ...dispatch,
+      dispatch_id: "ctx-missing",
+      manifest_id: "missing",
+    };
     await expect(conn.db.insertDispatch(missing)).rejects.toThrow();
     const empty: Dispatch = {
       ...dispatch,
