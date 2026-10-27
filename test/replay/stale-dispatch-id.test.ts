@@ -32,7 +32,7 @@ describeDb("stale-dispatch-id", () => {
   });
   afterAll(() => conn.close());
 
-  test("a worker_done under an older owner generation is ignored and moves nothing", async () => {
+  test("a worker_done after a generation bump is recorded against its Dispatch", async () => {
     const log = receiptLog(conn.db, "rec");
     const verbs: string[] = [];
     const orca = makeReplayOrca({
@@ -88,21 +88,26 @@ describeDb("stale-dispatch-id", () => {
     ]);
     expect(checked).toMatchObject({
       ok: true,
-      result: { deliveries: [], ignored: 1, stopped: [], unknown_workers: [] },
+      result: {
+        deliveries: [{ dispatch_id: dispatchId, outcome: "done" }],
+        ignored: 0,
+        stopped: [],
+        unknown_workers: [],
+      },
     });
     expect(
-      await conn.sql`select payload->>'reason' as reason, dispatch_id from ledger.event where type = 'ignored'`,
-    ).toEqual([{ reason: "stale_generation", dispatch_id: dispatchId }]);
-    expect(
-      await conn.sql`select 1 from ledger.event where type = 'delivery'`,
+      await conn.sql`select 1 from ledger.event where type = 'ignored'`,
     ).toHaveLength(0);
+    expect(
+      await conn.sql`select payload->>'outcome' as outcome, dispatch_id from ledger.event where type = 'delivery'`,
+    ).toEqual([{ outcome: "done", dispatch_id: dispatchId }]);
     expect(await conn.db.getDispatch(dispatchId)).toMatchObject({
-      settlement: "open",
-      activity: "running",
+      settlement: "done",
+      activity: "settled",
       requested_launch: {
         worktree: expect.stringMatching(/^id:[^:]+::\/w\/1$/),
       },
     });
-    expect((await conn.db.getTask(task))?.state).toBe("dispatched");
+    expect((await conn.db.getTask(task))?.state).toBe("delivered");
   });
 });

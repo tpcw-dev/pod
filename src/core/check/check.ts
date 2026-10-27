@@ -166,13 +166,11 @@ function errorCode(raw: unknown): string {
 
 async function matchOf(tx: Repo, run: Run, dispatch: Dispatch | null) {
   if (dispatch === null || dispatch.run_id !== run.run_id) return null;
-  const operation = await tx.getOperation(dispatch.op_key);
   const siblings = (await tx.listDispatches(run.run_id)).filter(
     (row) => row.task_id === dispatch.task_id,
   );
   return {
     settlement: dispatch.settlement,
-    generation: operation?.owner_generation ?? -1,
     latest: siblings.every(
       (row) => row.created_at.getTime() <= dispatch.created_at.getTime(),
     ),
@@ -194,7 +192,6 @@ async function recordMessage(
   const row: DeliveryRow = deliveryOutcome(
     message,
     await matchOf(tx, run, known),
-    run.owner_generation,
   );
   if (row.kind === "none") return;
   const at = input.now();
