@@ -82,7 +82,11 @@ export interface Repo {
   ): Promise<Event | null>;
   dispatchEvent(dispatchId: string, type: EventType): Promise<Event | null>;
   messageRecorded(runId: string, messageId: string): Promise<boolean>;
-  latestEvent(runId: string, type: EventType): Promise<Event | null>;
+  latestEvent(
+    runId: string,
+    type: EventType,
+    options?: { taskId?: string },
+  ): Promise<Event | null>;
   insertOperation(
     row: NewOperation,
   ): Promise<{ operation: Operation; created: boolean }>;

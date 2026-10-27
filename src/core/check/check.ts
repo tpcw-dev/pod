@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { deliveryOutcome, type DeliveryRow } from "../domain/delivery.ts";
+import { HoldPayload, resumeTarget } from "../domain/hold.ts";
 import { Json } from "../domain/json.ts";
-import type { Dispatch, Run } from "../domain/ledger.ts";
+import type { Dispatch, Run, Task } from "../domain/ledger.ts";
 import { refuse, type Checked, type Refused } from "../domain/outcome.ts";
 import { hostFreeSlots, openLaunches } from "../dispatch/quota.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
@@ -243,7 +244,11 @@ async function recordMessage(
     await tx.appendEvent({
       ...base,
       type: "hold",
-      payload: { reason: "unknown_delivery", message_id: message.id },
+      payload: {
+        reason: "unknown_delivery",
+        message_id: message.id,
+        from: task.state,
+      },
     });
     return;
   }
@@ -349,7 +354,7 @@ async function recordUnknownWorkers(
     (current?.state !== "active" && current?.state !== "drained")
   )
     return found;
-  const hold = (task_id: string | null) =>
+  const hold = (task_id: string | null, from: string) =>
     tx.appendEvent({
       type: "hold",
       ts: at,
@@ -358,15 +363,15 @@ async function recordUnknownWorkers(
       task_id,
       dispatch_id: null,
       op_key: null,
-      payload: { reason: "unknown_launch", dispatch_ids: found },
+      payload: { reason: "unknown_launch", dispatch_ids: found, from },
       source: { kind: "command", verb: "check" },
     });
   await tx.setRunState(run.run_id, "hold");
-  await hold(null);
+  await hold(null, current.state);
   for (const task of await tx.listTasks(run.run_id)) {
     if (!openTaskStates.includes(task.state)) continue;
     await tx.setTaskState(task.task_id, "hold");
-    await hold(task.task_id);
+    await hold(task.task_id, task.state);
   }
   return found;
 }
@@ -457,7 +462,7 @@ export interface ResumeInput {
 
 export interface ResumeResult {
   run_id: string;
-  resumed: { kind: "run" | "task"; id: string }[];
+  resumed: { kind: "run" | "task"; id: string; to: string }[];
 }
 
 type Resumed = { ok: true; result: ResumeResult } | Refused;
@@ -473,7 +478,7 @@ export async function resume(db: Db, input: ResumeInput): Promise<Resumed> {
     const { run } = owned;
     const at = input.now();
     const resumed: ResumeResult["resumed"] = [];
-    const record = (task_id: string | null) =>
+    const record = (task_id: string | null, to: string) =>
       tx.appendEvent({
         type: "resume",
         ts: at,
@@ -482,9 +487,23 @@ export async function resume(db: Db, input: ResumeInput): Promise<Resumed> {
         task_id,
         dispatch_id: null,
         op_key: null,
-        payload: { reason: "operator" },
+        payload: { reason: "operator", to },
         source: { kind: "command", verb: "check" },
       });
+    const restore = async (held: Task) => {
+      const hold = await tx.latestEvent(run.run_id, "hold", {
+        taskId: held.task_id,
+      });
+      const payload =
+        hold === null ? undefined : HoldPayload.safeParse(hold.payload).data;
+      const to = resumeTarget(
+        payload?.from,
+        latestDispatch(await tx.listDispatches(run.run_id), held.task_id),
+      );
+      await tx.setTaskState(held.task_id, to);
+      await record(held.task_id, to);
+      resumed.push({ kind: "task", id: held.task_id, to });
+    };
     if (task !== null) {
       if (task.state !== "hold")
         return refuse(
@@ -492,9 +511,7 @@ export async function resume(db: Db, input: ResumeInput): Promise<Resumed> {
           `Task ${task.task_id} is ${task.state}, not hold`,
           [`Task state ${task.state}`],
         );
-      await tx.setTaskState(task.task_id, "ready");
-      await record(task.task_id);
-      resumed.push({ kind: "task", id: task.task_id });
+      await restore(task);
     } else {
       if (run.state !== "hold")
         return refuse(
@@ -502,19 +519,25 @@ export async function resume(db: Db, input: ResumeInput): Promise<Resumed> {
           `Run ${run.run_id} is ${run.state}, not hold`,
           [`Run state ${run.state}`],
         );
-      await tx.setRunState(
-        run.run_id,
-        (await drainInForce(tx, run.run_id)) ? "drained" : "active",
-      );
-      await record(null);
-      resumed.push({ kind: "run", id: run.run_id });
-      for (const held of await tx.listTasks(run.run_id)) {
-        if (held.state !== "hold") continue;
-        await tx.setTaskState(held.task_id, "ready");
-        await record(held.task_id);
-        resumed.push({ kind: "task", id: held.task_id });
-      }
+      const to = (await drainInForce(tx, run.run_id)) ? "drained" : "active";
+      await tx.setRunState(run.run_id, to);
+      await record(null, to);
+      resumed.push({ kind: "run", id: run.run_id, to });
+      for (const held of await tx.listTasks(run.run_id))
+        if (held.state === "hold") await restore(held);
     }
     return { ok: true, result: { run_id: run.run_id, resumed } };
   });
+}
+
+function latestDispatch(rows: readonly Dispatch[], taskId: string) {
+  let latest: Dispatch | null = null;
+  for (const row of rows)
+    if (
+      row.task_id === taskId &&
+      (latest === null ||
+        row.created_at.getTime() > latest.created_at.getTime())
+    )
+      latest = row;
+  return latest;
 }

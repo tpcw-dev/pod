@@ -297,6 +297,10 @@ describeDb("pod retry", () => {
       refusal: { code: "launch_unknown" },
     });
     expect(await taskState(conn, "task_b")).toBe("hold");
+    expect((await events(conn, "hold")).at(-1)?.payload).toMatchObject({
+      reason: "launch_unknown",
+      from: "blocked",
+    });
     expect((await conn.db.getOperation("k-unknown"))?.status).toBe("unknown");
   });
 

@@ -271,7 +271,9 @@ const PassOutput = z.object({
 
 const ResumeOutput = z.object({
   run_id: z.string(),
-  resumed: z.array(z.object({ kind: z.enum(["run", "task"]), id: z.string() })),
+  resumed: z.array(
+    z.object({ kind: z.enum(["run", "task"]), id: z.string(), to: z.string() }),
+  ),
   owner_generation: z.int(),
   orca: z.string().nullable(),
 });
