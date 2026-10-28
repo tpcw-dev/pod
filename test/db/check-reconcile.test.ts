@@ -260,9 +260,9 @@ describeDb("pod check reconciles unknown launches", () => {
       },
     });
     expect(await taskState(conn, "task_b")).toBe("ready");
-    expect(
-      (await events(conn, "resume")).map((row) => row.payload["reason"]),
-    ).toEqual(["reconciled_no_worker"]);
+    expect((await events(conn, "resume")).map((row) => row.payload)).toEqual([
+      { reason: "reconciled_no_worker", op_key: opKey, to: "ready" },
+    ]);
   });
 
   test("a recorded refusal with an unreadable worker list keeps the operation unknown", async () => {
@@ -318,9 +318,54 @@ describeDb("pod check reconciles unknown launches", () => {
       result_ref: { outcome: "failed", reconciled: "no_worker" },
     });
     expect(await taskState(conn, "task_b")).toBe("ready");
+    expect((await events(conn, "resume")).map((row) => row.payload)).toEqual([
+      { reason: "reconciled_no_worker", op_key: opKey, to: "ready" },
+    ]);
+  });
+
+  test("an unknown retry reconciled with no worker returns the Task to blocked", async () => {
+    const { orca, log } = replay(conn, [ok("worker-start", started("ctx_1"))]);
+    expect((await dispatch(conn.db, orca, log, dispatchInput())).ok).toBe(true);
+    await conn.sql`
+      update ledger.dispatch set activity = 'settled', settlement = 'stopped', settled_at = now()
+      where dispatch_id = 'ctx_1'`;
+    await conn.sql`update ledger.task set state = 'blocked' where task_id = 'task_b'`;
+    const retryInput = (key: string) => ({
+      dispatch: "ctx_1",
+      generation: 1,
+      opKey: key,
+      host: "local",
+      capacity: 1,
+      gitStatus: "## main",
+      command: (op: string) => `pod retry --dispatch ctx_1 --op-key ${op}`,
+      now: () => new Date(),
+    });
+    const unknown = replay(conn, [unknownReply("worker-start", requestId)]);
     expect(
-      (await events(conn, "resume")).map((row) => row.payload["reason"]),
-    ).toEqual(["reconciled_no_worker"]);
+      await retry(conn.db, unknown.orca, unknown.log, retryInput("k-unknown")),
+    ).toMatchObject({ ok: false, refusal: { code: "launch_unknown" } });
+    opKey = "k-unknown";
+    const outcome = await pass([
+      shown("absent"),
+      ok("worker-list", workers([]), run),
+      ok("check", empty(), run),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { reconciled: [{ op_key: opKey, to: "blocked" }], free_slots: 1 },
+    });
+    expect(await conn.db.getOperation(opKey)).toMatchObject({
+      status: "done",
+      result_ref: { outcome: "failed", reconciled: "no_worker" },
+    });
+    expect(await taskState(conn, "task_b")).toBe("blocked");
+    expect((await events(conn, "resume")).map((row) => row.payload)).toEqual([
+      { reason: "reconciled_no_worker", op_key: opKey, to: "blocked" },
+    ]);
+    const again = replay(conn, [ok("worker-start", started("ctx_3"))]);
+    expect(
+      await retry(conn.db, again.orca, again.log, retryInput("k-again")),
+    ).toMatchObject({ ok: true });
   });
 
   test("the SIGKILL form reads the worker list both ways", async () => {
