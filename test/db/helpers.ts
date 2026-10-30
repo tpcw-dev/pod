@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe } from "vitest";
+import { describe, inject } from "vitest";
 import {
   connect,
   type Connection,
@@ -12,21 +12,11 @@ import { migrationsFolder } from "../../src/cli/db-verbs.ts";
 
 export const required = process.env["POD_DB_REQUIRED"] === "1";
 
-function testUrl(): string | undefined {
-  const url = process.env["POD_DB_TEST_URL"];
-  if (url !== undefined && url !== "") return url;
-  if (required)
-    throw new Error("POD_DB_REQUIRED=1 and POD_DB_TEST_URL is unset");
-  console.log("skipping database tests: POD_DB_TEST_URL is unset");
-  return undefined;
-}
+const url = inject("dbUrl");
 
-const url = testUrl();
-
-export const describeDb = url === undefined ? describe.skip : describe;
+export const describeDb = describe;
 
 export function dbUrl(): string {
-  if (url === undefined) throw new Error("POD_DB_TEST_URL is unset");
   return url;
 }
 

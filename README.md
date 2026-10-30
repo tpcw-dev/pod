@@ -16,6 +16,10 @@ Status: pre-PRD. The design is being turned into a PRD; nothing here runs yet.
 
 Not an IDE, not a runtime, not a scheduler, not a second ledger for secrets or transcripts.
 
+## Tests
+
+`pnpm test` starts its own Postgres 16 in a temporary directory and removes it when the run ends, so parallel runs never share a database. Set `POD_DB_TEST_URL` to run the suite against a server you provide instead.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
