@@ -93,6 +93,7 @@ describeDb(
         ok: true,
         result: { dispatch_id: "ctx_1", task_id: "task_b" },
       });
+      if (outcome.ok) expect(outcome.result).not.toHaveProperty("nextSteps");
       expect(await operation("dispatch")).toMatchObject({
         status: "done",
         result_ref: { reconciled: "lease_no_worker" },
@@ -107,6 +108,51 @@ describeDb(
         dispatch_id: "ctx_1",
         payload: { late: true },
       });
+    });
+
+    test("a late start on a Task already dispatched under another key names both Dispatches in nextSteps", async () => {
+      const log = receiptLog(conn.db, "local");
+      const sink = async (record: ReceiptRecord) => {
+        await log.sink(record);
+        if (record.verb !== "worker-start") return;
+        const inner = replay(conn, [
+          ok("worker-list", workers([]), run),
+          ok("check", empty(), run),
+        ]);
+        const pass = await checkPass(conn.db, inner.orca, inner.log, {
+          run: "run_1",
+          generation: 1,
+          host: "local",
+          capacity: 2,
+          now: () => new Date(Date.now() + (launchLeaseSeconds + 1) * 1000),
+          leaseSeconds: launchLeaseSeconds,
+        });
+        inner.orca.assertDone();
+        if (!pass.ok) throw new Error(pass.refusal.message);
+        await dispatched(conn, "ctx_2", { opKey: "K2" });
+      };
+      const orca = makeReplayOrca({
+        dir: fixtures([ok("worker-start", started("ctx_1"))]),
+        sink,
+      });
+      const outcome = await dispatch(
+        conn.db,
+        orca,
+        { ...log, sink },
+        dispatchInput({ opKey: "K1" }),
+      );
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) return;
+      expect(outcome.result.dispatch_id).toBe("ctx_1");
+      expect(outcome.result.nextSteps).toHaveLength(1);
+      const [line] = outcome.result.nextSteps ?? [];
+      for (const part of ["ctx_1", "K1", "ctx_2", "K2"])
+        expect(line).toContain(part);
+      for (const id of ["ctx_1", "ctx_2"])
+        expect(await conn.db.getDispatch(id)).toMatchObject({
+          settlement: "open",
+        });
+      expect(await taskState(conn, "task_b")).toBe("dispatched");
     });
 
     test("a late retry start moves the Task from blocked to dispatched", async () => {
@@ -133,6 +179,7 @@ describeDb(
         ok: true,
         result: { dispatch_id: "ctx_2", retry_of: "ctx_1" },
       });
+      if (outcome.ok) expect(outcome.result).not.toHaveProperty("nextSteps");
       expect(await operation("retry")).toMatchObject({
         status: "done",
         result_ref: { reconciled: "lease_no_worker" },
@@ -157,6 +204,7 @@ describeDb(
         ok: true,
         result: { dispatch_id: "ctx_1" },
       });
+      if (outcome.ok) expect(outcome.result).not.toHaveProperty("nextSteps");
       expect(await operation("dispatch")).toMatchObject({
         status: "done",
         result_ref: { result: { dispatch_id: "ctx_1" } },
