@@ -76,7 +76,11 @@ export async function reconcileLaunches(
     )
       continue;
     const ref = UnknownRef.safeParse(operation.result_ref);
-    if (!ref.success || !tasks.has(ref.data.request.task_id)) continue;
+    if (!ref.success) {
+      nextSteps.push(unreadableLine(operation, ref.error));
+      continue;
+    }
+    if (!tasks.has(ref.data.request.task_id)) continue;
     const outcome = await reconcileOne(
       db,
       orca,
@@ -90,6 +94,11 @@ export async function reconcileLaunches(
     if (outcome.nextStep !== undefined) nextSteps.push(outcome.nextStep);
   }
   return { reconciled, nextSteps };
+}
+
+function unreadableLine(operation: Operation, error: z.ZodError): string {
+  const path = error.issues[0]?.path.join(".") ?? "";
+  return `pod check: launch ${operation.op_key} has an unreadable request (${path}) and holds a slot; inspect ledger.operation ${operation.op_key}`;
 }
 
 function leaseLine(input: ReconcileInput, operation: Operation): string {

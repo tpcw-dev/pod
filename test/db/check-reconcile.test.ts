@@ -475,6 +475,30 @@ describeDb("pod check reconciles unknown launches", () => {
     );
   });
 
+  test("a pending launch row with no manifest_id is named in nextSteps and keeps its slot", async () => {
+    await abandonDispatch();
+    await conn.sql`
+      update ledger.operation
+      set result_ref = result_ref - 'manifest_id',
+          updated_at = now() - make_interval(secs => ${launchLeaseSeconds + 1})
+      where op_key = ${opKey}`;
+    const outcome = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", workers([]), run),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        reconciled: [],
+        free_slots: 0,
+        nextSteps: expect.arrayContaining([
+          `pod check: launch ${opKey} has an unreadable request (manifest_id) and holds a slot; inspect ledger.operation ${opKey}`,
+        ]),
+      },
+    });
+    expect(await status()).toBe("pending");
+  });
+
   test("an abandoned pending dispatch with no worker frees the slot", async () => {
     await abandonDispatch();
     const outcome = await pass(
