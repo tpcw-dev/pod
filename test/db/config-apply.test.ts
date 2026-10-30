@@ -375,6 +375,30 @@ describeDb("pod config apply of a process", () => {
     expect(await counts()).toEqual({ revisions: 0, operations: 0 });
   });
 
+  test("a project process with no crew names the project scope in its next step", async () => {
+    await clearDb(db);
+    const path = file(
+      "project.yaml",
+      stringify({
+        kind: "process",
+        name: "scoped",
+        schema_version: 1,
+        scope: "project",
+        scope_ref: "p1",
+        value: processValue,
+      }),
+    );
+    const result = runCli(["config", "apply", path]);
+    expect(result.status).toBe(3);
+    expect(result.json.error).toMatchObject({
+      code: "selector_none",
+      message: "no single active project crew Revision",
+      nextSteps: [
+        "pod config apply crew.yaml --activate --scope project:p1 --expected-revision none",
+      ],
+    });
+  });
+
   const refused: {
     name: string;
     value: Record<string, unknown>;

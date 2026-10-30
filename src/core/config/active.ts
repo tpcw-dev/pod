@@ -17,8 +17,9 @@ export async function singleActive(
     : null;
 }
 
-export function noSingleActive(kind: Kind, scope: Scope) {
+export function noSingleActive(kind: Kind, scope: Scope, scopeRef: string) {
+  const flag = scopeRef === "" ? scope : `${scope}:${scopeRef}`;
   return refuse("selector_none", `no single active ${scope} ${kind} Revision`, [
-    `pod config apply ${kind}.yaml --activate --scope ${scope} --expected-revision none`,
+    `pod config apply ${kind}.yaml --activate --scope ${flag} --expected-revision none`,
   ]);
 }

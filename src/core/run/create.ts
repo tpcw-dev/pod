@@ -184,9 +184,9 @@ export async function runCreate(
   if (!checked.ok) return checked;
   const { steps } = checked;
   const crew = await singleActive(db, "crew", "global", "");
-  if (crew === null) return noSingleActive("crew", "global");
+  if (crew === null) return noSingleActive("crew", "global", "");
   const policy = await singleActive(db, "policy", "global", "");
-  if (policy === null) return noSingleActive("policy", "global");
+  if (policy === null) return noSingleActive("policy", "global", "");
   const { version } = await orca.version();
   const ctx: Context = { db, orca, log, input, process, steps };
   const opKey = derivedOpKey("run_create", {

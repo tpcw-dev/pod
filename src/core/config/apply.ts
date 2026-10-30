@@ -88,9 +88,9 @@ async function processRefusal(
   if (envelope.kind !== "process") return null;
   const { scope, scope_ref } = envelope;
   const crew = await singleActive(tx, "crew", scope, scope_ref);
-  if (crew === null) return noSingleActive("crew", scope).refusal;
+  if (crew === null) return noSingleActive("crew", scope, scope_ref).refusal;
   const policy = await singleActive(tx, "policy", scope, scope_ref);
-  if (policy === null) return noSingleActive("policy", scope).refusal;
+  if (policy === null) return noSingleActive("policy", scope, scope_ref).refusal;
   const checked = validateProcess(envelope.value, crew.value, policy.value);
   return checked.ok ? null : checked.refusal;
 }
