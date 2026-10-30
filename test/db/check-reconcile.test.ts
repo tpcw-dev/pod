@@ -499,6 +499,33 @@ describeDb("pod check reconciles unknown launches", () => {
     expect(await status()).toBe("pending");
   });
 
+  test("an abandoned pending launch with an unreadable worker list is reported as still pending", async () => {
+    await abandonDispatch();
+    const outcome = await pass(
+      [
+        { verb: "worker-list", argv: run, exitCode: 1, stdout: "not json" },
+        ok("check", empty(), run),
+      ],
+      { now: late(launchLeaseSeconds + 1) },
+    );
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { reconciled: [{ op_key: opKey, to: "pending" }], free_slots: 0 },
+    });
+    const nextSteps = outcome.ok ? outcome.result.nextSteps : [];
+    expect(nextSteps).toContainEqual(
+      expect.stringMatching(
+        new RegExp(
+          `${opKey}.*was pending past the.*worker list was unreadable`,
+        ),
+      ),
+    );
+    expect(nextSteps).not.toContain(
+      `pod check: launch ${opKey} is still unknown`,
+    );
+    expect(await status()).toBe("pending");
+  });
+
   test("an abandoned pending dispatch with no worker frees the slot", async () => {
     await abandonDispatch();
     const outcome = await pass(
