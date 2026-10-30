@@ -142,7 +142,13 @@ async function reconcileOne(
     }
   }
   const rows = await input.workers();
-  if (rows === null) return { to: "unknown" };
+  if (rows === null)
+    return abandoned
+      ? {
+          to: "pending",
+          nextStep: `${leaseLine(input, operation)}; the worker list was unreadable, run pod check again`,
+        }
+      : { to: "unknown" };
   const candidates = rows.filter((row) => row.taskId === request.task_id);
   for (const row of candidates) {
     if ((await db.getDispatch(row.dispatchId)) !== null) continue;
