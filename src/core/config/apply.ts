@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { Revision, RevisionEnvelope } from "../domain/config.ts";
 import type { Json } from "../domain/json.ts";
+import type { Refusal } from "../domain/outcome.ts";
 import type { Db, Repo } from "../ports/db.ts";
+import { validateProcess } from "../process/validate.ts";
+import { noSingleActive, singleActive } from "./active.ts";
 import { canonicalJson, revisionId, sha256Hex } from "./canonical-json.ts";
 
 export interface ApplyInput {
@@ -42,7 +45,8 @@ export type ApplyOutcome =
   | { kind: "parent_unknown"; parent: string | null }
   | { kind: "revision_conflict"; opKey: string; active: Revision | null }
   | { kind: "duplicate_op"; opKey: string; intent: string }
-  | { kind: "operation_open"; opKey: string; status: string };
+  | { kind: "operation_open"; opKey: string; status: string }
+  | { kind: "process_invalid"; refusal: Refusal };
 
 const RecordedRefusal = z.object({
   code: z.literal("revision_conflict"),
@@ -75,6 +79,20 @@ export function deriveOpKey(
 
 async function parentKnown(tx: Repo, parent: string | null): Promise<boolean> {
   return parent === null || (await tx.getRevision(parent)) !== null;
+}
+
+async function processRefusal(
+  tx: Repo,
+  envelope: RevisionEnvelope,
+): Promise<Refusal | null> {
+  if (envelope.kind !== "process") return null;
+  const { scope, scope_ref } = envelope;
+  const crew = await singleActive(tx, "crew", scope, scope_ref);
+  if (crew === null) return noSingleActive("crew", scope).refusal;
+  const policy = await singleActive(tx, "policy", scope, scope_ref);
+  if (policy === null) return noSingleActive("policy", scope).refusal;
+  const checked = validateProcess(envelope.value, crew.value, policy.value);
+  return checked.ok ? null : checked.refusal;
 }
 
 function storeRevision(
@@ -111,6 +129,8 @@ export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
     return db.transaction(async (tx): Promise<ApplyOutcome> => {
       if (!(await parentKnown(tx, parent)))
         return { kind: "parent_unknown", parent };
+      const refusal = await processRefusal(tx, input.envelope);
+      if (refusal !== null) return { kind: "process_invalid", refusal };
       return {
         kind: "ok",
         result: resultOf(await storeRevision(tx, input, id), null),
@@ -122,6 +142,10 @@ export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
   return db.transaction(async (tx): Promise<ApplyOutcome> => {
     if (!(await parentKnown(tx, parent)))
       return { kind: "parent_unknown", parent };
+    const existing = await tx.getOperation(opKey);
+    if (existing !== null) return recorded(tx, opKey, existing);
+    const refusal = await processRefusal(tx, input.envelope);
+    if (refusal !== null) return { kind: "process_invalid", refusal };
     const { operation, created } = await tx.insertOperation({
       op_key: opKey,
       intent: "config_apply",

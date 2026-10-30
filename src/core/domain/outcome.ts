@@ -4,6 +4,7 @@ export const RefusalCode = z.enum([
   "schema_invalid",
   "selector_none",
   "selector_conflict",
+  "selector_many",
   "revision_not_found",
   "owner_generation_stale",
   "duplicate_op",

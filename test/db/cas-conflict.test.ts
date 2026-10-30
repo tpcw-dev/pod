@@ -6,7 +6,7 @@ import { describeDb, openDb, resetDb } from "./helpers.ts";
 
 function input(value: string, expected: string | null): ApplyInput {
   return {
-    envelope: envelope("process", "race", { value }),
+    envelope: envelope("policy", "race", { value }),
     actor: "operator",
     reason: "",
     now: new Date(),
@@ -47,7 +47,7 @@ describeDb("CAS conflict", () => {
     const active = await one.db.getActivation({
       scope: "global",
       scope_ref: "",
-      kind: "process",
+      kind: "policy",
       name: "race",
     });
     expect(active).toMatchObject({

@@ -3,9 +3,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
+import { stringify } from "yaml";
 import { snapshotHash } from "../../src/core/config/canonical-json.ts";
-import { envelope, storeRevision } from "./fixtures.ts";
 import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import { activeRevision, crewValue, processValue } from "./seed.ts";
+
+function processFile(summary: string): string {
+  return stringify({
+    kind: "process",
+    name: "flow",
+    schema_version: 1,
+    value: { ...processValue, summary },
+  });
+}
 
 describeDb("a pinned Snapshot", () => {
   let conn: Connection;
@@ -18,11 +28,12 @@ describeDb("a pinned Snapshot", () => {
 
   test("an activation leaves the pinned hash unchanged", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pod-snapshot-"));
+    const policy = await activeRevision(conn.db, "policy", "policy", {
+      gates: ["pr"],
+    });
+    const crew = await activeRevision(conn.db, "crew", "crew", crewValue);
     const first = join(dir, "process.yaml");
-    writeFileSync(
-      first,
-      "kind: process\nname: flow\nschema_version: 1\nvalue:\n  steps: [build]\n",
-    );
+    writeFileSync(first, processFile("first"));
     const applied = runCli([
       "config",
       "apply",
@@ -35,14 +46,6 @@ describeDb("a pinned Snapshot", () => {
     ]);
     expect(applied.status).toBe(0);
     const processId = String(applied.json.result?.["id"]);
-    const crew = await storeRevision(
-      conn.db,
-      envelope("crew", "crew", { seats: [] }),
-    );
-    const policy = await storeRevision(
-      conn.db,
-      envelope("policy", "policy", { gates: ["review"] }),
-    );
     const gateMap = { review: "crew" };
     const ids = { crew: crew.id, process: processId, policy: policy.id };
     const hash = snapshotHash(ids, gateMap);
@@ -57,10 +60,7 @@ describeDb("a pinned Snapshot", () => {
     });
 
     const second = join(dir, "process-2.yaml");
-    writeFileSync(
-      second,
-      "kind: process\nname: flow\nschema_version: 1\nvalue:\n  steps: [build, review]\n",
-    );
+    writeFileSync(second, processFile("second"));
     const moved = runCli([
       "config",
       "apply",

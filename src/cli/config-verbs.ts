@@ -12,7 +12,7 @@ import {
   RevisionEnvelope,
   type Revision,
 } from "../core/domain/config.ts";
-import { PodError, schemaError, usageError } from "./errors.ts";
+import { exitFor, PodError, schemaError, usageError } from "./errors.ts";
 import { databaseUrl, readHostProfile } from "./host-profile.ts";
 import { issuesOf, parseYaml, readText } from "./yaml-file.ts";
 
@@ -140,6 +140,10 @@ function settle(
         `op key ${outcome.opKey} belongs to intent ${outcome.intent}`,
         ["pass a new --op-key"],
       );
+    case "process_invalid": {
+      const { code, message, nextSteps } = outcome.refusal;
+      throw new PodError(code, exitFor(code), message, nextSteps);
+    }
     case "operation_open":
       throw new Error(`operation ${outcome.opKey} is ${outcome.status}`);
   }

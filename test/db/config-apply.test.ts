@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
-import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import { stringify } from "yaml";
+import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import { crewValue, processValue } from "./seed.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "pod-apply-"));
 
@@ -15,15 +17,15 @@ function file(name: string, text: string): string {
 
 const v1 = file(
   "v1.yaml",
-  "kind: process\nname: demo\nschema_version: 1\nvalue:\n  steps: [a, b]\n",
+  "kind: policy\nname: demo\nschema_version: 1\nvalue:\n  steps: [a, b]\n",
 );
 const v2 = file(
   "v2.yaml",
-  "kind: process\nname: demo\nschema_version: 1\nvalue:\n  steps: [a, b, c]\n",
+  "kind: policy\nname: demo\nschema_version: 1\nvalue:\n  steps: [a, b, c]\n",
 );
 const v3 = file(
   "v3.yaml",
-  "kind: process\nname: demo\nschema_version: 1\nvalue:\n  steps: [c]\n",
+  "kind: policy\nname: demo\nschema_version: 1\nvalue:\n  steps: [c]\n",
 );
 
 describeDb("pod config apply and export", () => {
@@ -51,7 +53,7 @@ describeDb("pod config apply and export", () => {
       json: {
         ok: true,
         result: {
-          ref: "process.demo@1",
+          ref: "policy.demo@1",
           rev: 1,
           created: true,
           activation: null,
@@ -73,10 +75,10 @@ describeDb("pod config apply and export", () => {
   test("an export applies again to the same id and rev", () => {
     const out = join(dir, "export.yaml");
     expect(
-      runCli(["config", "export", "process.demo@1", "--out", out]).json,
+      runCli(["config", "export", "policy.demo@1", "--out", out]).json,
     ).toMatchObject({
       ok: true,
-      result: { ref: "process.demo@1", id: v1Id, out },
+      result: { ref: "policy.demo@1", id: v1Id, out },
     });
     expect(runCli(["config", "apply", out]).json.result).toMatchObject({
       id: v1Id,
@@ -124,7 +126,7 @@ describeDb("pod config apply and export", () => {
         payload: {
           scope: "global",
           scope_ref: "",
-          kind: "process",
+          kind: "policy",
           name: "demo",
           revision_id: v1Id,
           previous_revision_id: null,
@@ -160,7 +162,7 @@ describeDb("pod config apply and export", () => {
     expect(result.status).toBe(3);
     expect(result.json.error?.code).toBe("revision_conflict");
     expect(result.json.error?.nextSteps[0]).toBe(
-      "pod config export process.demo@1 --out FILE",
+      "pod config export policy.demo@1 --out FILE",
     );
     const rows = await db.sql<
       { status: string }[]
@@ -182,7 +184,7 @@ describeDb("pod config apply and export", () => {
     expect(result.status).toBe(0);
     v2Id = String(result.json.result?.["id"]);
     expect(result.json.result).toMatchObject({
-      ref: "process.demo@2",
+      ref: "policy.demo@2",
       activation: { revision_id: v2Id, previous_revision_id: v1Id },
     });
   });
@@ -202,7 +204,7 @@ describeDb("pod config apply and export", () => {
     expect(result.json.error).toMatchObject({
       code: "revision_conflict",
       nextSteps: [
-        "pod config export process.demo@2 --out FILE",
+        "pod config export policy.demo@2 --out FILE",
         `pod config apply ${v3} --activate --scope global --expected-revision ${v2Id}`,
       ],
     });
@@ -307,5 +309,210 @@ describeDb("pod config apply and export", () => {
     ).rejects.toMatchObject({
       code: "P0001",
     });
+  });
+});
+
+function envelopeFile(
+  name: string,
+  kind: string,
+  value: Record<string, unknown>,
+): string {
+  return file(
+    `${name}.yaml`,
+    stringify({ kind, name, schema_version: 1, value }),
+  );
+}
+
+function activate(path: string, expected = "none") {
+  return runCli([
+    "config",
+    "apply",
+    path,
+    "--activate",
+    "--scope",
+    "global",
+    "--expected-revision",
+    expected,
+  ]);
+}
+
+const hold = ["timeout", "cancel", "unknown"];
+
+describeDb("pod config apply of a process", () => {
+  let db: Connection;
+
+  beforeAll(async () => {
+    db = openDb();
+  });
+  afterAll(() => db.close());
+
+  async function counts() {
+    const [row] = await db.sql<{ revisions: number; operations: number }[]>`
+      select
+        (select count(*)::int from config.revision where kind = 'process') as revisions,
+        (select count(*)::int from ledger.operation) as operations`;
+    return row;
+  }
+
+  async function seedCrewAndPolicy(
+    crew: Record<string, unknown> = crewValue,
+    gates: unknown = ["pr"],
+  ) {
+    expect(activate(envelopeFile("policy", "policy", { gates })).status).toBe(
+      0,
+    );
+    expect(activate(envelopeFile("crew", "crew", crew)).status).toBe(0);
+  }
+
+  test("a process before any crew is selector_none and writes nothing", async () => {
+    await clearDb(db);
+    const result = activate(envelopeFile("early", "process", processValue));
+    expect(result.status).toBe(3);
+    expect(result.json.error).toMatchObject({
+      code: "selector_none",
+      message: "no single active global crew Revision",
+    });
+    expect(await counts()).toEqual({ revisions: 0, operations: 0 });
+  });
+
+  const refused: {
+    name: string;
+    value: Record<string, unknown>;
+    code: string;
+    exit: number;
+    message: string;
+  }[] = [
+    {
+      name: "an unreachable step",
+      value: {
+        ...processValue,
+        steps: [
+          ...processValue.steps,
+          { id: "lonely", type: "worker", role: "developer" },
+        ],
+        edges: [
+          ...processValue.edges,
+          { from: "lonely", on: "done", to: "done" },
+          { from: "lonely", on: hold, to: "hold" },
+        ],
+      },
+      code: "schema_invalid",
+      exit: 2,
+      message: "steps.2: step lonely is not reachable from build",
+    },
+    {
+      name: "a role no seat holds",
+      value: { ...processValue, roles: ["developer", "reviewer", "auditor"] },
+      code: "role_unfilled",
+      exit: 3,
+      message: "no crew seat holds role auditor",
+    },
+    {
+      name: "a gate the policy lacks",
+      value: {
+        ...processValue,
+        steps: [
+          processValue.steps[0],
+          { ...processValue.steps[1], gate: "ship" },
+        ],
+      },
+      code: "schema_invalid",
+      exit: 2,
+      message: "steps.1.gate: gate ship is not in the active policy",
+    },
+  ];
+
+  test.each(refused)(
+    "$name is $code with no Revision and no operation",
+    async (c) => {
+      await clearDb(db);
+      await seedCrewAndPolicy();
+      const before = await counts();
+      const path = envelopeFile("refused", "process", c.value);
+      for (const result of [
+        runCli(["config", "apply", path]),
+        activate(path),
+      ]) {
+        expect(result.status).toBe(c.exit);
+        expect(result.json.error?.code).toBe(c.code);
+        expect(result.json.error?.message).toContain(c.message);
+        expect(result.json.error?.nextSteps).toHaveLength(1);
+      }
+      expect(await counts()).toEqual(before);
+    },
+  );
+
+  test("a reviewer who also develops is reviewer_not_independent with no Revision and no operation", async () => {
+    await clearDb(db);
+    await seedCrewAndPolicy({
+      seats: [
+        { id: "dev-1", roles: ["developer"], runtime: "claude" },
+        { id: "both-1", roles: ["developer", "reviewer"], runtime: "claude" },
+      ],
+    });
+    const before = await counts();
+    const result = activate(envelopeFile("seeded", "process", processValue));
+    expect(result.status).toBe(3);
+    expect(result.json.error).toMatchObject({
+      code: "reviewer_not_independent",
+      message: "step review: no seat with role reviewer is free of developer",
+    });
+    expect(await counts()).toEqual(before);
+  });
+
+  test("a refused --activate leaves the active Revision as it was", async () => {
+    await clearDb(db);
+    await seedCrewAndPolicy();
+    const good = activate(envelopeFile("flow", "process", processValue));
+    expect(good.status).toBe(0);
+    const id = String(good.json.result?.["id"]);
+    const bad = activate(
+      envelopeFile("flow", "process", { ...processValue, roles: ["auditor"] }),
+      id,
+    );
+    expect(bad.json.error?.code).toBe("role_unfilled");
+    const active = await db.db.getActivation({
+      scope: "global",
+      scope_ref: "",
+      kind: "process",
+      name: "flow",
+    });
+    expect(active?.revision_id).toBe(id);
+  });
+
+  test("specs/process/impl-small.yaml applies after a fitting crew and policy", async () => {
+    await clearDb(db);
+    const seats = (reviewer: string[]) => ({
+      seats: [
+        { id: "dev-1", roles: ["developer"], runtime: "claude" },
+        { id: "rev-1", roles: reviewer, runtime: "codex" },
+      ],
+    });
+    await seedCrewAndPolicy(seats(["developer", "reviewer"]), {
+      review: { keeper: "rev-1", type: "AQA" },
+      merge: { keeper: "lead", type: "AQA" },
+      hqa_after_deploy: { keeper: "operator", type: "HQA" },
+    });
+    const dependent = activate("specs/process/impl-small.yaml");
+    expect(dependent.status).toBe(3);
+    expect(dependent.json.error).toMatchObject({
+      code: "reviewer_not_independent",
+      message: expect.stringContaining("step review"),
+    });
+    const crew = await db.db.getActivation({
+      scope: "global",
+      scope_ref: "",
+      kind: "crew",
+      name: "crew",
+    });
+    expect(
+      activate(
+        envelopeFile("crew", "crew", seats(["reviewer"])),
+        crew?.revision_id,
+      ).status,
+    ).toBe(0);
+    const applied = activate("specs/process/impl-small.yaml");
+    expect(applied.status).toBe(0);
+    expect(applied.json.result).toMatchObject({ ref: "process.impl-small@1" });
   });
 });
