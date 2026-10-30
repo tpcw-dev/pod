@@ -35,6 +35,7 @@ export interface DispatchResult {
   model_attribution: "receipt" | "unknown";
   terminal_handle: string | null;
   owner_generation: number;
+  nextSteps?: string[];
 }
 
 export interface Launched {
@@ -134,7 +135,18 @@ export async function recordLate(
   if ((await tx.getTask(input.task.task_id))?.state === left)
     await tx.setTaskState(input.task.task_id, "dispatched");
   await insertStart(tx, input, done, true);
-  return done;
+  const nextSteps = (await tx.listDispatches(done.run_id))
+    .filter(
+      (sibling) =>
+        sibling.task_id === done.task_id &&
+        sibling.settlement === "open" &&
+        sibling.dispatch_id !== done.dispatch_id,
+    )
+    .map(
+      (sibling) =>
+        `late start ${done.dispatch_id} (launch ${input.opKey}) joins open Dispatch ${sibling.dispatch_id} (launch ${sibling.op_key}) on Task ${done.task_id}; release one with pod release`,
+    );
+  return nextSteps.length === 0 ? done : { ...done, nextSteps };
 }
 
 async function insertStart(

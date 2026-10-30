@@ -179,6 +179,7 @@ export const DispatchOutput = z.object({
   model_attribution: z.enum(["receipt", "unknown"]),
   terminal_handle: z.string().nullable(),
   owner_generation: z.int(),
+  nextSteps: z.array(z.string()).optional(),
   op_key: z.string(),
   orca: z.string(),
 });
