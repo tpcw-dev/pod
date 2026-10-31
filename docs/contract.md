@@ -45,7 +45,7 @@ Spec clarification: S8a. A worker_done payload may include tests, a list of comm
 Spec clarification: S8b. When the Orca agent is grok, worker-start omits --model and --effort. The crew seat keeps its model and effort as the requested launch. The start receipt's effective model is stored as the receipt returns it, and model_attribution is receipt when that model or the requested model is a non-empty string, and unknown otherwise.
 Spec clarification: S8b. POD_SCRUB_REPLACEMENTS is a comma-separated list of term=replacement pairs, read by trackerFor and orcaFor beside POD_SCRUB_DENYLIST. makeScrubber replaces each term as a whole word, case-insensitively, in recorded text before the denylist check. A denylist term with no replacement still refuses the fixture. An empty value adds no pairs. A pair with an empty term or an empty replacement is a usage error.
 Spec clarification: S8b. pod hqa record treats a ready human_wait Task whose step has a gate as waiting. It moves that Task to delivered, then records the Gate receipt. A ready worker Task is not waiting.
-Spec clarification: S8b. A term that follows an escape sequence inside serialized text is a whole word. The sequences are a backslash and n, a backslash and r, a backslash and t, and a backslash followed by a quote. makeScrubber uses that boundary for a replacement and for the denylist check.
+Spec clarification: S8b. A term that follows an escape sequence inside serialized text is a whole word. The sequences are a backslash and n, a backslash and r, a backslash and t, and a backslash followed by a quote. makeScrubber uses that boundary for a replacement and for the denylist check. The CI scope scan uses that same boundary.
 
 ## Authority
 
