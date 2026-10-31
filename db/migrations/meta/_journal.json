@@ -57,6 +57,13 @@
       "when": 1793750400000,
       "tag": "0007_usage_observation",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793836800000,
+      "tag": "0008_brief_tests",
+      "breakpoints": true
     }
   ]
 }
