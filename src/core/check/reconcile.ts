@@ -8,6 +8,7 @@ import {
   recordStarted,
   type Launched,
 } from "../dispatch/launch-record.ts";
+import { recordSeatStarted, SeatRef } from "../dispatch/decision-seats.ts";
 import { launchOutcome } from "../ledger/launch.ts";
 import { moveTask } from "../ledger/move-task.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
@@ -94,7 +95,73 @@ export async function reconcileLaunches(
     reconciled.push({ op_key: operation.op_key, to: outcome.to });
     if (outcome.nextStep !== undefined) nextSteps.push(outcome.nextStep);
   }
+  for (const operation of await db.listOperations(
+    ["decide_seat"],
+    ["unknown"],
+  )) {
+    const ref = SeatRef.safeParse(operation.result_ref);
+    if (!ref.success) {
+      nextSteps.push(unreadableLine(operation, ref.error));
+      continue;
+    }
+    const decision = await db.getDecision(ref.data.request.decision_id);
+    if (decision?.run_id !== input.run.run_id) continue;
+    const outcome = await reconcileSeat(
+      db,
+      orca,
+      log,
+      input,
+      operation,
+      ref.data,
+    );
+    if (outcome.to !== "unknown")
+      reconciled.push({ op_key: operation.op_key, to: outcome.to });
+    if (outcome.nextStep !== undefined) nextSteps.push(outcome.nextStep);
+  }
   return { reconciled, nextSteps };
+}
+
+async function reconcileSeat(
+  db: Db,
+  orca: OrcaPort,
+  log: ReceiptLog,
+  input: ReconcileInput,
+  operation: Operation,
+  ref: SeatRef,
+): Promise<Outcome> {
+  const still = (why: string): Outcome => ({
+    to: "unknown",
+    nextStep: `pod check: Decision Seat launch ${operation.op_key} is unknown (${why}) and holds a slot`,
+  });
+  if (ref.requestId == null) return still("no request id recorded");
+  log.at({ run_id: input.run.run_id, task_id: null, op_key: operation.op_key });
+  const shown =
+    (await orca.requestShow({ request: ref.requestId })).result?.state ?? null;
+  if (shown !== "completed")
+    return still(`request-show ${shown ?? "no answer"}`);
+  const receipt = await orca.workerStart({
+    run: input.run.run_id,
+    ...LaunchArgs.parse(ref.launch),
+    spec: ref.spec,
+    retryRequest: ref.requestId,
+  });
+  const launched =
+    launchOutcome(receipt).kind === "ok" && receipt.result !== null
+      ? fromReceipt(receipt.result)
+      : null;
+  if (launched === null) return still("the retry gave no Dispatch id");
+  await db.transaction(async (tx) => {
+    await fence(tx, input.run.run_id, input.generation);
+    await tx.lockQuota(ref.request.host);
+    await recordSeatStarted(tx, {
+      opKey: operation.op_key,
+      ref,
+      run: input.run,
+      launched,
+      at: input.now(),
+    });
+  });
+  return { to: "running" };
 }
 
 function unreadableLine(operation: Operation, error: z.ZodError): string {

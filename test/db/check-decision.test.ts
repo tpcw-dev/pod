@@ -3,12 +3,19 @@ import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass, checkWait } from "../../src/core/check/check.ts";
 import { cancelDecision } from "../../src/core/decide/advance.ts";
 import type { Json } from "../../src/core/domain/json.ts";
-import { ok, type TempEntry } from "../orca/temp-fixtures.ts";
+import { openDecision } from "../../src/core/decide/open.ts";
+import {
+  lost,
+  ok,
+  unknownReply,
+  type TempEntry,
+} from "../orca/temp-fixtures.ts";
 import {
   ack,
   audit,
   auditor,
   checkInput,
+  decideInput,
   decider,
   deliveredPlan,
   implementTask,
@@ -241,5 +248,63 @@ describeDb("pod check advances a Decision", () => {
     expect(outcome).toMatchObject({ ok: true });
     expect(slept).toEqual([5]);
     expect((await conn.db.getDecision(id))?.state).toBe("agreed");
+  });
+
+  async function unknownSeat(reply: TempEntry): Promise<void> {
+    const templates = await deliveredPlan(conn);
+    const { orca, log } = replay(conn, [reply]);
+    const outcome = await openDecision(
+      conn.db,
+      orca,
+      log,
+      decideInput(templates),
+    );
+    orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: { code: "launch_unknown" },
+    });
+  }
+
+  test("an unknown decider launch with a request id is retried by spec when request-show completes, and pod decide then sends round 1", async () => {
+    await unknownSeat(unknownReply("worker-start", "req_seat"));
+    const result = await pass([
+      ok("request-show", { requestId: "req_seat", state: "completed" }),
+      ok("worker-start", seatStarted(decider), ["--retry-request", "req_seat"]),
+      ok("check", empty(), run),
+      ok("worker-list", workers([]), run),
+    ]);
+    expect(result.reconciled).toEqual([
+      { op_key: expect.stringMatching(/^decide_seat:/), to: "running" },
+    ]);
+    expect(await conn.db.getDispatch(decider)).toMatchObject({
+      task_id: null,
+      role: "decider",
+      activity: "running",
+    });
+    const templates = await conn.db.getRevisionByRef("decision", "default", 1);
+    const { orca, log } = replay(conn, [sent(decider)]);
+    const again = await openDecision(
+      conn.db,
+      orca,
+      log,
+      decideInput(templates),
+    );
+    orca.assertDone();
+    expect(again).toMatchObject({ ok: true, result: { state: "round:1" } });
+  });
+
+  test("an unknown decider launch with no request id stays unknown and prints its op key", async () => {
+    await unknownSeat(lost("worker-start"));
+    const result = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", workers([]), run),
+    ]);
+    expect(result.reconciled).toEqual([]);
+    expect(result.nextSteps).toContainEqual(
+      expect.stringMatching(
+        /^pod check: Decision Seat launch decide_seat:\S+ is unknown \(no request id recorded\)/,
+      ),
+    );
   });
 });
