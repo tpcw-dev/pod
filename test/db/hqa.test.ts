@@ -292,4 +292,39 @@ describeDb("pod hqa record on a decision step", () => {
       },
     });
   });
+
+  test("a ready or done decision Task is not an HQA gate", async () => {
+    await deliveredPlan(conn, { gates: [], principals });
+    const bypassPath = join(
+      mkdtempSync(join(tmpdir(), "pod-hqa-")),
+      "bypass.jsonl",
+    );
+    writeFileSync(
+      bypassPath,
+      `${JSON.stringify({ host: "h1", result: "pass", at: "2026-10-31T00:00:00.000Z" })}\n`,
+    );
+    const input = {
+      story: { provider: "linear", external_id: "S-9" },
+      generation: 1,
+      host: "local",
+      hostName: "h1",
+      bypassPath,
+      command: "pod hqa record story:S-9 --generation 1",
+      now: () => new Date(),
+    };
+    for (const state of ["ready", "pending", "done"] as const) {
+      await conn.sql`update ledger.task set state = ${state} where task_id = 'task_plan'`;
+      const outcome = await recordHqa(
+        conn.db,
+        noCalls(),
+        fakeTracker(),
+        receiptLog(conn.db, "local"),
+        input,
+      );
+      expect(outcome).toMatchObject({
+        ok: true,
+        result: { nextSteps: ["no delivered Task waits on an HQA gate"] },
+      });
+    }
+  });
 });

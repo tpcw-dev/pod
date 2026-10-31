@@ -99,7 +99,8 @@ async function waitingTasks(
   const decisions: Task[] = [];
   for (const task of await db.listTasks(run.run_id)) {
     const { step } = await readProcess(db, task, "PASS");
-    if (step.decision !== undefined) decisions.push(task);
+    if (step.decision !== undefined && task.state === "delivered")
+      decisions.push(task);
     if (step.gate === undefined) continue;
     const open =
       task.state === "delivered" ||
