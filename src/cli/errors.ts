@@ -22,6 +22,9 @@ export type ErrorCode =
   | "receipt_stale_sha"
   | "receipt_no_deploy"
   | "receipt_unverified_source"
+  | "docs_section_not_found"
+  | "docs_port_missing"
+  | "config_invalid"
   | "failed";
 
 const exits: Partial<Record<ErrorCode, number>> = {
@@ -59,4 +62,14 @@ export function schemaError(
   nextSteps: readonly string[],
 ): PodError {
   return new PodError("schema_invalid", 2, message, nextSteps);
+}
+
+export function throwRecordRefusal(
+  refusals: readonly { message: string }[],
+): void {
+  const [refused] = refusals;
+  if (refused !== undefined)
+    throw new PodError("failed", 1, refused.message, [
+      "the ledger recorded the call's outcome; add the term to the scrubber inputs and record again",
+    ]);
 }

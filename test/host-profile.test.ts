@@ -22,6 +22,8 @@ const defaults = {
   trackerKind: "linear",
   trackerTokenEnv: "POD_TRACKER_TOKEN",
   estimateScale: "fibonacci",
+  docsKind: "notion",
+  docsTokenEnv: "POD_DOCS_TOKEN",
 };
 
 test("no profile reads the defaults", () => {
@@ -82,6 +84,8 @@ test("capacity and tracker.kind are read when set", () => {
     trackerKind: "other",
     trackerTokenEnv: "POD_TRACKER_TOKEN",
     estimateScale: "fibonacci",
+    docsKind: "notion",
+    docsTokenEnv: "POD_DOCS_TOKEN",
   });
 });
 
@@ -93,6 +97,26 @@ test("tracker.token_env and tracker.estimate_scale are read when set", () => {
     urlEnv: "POD_DB_URL",
     trackerTokenEnv: "T",
     estimateScale: "tshirt",
+  });
+});
+
+test("a docs block without fields keeps the docs defaults", () => {
+  home("docs: {}\n");
+  expect(readHostProfile()).toEqual({
+    ...defaults,
+    hostId: "local",
+    urlEnv: "POD_DB_URL",
+  });
+});
+
+test("docs.kind and docs.token_env are read when set", () => {
+  home("docs:\n  kind: other\n  token_env: D\n");
+  expect(readHostProfile()).toEqual({
+    ...defaults,
+    hostId: "local",
+    urlEnv: "POD_DB_URL",
+    docsKind: "other",
+    docsTokenEnv: "D",
   });
 });
 

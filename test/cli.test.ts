@@ -30,10 +30,11 @@ test("a positional is not help", () => {
   }
 });
 
-test("learning help exits 0", () => {
+test("learning and docs help exit 0", () => {
   for (const args of [
     ["learning", "add", "--help"],
     ["learning", "query", "--help"],
+    ["docs", "read", "--help"],
   ]) {
     const result = run(args);
     expect(result.status).toBe(0);
@@ -55,6 +56,7 @@ test("help lists the verbs sorted by name", () => {
     "config export",
     "db migrate",
     "dispatch",
+    "docs read",
     "drain",
     "hqa record",
     "learning add",
@@ -65,6 +67,12 @@ test("help lists the verbs sorted by name", () => {
     "takeover",
     "verdict post",
   ]);
+});
+
+test("--json on a verb that does not take it is usage", () => {
+  const result = run(["learning", "query", "--json"]);
+  expect(result.status).toBe(2);
+  expect(JSON.parse(result.stdout).error.code).toBe("usage");
 });
 
 test("a flag the verb does not take is usage", () => {

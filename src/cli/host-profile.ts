@@ -18,6 +18,12 @@ const HostProfile = z.looseObject({
       estimate_scale: z.string().min(1).default("fibonacci"),
     })
     .prefault({}),
+  docs: z
+    .looseObject({
+      kind: z.string().min(1).default("notion"),
+      token_env: z.string().min(1).default("POD_DOCS_TOKEN"),
+    })
+    .prefault({}),
 });
 
 export interface HostSettings {
@@ -27,6 +33,8 @@ export interface HostSettings {
   trackerKind: string;
   trackerTokenEnv: string;
   estimateScale: string;
+  docsKind: string;
+  docsTokenEnv: string;
 }
 
 export function podHome(): string {
@@ -65,6 +73,8 @@ export function readHostProfile(): HostSettings {
     trackerKind: parsed.data.tracker.kind,
     trackerTokenEnv: parsed.data.tracker.token_env,
     estimateScale: parsed.data.tracker.estimate_scale,
+    docsKind: parsed.data.docs.kind,
+    docsTokenEnv: parsed.data.docs.token_env,
   };
 }
 

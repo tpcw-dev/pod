@@ -62,6 +62,8 @@ export async function scenario(
         trackerKind: "linear",
         trackerTokenEnv: "POD_TRACKER_TOKEN",
         estimateScale: "fibonacci",
+        docsKind: "notion",
+        docsTokenEnv: "POD_DOCS_TOKEN",
       })
     : null;
   const tracker =

@@ -31,3 +31,5 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Area**: the classification of a learning, one of product, design, impl, process.
 - **Learning**: a record of one agent-only lesson, with a source story, evidence, text, and an adoption state.
 - **Adoption**: the state of a learning, one of new, adopted, rejected.
+- **Docs port**: Pod's read-only port to a docs tool. It reads one section of one page and never writes.
+- **Section**: the heading, paragraphs, and tables under one heading_2 of a docs page, up to the next heading.

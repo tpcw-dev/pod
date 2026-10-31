@@ -82,6 +82,9 @@ function parse() {
         story: { type: "string" },
         adoption: { type: "string" },
         text: { type: "string" },
+        page: { type: "string" },
+        heading: { type: "string" },
+        json: { type: "boolean" },
       },
       strict: true,
       allowPositionals: true,
@@ -111,6 +114,10 @@ async function main(): Promise<void> {
   const input = verb.input.safeParse({ args, ...flags });
   if (!input.success) throw usageError(`usage: ${verb.name}`, ["pod --help"]);
   const result = verb.output.parse(await verb.handler(input.data, {}));
+  if (verb.render !== undefined && flags.json !== true) {
+    process.stdout.write(`${verb.render(result)}\n`);
+    return;
+  }
   write({
     ok: true,
     result,

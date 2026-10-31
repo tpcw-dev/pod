@@ -1,5 +1,6 @@
 import { Json } from "../domain/json.ts";
 import type { Repo } from "../ports/db.ts";
+import type { DocsReceiptRecord, DocsReceiptSink } from "../ports/docs.ts";
 import type { ReceiptRecord, ReceiptSink } from "../ports/orca.ts";
 import type {
   TrackerReceiptRecord,
@@ -15,6 +16,7 @@ export interface ReceiptContext {
 export interface ReceiptLog {
   sink: ReceiptSink;
   trackerSink: TrackerReceiptSink;
+  docsSink: DocsReceiptSink;
   at(context: ReceiptContext): void;
 }
 
@@ -23,7 +25,9 @@ export function receiptLog(
   host: string,
 ): ReceiptLog {
   let context: ReceiptContext = { run_id: null, task_id: null, op_key: null };
-  const append = (record: ReceiptRecord | TrackerReceiptRecord) =>
+  const append = (
+    record: ReceiptRecord | TrackerReceiptRecord | DocsReceiptRecord,
+  ) =>
     db.appendEvent({
       type: "receipt",
       ts: new Date(record.endedAt),
@@ -43,6 +47,9 @@ export function receiptLog(
       await append(record);
     },
     async trackerSink(record) {
+      await append(record);
+    },
+    async docsSink(record) {
       await append(record);
     },
   };
