@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_0e13621dc8ea",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"03c7da4d-9744-4341-b20f-1173129bc077\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_0e13621dc8ea\",\n    \"deliveryId\": \"delivery_2041e98f10e8\",\n    \"messages\": [\n      {\n        \"id\": \"msg_552d2b31ef10\",\n        \"run_id\": \"run_0e13621dc8ea\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_98bc6a2c-43cc-4de7-a63a-93c0a3340205\",\n        \"to_handle\": \"run:run_0e13621dc8ea\",\n        \"subject\": \"TPC-1324 pushed\",\n        \"body\": \"Starting stack validation is on origin/user-1-dev/tpc-1324-dogfood-a at 3be3115f623a06e7e17c5e063a050d34e535e33e: a bad stack disables submit, names the problem, and the preview shows the typed whole number. On Node 22.23.4, npm test exits 0 in 11.765s and timeout 60 npm test exits 0 in 11.425s, and npm run build exits 0; the host default Node 26 still fails 16 pre-existing avatar localStorage tests outside this diff. The PR and review stay with the Pod run.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_d0caa8001644\\\",\\\"dispatchId\\\":\\\"ctx_ea1bfe2034f2\\\",\\\"outcome\\\":\\\"succeeded\\\",\\\"head\\\":\\\"3be3115f623a06e7e17c5e063a050d34e535e33e\\\",\\\"filesModified\\\":[\\\"public/create.html\\\",\\\"public/js/create.js\\\",\\\"src/client/__tests__/createStack.test.ts\\\"],\\\"tests\\\":[{\\\"command\\\":\\\"npm test\\\",\\\"exit_code\\\":0,\\\"seconds\\\":11.765,\\\"timeout_seconds\\\":null},{\\\"command\\\":\\\"timeout 60 npm test\\\",\\\"exit_code\\\":0,\\\"seconds\\\":11.425,\\\"timeout_seconds\\\":60}]}\",\n        \"created_at\": \"2026-10-31T21:10:45Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"88df7c06-cb60-4426-84a1-dea179fd99f6\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:10:58.930Z"
+}

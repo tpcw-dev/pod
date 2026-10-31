@@ -4,7 +4,12 @@ import { z } from "zod";
 import { decode, fetchTransport } from "../adapters/linear/client.ts";
 import { makeRealTracker } from "../adapters/linear/real.ts";
 import { makeReplayTracker } from "../adapters/linear/replay.ts";
-import { makeTrackerScrubber } from "../adapters/linear/scrub.ts";
+import {
+  makeTrackerScrubber,
+  parseReplacements,
+  ReplacementListInvalid,
+  type Replacement,
+} from "../adapters/linear/scrub.ts";
 import type { FixtureRefused } from "../core/domain/scrub.ts";
 import type { TrackerPort, TrackerReceiptSink } from "../core/ports/tracker.ts";
 import { usageError } from "./errors.ts";
@@ -75,6 +80,19 @@ export async function trackerFor(
     };
   }
   const terms = denylist();
+  const replacements = env("POD_SCRUB_REPLACEMENTS") ?? "";
+  let pairs: Replacement[];
+  try {
+    pairs = parseReplacements(replacements);
+  } catch (error) {
+    if (!(error instanceof ReplacementListInvalid)) throw error;
+    throw usageError(
+      `POD_SCRUB_REPLACEMENTS has an invalid pair ${error.pair}`,
+      [
+        "set POD_SCRUB_REPLACEMENTS to term=replacement pairs separated by commas",
+      ],
+    );
+  }
   if (token === null)
     throw usageError(`POD_TRACKER_RECORD needs ${host.trackerTokenEnv}`, [
       `set ${host.trackerTokenEnv} to the tracker token`,
@@ -93,6 +111,7 @@ export async function trackerFor(
         roots: [process.cwd()],
         workspace: await workspaceKey(token),
         denylist: terms,
+        replacements: pairs,
       }),
     },
   });

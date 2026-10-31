@@ -1,0 +1,12 @@
+kind: policy
+name: dogfood-a
+schema_version: 1
+scope: global
+value:
+  gates:
+    review: { keeper: reviewer, type: AQA }
+    merge: { keeper: keeper, type: HQA }
+    hqa_after_deploy: { keeper: keeper, type: HQA }
+  principals:
+    reviewer: { tracker_account: 00000000-0000-4000-8000-000000000014 }
+    keeper: { tracker_account: 00000000-0000-4000-8000-000000000014 }

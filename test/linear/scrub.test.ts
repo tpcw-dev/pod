@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import { makeTrackerScrubber } from "../../src/adapters/linear/scrub.ts";
+import {
+  makeTrackerScrubber,
+  parseReplacements,
+  ReplacementListInvalid,
+} from "../../src/adapters/linear/scrub.ts";
 
 function scrubber(denylist: string[] = []) {
   return makeTrackerScrubber({
@@ -41,4 +45,29 @@ test("hosts, users, and the denylist apply as they do for Orca", () => {
   const scrub = scrubber(["secretco"]);
   expect(scrub.scrub("alice on box-1")).toBe("user-1 on host-a");
   expect(scrub.hits("built by SecretCo")).toEqual(["secretco"]);
+});
+
+test("a listed replacement is gone before the denylist check", () => {
+  const scrub = makeTrackerScrubber({
+    hosts: [],
+    users: [],
+    roots: [],
+    workspace: [],
+    denylist: ["secretco", "otherco"],
+    replacements: [{ term: "secretco", replacement: "keeper" }],
+  });
+  const text = scrub.scrub("SecretCo keeps the gate, and OtherCo does not");
+  expect(text).toBe("keeper keeps the gate, and OtherCo does not");
+  expect(scrub.hits(text)).toEqual(["otherco"]);
+});
+
+test("POD_SCRUB_REPLACEMENTS pairs parse term=replacement", () => {
+  expect(parseReplacements("")).toEqual([]);
+  expect(parseReplacements(" secretco = keeper , otherco=operator ")).toEqual([
+    { term: "secretco", replacement: "keeper" },
+    { term: "otherco", replacement: "operator" },
+  ]);
+  expect(() => parseReplacements("secretco")).toThrow(ReplacementListInvalid);
+  expect(() => parseReplacements("=keeper")).toThrow(ReplacementListInvalid);
+  expect(() => parseReplacements("secretco=")).toThrow(ReplacementListInvalid);
 });

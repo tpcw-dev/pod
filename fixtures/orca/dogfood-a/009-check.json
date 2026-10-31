@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_0e13621dc8ea",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"0667d47b-ccc2-4f89-b574-49852714acf2\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_0e13621dc8ea\",\n    \"deliveryId\": \"delivery_c55a5675feec\",\n    \"messages\": [\n      {\n        \"id\": \"msg_5010cbb83563\",\n        \"run_id\": \"run_0e13621dc8ea\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_98bc6a2c-43cc-4de7-a63a-93c0a3340205\",\n        \"to_handle\": \"run:run_0e13621dc8ea\",\n        \"subject\": \"alive\",\n        \"body\": \"\",\n        \"type\": \"heartbeat\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_d0caa8001644\\\",\\\"dispatchId\\\":\\\"ctx_ea1bfe2034f2\\\",\\\"phase\\\":\\\"investigating\\\"}\",\n        \"created_at\": \"2026-10-31T21:05:03Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"22a73080-696c-4640-a33f-0c4e14d7ee1d\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:05:21.082Z"
+}

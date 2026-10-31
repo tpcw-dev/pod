@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_0e13621dc8ea",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"2fca25b3-5704-499a-89aa-011e50381cb3\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_0e13621dc8ea\",\n    \"deliveryId\": null,\n    \"messages\": [],\n    \"count\": 0,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"e7d1c0e8-d92c-4d96-b3f0-fe46ea826137\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:10:31.697Z"
+}

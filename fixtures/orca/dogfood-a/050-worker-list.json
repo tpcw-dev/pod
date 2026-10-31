@@ -1,0 +1,18 @@
+{
+  "verb": "worker-list",
+  "match": {
+    "argv": [
+      "orchestration",
+      "worker-list",
+      "--run",
+      "run_0e13621dc8ea",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"8b8b742c-7470-437f-bd77-1d76e7aa8b27\",\n  \"ok\": true,\n  \"result\": {\n    \"workers\": [\n      {\n        \"dispatchId\": \"ctx_ea1bfe2034f2\",\n        \"taskId\": \"task_d0caa8001644\",\n        \"runId\": \"run_0e13621dc8ea\",\n        \"workerState\": \"ready\",\n        \"dispatchStatus\": \"dispatched\",\n        \"agentTerminalHandle\": \"term_98bc6a2c-43cc-4de7-a63a-93c0a3340205\",\n        \"terminalState\": \"active\",\n        \"resource\": {\n          \"id\": \"wtr_15179bdbe314\",\n          \"ownershipState\": \"owned\",\n          \"releaseState\": \"not_requested\",\n          \"retainedReason\": null,\n          \"terminalHandle\": \"term_98bc6a2c-43cc-4de7-a63a-93c0a3340205\",\n          \"worktreeId\": \"b782e59d-003e-4a7e-9555-5ef7fdd32b5e::/w/1\",\n          \"endpointId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\",\n          \"endpointIncarnation\": \"b782e59d-003e-4a7e-9555-5ef7fdd32b5e::/w/1@@1d7e6b0f:cc96b147-8d8e-493d-b8f6-075ae6846c25\",\n          \"originDispatchId\": \"ctx_ea1bfe2034f2\",\n          \"ownerDispatchId\": \"ctx_ea1bfe2034f2\",\n          \"releaseRequestedAt\": null,\n          \"releaseCompletedAt\": null,\n          \"releaseError\": null,\n          \"recoveryAttemptCount\": 0,\n          \"lastRecoveryAt\": null,\n          \"archive\": {\n            \"source\": null,\n            \"status\": null\n          }\n        },\n        \"projection\": {\n          \"id\": \"ctx_ea1bfe2034f2\",\n          \"dispatchId\": \"ctx_ea1bfe2034f2\",\n          \"taskId\": \"task_d0caa8001644\",\n          \"runId\": \"run_0e13621dc8ea\",\n          \"role\": \"worker\",\n          \"parent\": null,\n          \"provider\": {\n            \"id\": \"grok\",\n            \"model\": null\n          },\n          \"host\": {\n            \"kind\": \"host-a\",\n            \"id\": \"host-a\"\n          },\n          \"workspace\": {\n            \"id\": \"b782e59d-003e-4a7e-9555-5ef7fdd32b5e::/w/1\",\n            \"kind\": \"folder_or_worktree\"\n          },\n          \"stage\": {\n            \"worker\": \"ready\",\n            \"dispatch\": \"dispatched\",\n            \"detail\": \"input_accepted\",\n            \"activity\": \"working\"\n          },\n          \"outcome\": \"in_progress\",\n          \"liveness\": {\n            \"verdict\": \"live\",\n            \"observedAt\": 1793480982310,\n            \"source\": \"agent_status\"\n          },\n          \"evidence\": {\n            \"durable\": true,\n            \"liveStatus\": \"fresh\",\n            \"lastObservedAt\": 1793480982310\n          },\n          \"resource\": {\n            \"state\": \"owned\"\n          },\n          \"nextAction\": {\n            \"kind\": \"none\",\n            \"argv\": []\n          },\n          \"attention\": {\n            \"categories\": [],\n            \"requiresAction\": false\n          }\n        }\n      }\n    ],\n    \"counts\": {\n      \"active\": 1\n    },\n    \"page\": {\n      \"limit\": 100,\n      \"total\": 1,\n      \"hasMore\": false,\n      \"nextCursor\": null\n    },\n    \"scope\": {\n      \"run\": \"run_0e13621dc8ea\",\n      \"source\": \"flag\"\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:09:50.008Z"
+}

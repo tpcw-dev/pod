@@ -1,0 +1,59 @@
+kind: process
+name: impl-small
+schema_version: 1
+scope: global
+value:
+  summary: xs or s impl, one developer, one independent reviewer, one PR
+  selector: { stage: impl, size: [xs, s] }
+  roles: [developer, reviewer]
+  steps:
+    - id: implement
+      type: worker
+      role: developer
+      produces: [commit]
+      spec: |
+        Implement Linear story TRK-1 in this worktree. Read it with `orca linear issue TRK-1` and follow its Goal, Constraints, and Completion check. Branch, commit, and push. Do not merge.
+        Finish with `orca orchestration send --type worker_done --outcome succeeded` and a `--payload` JSON object. `head` is the 40-hex sha of the pushed commit. `tests` is an array of two objects, each with command, exit_code, seconds, and timeout_seconds. The commands are `npm test` with timeout_seconds null, and `timeout 60 npm test` with timeout_seconds 60. Use the real exit codes and durations.
+
+    - id: review
+      type: worker
+      role: reviewer
+      needs: [implement]
+      gate: review
+      spec: |
+        Review the pushed commit for Linear story TRK-1. Read it with `orca linear issue TRK-1`. Do not push or merge. Say PASS or FAIL, and name the 40-hex head, in the worker_done body.
+        Finish with `orca orchestration send --type worker_done --outcome succeeded`.
+
+    - id: pr
+      type: worker
+      role: developer
+      needs: [review]
+      produces: [pr]
+      spec: |
+        Open one pull request to the default branch for the reviewed commit of Linear story TRK-1. Do not merge.
+        Finish with `orca orchestration send --type worker_done --outcome succeeded` and a `--payload` JSON object. `head` is the 40-hex head sha. `pr` is an object with number, url, and head, and head is the same 40-hex sha.
+
+    - { id: merge, type: human_wait, needs: [pr], gate: merge }
+    - id: deploy
+      type: external_action
+      needs: [merge]
+      adapter: deploy
+      event_fields: [environment, deployment_id, deployed_revision, source_commit]
+    - { id: hqa, type: human_wait, needs: [deploy], gate: hqa_after_deploy, binds: deployed_revision }
+  edges:
+    - { from: implement, on: done, to: review }
+    - { from: implement, on: [timeout, cancel, unknown], to: hold }
+    - { from: review, on: PASS, to: pr }
+    - { from: review, on: FAIL, to: implement, new_task: true, then: review }
+    - { from: review, on: [timeout, cancel, unknown], to: hold }
+    - { from: pr, on: done, to: merge }
+    - { from: pr, on: [timeout, cancel, unknown], to: hold }
+    - { from: merge, on: PASS, to: deploy }
+    - { from: merge, on: [FAIL, cancel], to: hold }
+    - { from: deploy, on: done, to: hqa }
+    - { from: deploy, on: [unknown, cancel], to: hold }
+    - { from: hqa, on: PASS, to: done }
+    - { from: hqa, on: FAIL, to: implement, new_task: true, then: review }
+    - { from: hqa, on: cancel, to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+  escalation: { to: decision-pair }

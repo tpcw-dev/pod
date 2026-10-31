@@ -1,0 +1,13 @@
+{
+  "method": "readComment",
+  "match": {
+    "operation": "Comment",
+    "variables": {
+      "id": "00000000-0000-4000-8000-000000000015"
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"comment\":{\"id\":\"00000000-0000-4000-8000-000000000015\",\"body\":\"merge PASS\\n\\nHead: 3be3115f623a06e7e17c5e063a050d34e535e33e\\n\\nkeeper: HQA PR review PASS on poker-room PR 41. Read the full diff: `public/create.html` adds the `#stack-help` line, `public/js/create.js` adds `stackProblem` beside `blindsProblem`, drops the `|| 1000` fallback in `readCreateForm`, paints the preview from the typed value or an em dash, and disables submit on either problem; `src/client/__tests__/createStack.test.ts` covers the four messages, the disabled cases 0, 2.5, blank, and 150 with blinds 10/20, the enabled case 200, and the preview for 750 and blank. The server keeps its fallback as the ticket requires. The reviewer seat's PASS is on this head and the PR is mergeable. Merging now.\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"},\"issue\":{\"identifier\":\"TRK-1\"}}}}\n",
+  "error": null,
+  "recordedAt": "2026-10-31T21:59:04.645Z"
+}

@@ -1,0 +1,20 @@
+{
+  "verb": "task-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "task-create",
+      "--run",
+      "run_0e13621dc8ea",
+      "--deps",
+      "[\"task_d0caa8001644\"]",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"d1f75d34-d114-4634-a254-146f9ddda66a\",\n  \"ok\": true,\n  \"result\": {\n    \"task\": {\n      \"id\": \"task_1a1b6d3d9a78\",\n      \"run_id\": \"run_0e13621dc8ea\",\n      \"parent_id\": null,\n      \"created_by_terminal_handle\": \"term_f9f9edb6-2871-4e17-8f4a-b5c4d3b798fa\",\n      \"created_by_pane_key\": \"aebbac44-3593-48d8-9547-979f82935ec8:81f2d9f7-2e4d-476a-ada5-ee9909776598\",\n      \"created_by_process_incarnation\": \"b782e59d-003e-4a7e-9555-5ef7fdd32b5e::/w/1@@57857696:de7360b4-d864-463c-b3dc-6cdd36cf6d76\",\n      \"created_by_run_generation\": 1,\n      \"task_title\": \"review\",\n      \"display_name\": \"review\",\n      \"spec\": \"Review the pushed commit for Linear story TPC-1324. Read it with `orca linear issue TPC-1324`. Do not push or merge. Say PASS or FAIL, and name the 40-hex head, in the worker_done body.\\nFinish with `orca orchestration send --type worker_done --outcome succeeded`.\\n\",\n      \"status\": \"pending\",\n      \"deps\": \"[\\\"task_d0caa8001644\\\"]\",\n      \"result\": null,\n      \"created_at\": \"2026-10-31 21:04:04\",\n      \"completed_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"83658131-ece6-42ba-a6ff-30dc2f3bd782\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:04:04.110Z"
+}

@@ -1,4 +1,14 @@
-import { makeScrubber, type Scrubber } from "../../core/domain/scrub.ts";
+import {
+  makeScrubber,
+  type Replacement,
+  type Scrubber,
+} from "../../core/domain/scrub.ts";
+
+export {
+  parseReplacements,
+  ReplacementListInvalid,
+  type Replacement,
+} from "../../core/domain/scrub.ts";
 
 export interface TrackerScrubTerms {
   hosts: readonly string[];
@@ -6,6 +16,7 @@ export interface TrackerScrubTerms {
   roots: readonly string[];
   workspace: readonly string[];
   denylist: readonly string[];
+  replacements?: readonly Replacement[];
 }
 
 const identifier =
@@ -29,6 +40,9 @@ export function makeTrackerScrubber(terms: TrackerScrubTerms): Scrubber {
     users: terms.users,
     roots: terms.roots,
     denylist: terms.denylist,
+    ...(terms.replacements === undefined
+      ? {}
+      : { replacements: terms.replacements }),
   });
   const issues = new Map<string, string>();
   const ids = new Map<string, string>();

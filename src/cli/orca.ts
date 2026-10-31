@@ -3,6 +3,11 @@ import { hostname, userInfo } from "node:os";
 import { makeRealOrca } from "../adapters/orca/real.ts";
 import { makeReplayOrca } from "../adapters/orca/replay.ts";
 import { makeScrubber, type FixtureRefused } from "../adapters/orca/scrub.ts";
+import {
+  parseReplacements,
+  ReplacementListInvalid,
+  type Replacement,
+} from "../core/domain/scrub.ts";
 import type { OrcaPort, ReceiptSink } from "../core/ports/orca.ts";
 import { usageError } from "./errors.ts";
 
@@ -43,6 +48,19 @@ export function orcaFor(sink: ReceiptSink, hostId: string): OrcaWiring {
     return { port: makeRealOrca({ sink }), recordRefusals: () => [] };
   }
   const terms = denylist();
+  const replacements = env("POD_SCRUB_REPLACEMENTS") ?? "";
+  let pairs: Replacement[];
+  try {
+    pairs = parseReplacements(replacements);
+  } catch (error) {
+    if (!(error instanceof ReplacementListInvalid)) throw error;
+    throw usageError(
+      `POD_SCRUB_REPLACEMENTS has an invalid pair ${error.pair}`,
+      [
+        "set POD_SCRUB_REPLACEMENTS to term=replacement pairs separated by commas",
+      ],
+    );
+  }
   mkdirSync(dir, { recursive: true });
   const port = makeRealOrca({
     sink,
@@ -54,6 +72,7 @@ export function orcaFor(sink: ReceiptSink, hostId: string): OrcaWiring {
         users: [userInfo().username],
         roots: [process.cwd()],
         denylist: terms,
+        replacements: pairs,
       }),
     },
   });
