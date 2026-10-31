@@ -3,7 +3,10 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import { makeReplayTracker } from "../../src/adapters/linear/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
-import { orcaFor } from "../../src/cli/orca.ts";
+import { mkdirSync, readFileSync } from "node:fs";
+import { hostname, userInfo } from "node:os";
+import { makeRealOrca } from "../../src/adapters/orca/real.ts";
+import { makeTrackerScrubber } from "../../src/adapters/linear/scrub.ts";
 import { trackerFor } from "../../src/cli/tracker.ts";
 import { checkWait, type WaitInput } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
@@ -71,11 +74,31 @@ describeDb("decision-happy-path", () => {
       if (recording && story === "")
         throw new Error("recording needs POD_TRACKER_STORY");
       const log = receiptLog(conn.db, "rec");
-      const orcaWired = recording ? orcaFor(log.sink, "rec") : null;
+      if (recording)
+        mkdirSync(process.env["POD_ORCA_RECORD"] ?? "", { recursive: true });
+      const orcaWired = recording
+        ? makeRealOrca({
+            sink: log.sink,
+            record: {
+              dir: process.env["POD_ORCA_RECORD"] ?? "",
+              kill: null,
+              scrubber: makeTrackerScrubber({
+                hosts: [hostname(), "rec"],
+                users: [userInfo().username],
+                roots: [process.cwd()],
+                workspace: [],
+                denylist: readFileSync(
+                  process.env["POD_SCRUB_DENYLIST"] ?? "",
+                  "utf8",
+                ).split("\n"),
+              }),
+            },
+          })
+        : null;
       const orcaReplay = recording
         ? null
         : makeReplayOrca({ dir: orcaDir, sink: log.sink });
-      const chosen = orcaWired?.port ?? orcaReplay;
+      const chosen = orcaWired ?? orcaReplay;
       if (chosen === null) throw new Error("no Orca port");
       const orca: OrcaPort = chosen;
       const trackerWired = recording

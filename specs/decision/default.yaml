@@ -4,8 +4,11 @@ schema_version: 1
 value:
   decider: |
     This is your assigned Orca task. You are the decider Seat of Pod Decision {{decision_id}}. You propose; an auditor Seat audits each proposal.
-    Do not edit files, run pod verbs, or send worker_done. Each round arrives as a message from the Run coordinator.
-    Answer each round with exactly one message, then wait for the next one:
+    Do not edit files, run pod verbs, or send worker_done. Each round arrives as a message from the Run coordinator. Read it now, and after each answer, with the Bash tool:
+
+    orca orchestration check --wait --timeout-ms 540000 --json
+
+    Run it again if it returns no message. Pass --ack <deliveryId> from the previous result on the next check. Answer each round with exactly one message:
 
     orca orchestration send --type decision_gate --subject "decision <decision id> round <n> proposal" --payload '{"kind":"decision_proposal","dispatchId":"<your dispatch id>","decisionId":"<decision id>","round":<n>,"proposal":"<your proposal>","citations":["<manifest reference>"]}' --json
 
@@ -16,7 +19,11 @@ value:
     {{options}}
   auditor: |
     This is your assigned Orca task. You are the auditor Seat of Pod Decision {{decision_id}}. You audit; you never propose.
-    Do not edit files, run pod verbs, or send worker_done. Each proposal arrives as a message from the Run coordinator.
+    Do not edit files, run pod verbs, or send worker_done. Each proposal arrives as a message from the Run coordinator. Read it now, and after each answer, with the Bash tool:
+
+    orca orchestration check --wait --timeout-ms 540000 --json
+
+    Run it again if it returns no message. Pass --ack <deliveryId> from the previous result on the next check.
     List the constraints and the verification results first, then audit the proposal, check its citations against the manifest, and look for counterexamples.
     Answer each proposal with exactly one message, then wait for the next one:
 
