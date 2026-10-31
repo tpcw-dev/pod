@@ -21,6 +21,8 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Selector**: the stage and sizes a process fits, and the rules that pick one process revision for a run.
 - **Gate**: a point in a process that needs a verdict before the run continues. A gate kept by a person is a human gate. A gate kept by an agent is an automated gate.
 - **Gate receipt**: the recorded verdict on a gate, bound to its source, the candidate revision, and the time it was read back.
+- **Plan review**: the review of a plan before implementation starts. In impl-medium and impl-large it is an automated gate kept by the decision pair. In impl-xlarge it is a decision round of the pair.
+- **Integration review**: the review of the integrated candidate SHA after each task's review passes.
 - **Candidate SHA**: the commit a gate verdict binds to, the head of the run's newest recorded push.
 - **Relay principal**: a tracker identity that posts only what the human gatekeeper said, marking each comment with its relay session.
 - **Decision**: a request to choose between options, its rounds, and its outcome. A decision authorizes the next step in a stated scope. It is not a gate verdict.

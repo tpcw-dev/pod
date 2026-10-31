@@ -59,10 +59,19 @@ export const Edge = z.strictObject({
 });
 export type Edge = z.infer<typeof Edge>;
 
-export const Selector = z.strictObject({
-  stage: Name,
-  size: z.array(Size).min(1),
-});
+export const Selector = z
+  .strictObject({
+    stage: Name,
+    size: z.array(Size).min(1).optional(),
+  })
+  .superRefine((selector, ctx) => {
+    if (selector.stage === "impl" && selector.size === undefined)
+      ctx.addIssue({
+        code: "custom",
+        path: ["size"],
+        message: "an impl selector names at least one size",
+      });
+  });
 export type Selector = z.infer<typeof Selector>;
 
 export const ProcessValue = z

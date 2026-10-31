@@ -131,6 +131,26 @@ test.each(twinRows)(
   },
 );
 
+const anySize: ActiveProcess = {
+  revisionId: "rev-prd",
+  name: "prd",
+  rev: 1,
+  selector: { stage: "prd" },
+};
+const sizes: Size[] = ["xs", "s", "m", "l", "xl"];
+
+test.each(sizes)(
+  "a size-less prd selector fits a prd Story of size %s and no impl Story",
+  (size) => {
+    expect(select("prd", size, null, null, [small, medium, anySize])).toBe(
+      "rev-prd",
+    );
+    expect(select("impl", size, null, "prd", [small, medium, anySize])).toBe(
+      "selector_conflict",
+    );
+  },
+);
+
 test("a named Revision needs no activation, and its selector still applies", () => {
   expect(select("impl", "s", null, "impl-small", [], small)).toBe("rev-small");
   expect(select("impl", "m", null, "impl-small", [], small)).toBe(

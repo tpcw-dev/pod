@@ -30,7 +30,7 @@ function same(a: ProcessRef, b: ProcessRef): boolean {
 }
 
 export function fits(selector: Selector, stage: string, size: Size): boolean {
-  return selector.stage === stage && selector.size.includes(size);
+  return selector.stage === stage && (selector.size?.includes(size) ?? true);
 }
 
 export function selectProcess(input: SelectInput): Selected {

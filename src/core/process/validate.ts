@@ -4,6 +4,7 @@ import {
   edgeOutcomes,
   issuePath,
   ProcessValue,
+  type Step,
 } from "./schema.ts";
 
 type Checked = { ok: true; value: ProcessValue } | Refused;
@@ -184,23 +185,30 @@ function unfilled(value: ProcessValue, seats: string[][]): Refused | null {
       ]);
 }
 
+function independentOf(value: ProcessValue, step: Step): string[] {
+  const steps = new Map(value.steps.map((other) => [other.id, other]));
+  const roles = new Set<string>();
+  const seen = new Set<string>();
+  const queue = [...step.needs];
+  for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+    const other = steps.get(id);
+    if (seen.has(id) || other?.role === undefined) continue;
+    seen.add(id);
+    if (other.role === step.role) queue.push(...other.needs);
+    else roles.add(other.role);
+  }
+  return [...roles];
+}
+
 function notIndependent(
   value: ProcessValue,
   seats: string[][],
 ): Refused | null {
-  const roles = new Map(value.steps.map((step) => [step.id, step.role]));
   for (const step of value.steps) {
     const { role } = step;
     if (step.type !== "worker" || step.gate === undefined || role === undefined)
       continue;
-    const needed = [
-      ...new Set(
-        step.needs.flatMap((id) => {
-          const other = roles.get(id);
-          return other === undefined ? [] : [other];
-        }),
-      ),
-    ];
+    const needed = independentOf(value, step);
     const free = seats.some(
       (seat) =>
         seat.includes(role) && !needed.some((other) => seat.includes(other)),

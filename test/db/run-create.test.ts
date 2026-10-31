@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { parse } from "yaml";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
@@ -133,6 +135,71 @@ describeDb("pod run create", () => {
       (await conn.sql`select type from ledger.event where type <> 'receipt'`)
         .length,
     ).toBe(0);
+  });
+
+  test("an xl Story selects impl-xlarge, projects the plan Task ready, and the brief waits on decision plan", async () => {
+    const xl = parse(
+      readFileSync("specs/process/impl-xlarge.yaml", "utf8"),
+    ) as { value: Parameters<typeof activeRevision>[3] };
+    await activeRevision(conn.db, "process", "impl-xlarge", xl.value);
+    const steps = [
+      "plan",
+      "implement",
+      "review",
+      "integration_review",
+      "pr",
+      "merge",
+      "deploy",
+      "hqa",
+    ];
+    const { orca, log } = replay([
+      ok("run-create", { run: { id: "run_xl" } }),
+      ...steps.map((step, i) =>
+        ok(
+          "task-create",
+          {
+            task: { id: `task_${step}`, status: i === 0 ? "ready" : "pending" },
+          },
+          ["--run", "run_xl"],
+        ),
+      ),
+    ]);
+    const outcome = await create(orca, log, {
+      story: "S-XL",
+      process: null,
+      size: "xl",
+      command: "pod run create story:S-XL --size xl --stage impl",
+    });
+    orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { run_id: "run_xl", process: "process.impl-xlarge@1" },
+    });
+    expect(await conn.db.getTask("task_plan")).toMatchObject({
+      step_id: "plan",
+      role: "planner",
+      state: "ready",
+    });
+    const brief = runCli(["brief", "story:S-XL"]);
+    expect(brief.status).toBe(0);
+    const [story] = brief.json.result?.["stories"] as {
+      runs: { tasks: { step_id: string; waiting_on: string | null }[] }[];
+    }[];
+    expect(
+      Object.fromEntries(
+        story?.runs[0]?.tasks.map((task) => [task.step_id, task.waiting_on]) ??
+          [],
+      ),
+    ).toEqual({
+      plan: "decision plan",
+      implement: null,
+      review: "gate review",
+      integration_review: "gate integration_review",
+      pr: null,
+      merge: "gate merge",
+      deploy: null,
+      hqa: "gate hqa_after_deploy",
+    });
   });
 
   test("with a tracker, the Story supplies size, stage, and the Kickoff process with no flags", async () => {
