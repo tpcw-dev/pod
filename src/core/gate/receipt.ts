@@ -49,9 +49,7 @@ export function findVerdictComment(
   return null;
 }
 
-function relayTrailer(
-  body: string,
-): { session: string; rest: string } | null {
+function relayTrailer(body: string): { session: string; rest: string } | null {
   const lines = body.replaceAll("\r\n", "\n").trimEnd().split("\n");
   const last = lines.at(-1) ?? "";
   const match = /^relayed-by: (\S+)\s*$/.exec(last);

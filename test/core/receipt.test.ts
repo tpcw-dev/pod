@@ -51,7 +51,10 @@ describe("findVerdictComment", () => {
   test("the bare form and the prefixed form both match", () => {
     expect(
       findVerdictComment([comment("c1", "review PASS")], "review"),
-    ).toMatchObject({ outcome: "PASS", comment: { ref: { comment_id: "c1" } } });
+    ).toMatchObject({
+      outcome: "PASS",
+      comment: { ref: { comment_id: "c1" } },
+    });
     expect(
       findVerdictComment([comment("c1", "jerry: review FAIL\nnotes")], "review")
         ?.outcome,
@@ -81,9 +84,9 @@ describe("findVerdictComment", () => {
 
   test("a gate id with regex characters is matched literally", () => {
     expect(findVerdictComment([comment("c", "aXb PASS")], "a.b")).toBeNull();
-    expect(
-      findVerdictComment([comment("c", "a.b PASS")], "a.b")?.outcome,
-    ).toBe("PASS");
+    expect(findVerdictComment([comment("c", "a.b PASS")], "a.b")?.outcome).toBe(
+      "PASS",
+    );
   });
 });
 
