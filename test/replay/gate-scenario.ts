@@ -96,5 +96,5 @@ export async function receiptRows(conn: Connection) {
       sync_state: string;
       deployed_revision: string | null;
     }[]
-  >`select id, gate_id, sync_state, deployed_revision from ledger.gate_receipt order by id`;
+  >`select id::int as id, gate_id, sync_state, deployed_revision from ledger.gate_receipt order by id`;
 }

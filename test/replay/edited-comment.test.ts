@@ -17,7 +17,7 @@ import {
   startRun,
 } from "./tracker-scenario.ts";
 
-const keeper = "00000000-0000-4000-8000-000000000000";
+const keeper = "00000000-0000-4000-8000-000000000014";
 const dir = "fixtures/tracker/edited-comment";
 
 describeDb("edited-comment", () => {
