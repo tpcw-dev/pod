@@ -132,6 +132,9 @@ describeDb("pod retry", () => {
       dispatch_id: "ctx_2",
       payload: { retry_of: "ctx_1" },
     });
+    expect(await events(conn, "retry")).toEqual([
+      expect.objectContaining({ dispatch_id: "ctx_2" }),
+    ]);
     expect(
       await retry(
         conn.db,

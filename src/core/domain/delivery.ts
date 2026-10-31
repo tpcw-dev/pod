@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TestResult } from "./ledger.ts";
 import type { OrcaMessage } from "../ports/orca.ts";
 
 const Settling = z.literal("worker_done");
@@ -102,4 +103,27 @@ export function deliveryFacts(message: OrcaMessage): DeliveryFacts {
   read("pr", "pr", Pr);
   read("deploy", "deploy", Deploy);
   return found;
+}
+
+export function deliveryTests(message: OrcaMessage): {
+  tests?: TestResult[];
+  ignored: string[];
+} {
+  if (message.payload.tests === undefined) return { ignored: [] };
+  const raw = message.payload.tests;
+  if (!Array.isArray(raw))
+    return {
+      ignored: [`ignored tests on message ${message.id}: expected an array`],
+    };
+  const tests: TestResult[] = [];
+  const ignored: string[] = [];
+  for (const [index, entry] of raw.entries()) {
+    const parsed = TestResult.safeParse(entry);
+    if (parsed.success) tests.push(parsed.data);
+    else
+      ignored.push(
+        `ignored tests[${index}] on message ${message.id}: ${parsed.error.issues[0]?.message ?? "malformed"}`,
+      );
+  }
+  return { tests, ignored };
 }

@@ -192,6 +192,7 @@ const Payload = z.preprocess(
       dispatchId: z.string().optional(),
       taskId: z.string().optional(),
       outcome: z.string().optional(),
+      tests: z.unknown().optional(),
     })
     .catch({}),
 );

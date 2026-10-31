@@ -20,6 +20,7 @@ export const eventTypes = [
   "drain",
   "hold",
   "resume",
+  "retry",
   "ignored",
   "unknown_launch",
   "learning",
@@ -204,6 +205,15 @@ export interface Dispatch {
   manifest_id: string | null;
 }
 
+export const TestResult = z.object({
+  command: z.string().min(1),
+  exit_code: z.int(),
+  seconds: z.number().finite(),
+  timeout_seconds: z.int().nullable(),
+});
+export type TestResult = z.infer<typeof TestResult>;
+export const StoredTests = z.array(TestResult);
+
 export interface EvidenceManifest {
   id: string;
   run_id: string;
@@ -211,6 +221,7 @@ export interface EvidenceManifest {
   decision_id: string | null;
   parent_id: string | null;
   references: Json;
+  tests: TestResult[] | null;
   created_at: Date;
 }
 

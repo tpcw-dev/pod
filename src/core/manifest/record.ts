@@ -1,6 +1,8 @@
-import type { EvidenceManifest } from "../domain/ledger.ts";
+import { deliveryTests } from "../domain/delivery.ts";
+import type { EvidenceManifest, TestResult } from "../domain/ledger.ts";
 import { Json } from "../domain/json.ts";
 import type { Repo } from "../ports/db.ts";
+import type { OrcaMessage } from "../ports/orca.ts";
 import { manifestId, type ManifestReference } from "./references.ts";
 
 export interface ManifestRecordInput {
@@ -10,6 +12,7 @@ export interface ManifestRecordInput {
   parent_id: string | null;
   created_at: Date;
   references: readonly ManifestReference[];
+  tests?: TestResult[] | null;
 }
 
 export async function recordManifest(
@@ -23,6 +26,23 @@ export async function recordManifest(
     decision_id: input.decision_id,
     parent_id: input.parent_id,
     references: Json.parse(input.references),
+    tests: input.tests ?? null,
     created_at: input.created_at,
   });
+}
+
+export async function recordDeliveryTests(
+  repo: Pick<Repo, "setManifestTests">,
+  storedId: string | null,
+  message: OrcaMessage,
+): Promise<string[]> {
+  const parsed = deliveryTests(message);
+  if (parsed.tests === undefined) return parsed.ignored;
+  if (storedId === null)
+    return [
+      ...parsed.ignored,
+      `ignored tests on message ${message.id}: no manifest`,
+    ];
+  await repo.setManifestTests(storedId, parsed.tests);
+  return parsed.ignored;
 }

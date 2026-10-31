@@ -193,6 +193,24 @@ async function insertStart(
     },
     source: { kind: "command", verb: input.verb },
   });
+  if (input.verb !== "retry") return;
+  await tx.appendEvent({
+    type: "retry",
+    ts: input.at,
+    host: request.host,
+    run_id: task.run_id,
+    task_id: task.task_id,
+    dispatch_id: launched.dispatchId,
+    op_key: input.opKey,
+    payload: {
+      seat: request.seat,
+      role: task.role,
+      manifest_id: input.manifestId,
+      ...(request.retry_of === undefined ? {} : { retry_of: request.retry_of }),
+      ...(late ? { late: true } : {}),
+    },
+    source: { kind: "command", verb: input.verb },
+  });
 }
 
 export interface UnknownInput {

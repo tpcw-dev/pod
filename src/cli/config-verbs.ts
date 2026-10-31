@@ -82,7 +82,7 @@ function readEnvelope(path: string): RevisionEnvelope {
 function activationFlags(input: ConfigApplyInput, envelope: RevisionEnvelope) {
   const expected = input["expected-revision"];
   if (input.activate !== true) {
-    if (expected !== undefined)
+    if (expected !== undefined && expected !== "none")
       throw usageError("--expected-revision needs --activate");
     if (input.scope !== undefined) throw usageError("--scope needs --activate");
     if (input["op-key"] !== undefined)

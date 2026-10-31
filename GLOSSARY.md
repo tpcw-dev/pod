@@ -38,3 +38,5 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **State view**: the seven sections `pod state` prints for a scope, each stamped with its source revision and read time, kept within a 3k-word budget.
 - **Usage observation**: an append-only ledger row of what a seat provider reported about usage in a window, where a null value means unknown and `no_source` means no reader reported.
 - **Drill**: one replayed Run that walks several recorded failures and shows recovery on a single ledger.
+- **Hand-filled entry**: an event whose content a person typed.
+- **Recovery step**: an event that retries, resumes, takes over, or releases work on a Run.

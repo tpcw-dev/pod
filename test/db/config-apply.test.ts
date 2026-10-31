@@ -1,7 +1,7 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { stringify } from "yaml";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
@@ -269,9 +269,27 @@ describeDb("pod config apply and export", () => {
     });
   });
 
+  test("--expected-revision none without --activate stores and does not activate", async () => {
+    const before = await db.sql<{ n: number }[]>`
+      select count(*)::int as n from config.activation`;
+    const result = runCli([
+      "config",
+      "apply",
+      v1,
+      "--expected-revision",
+      "none",
+    ]);
+    expect(result).toMatchObject({
+      status: 0,
+      json: { ok: true, result: { id: v1Id, activation: null } },
+    });
+    const after = await db.sql<{ n: number }[]>`
+      select count(*)::int as n from config.activation`;
+    expect(after[0]?.n).toBe(before[0]?.n);
+  });
+
   test("flags that disagree are usage", () => {
     for (const args of [
-      ["config", "apply", v1, "--expected-revision", "none"],
       ["config", "apply", v1, "--activate", "--scope", "global"],
       [
         "config",
@@ -660,5 +678,46 @@ describeDb("pod config apply of a process", () => {
       });
     }
     expect(await counts()).toEqual(before);
+  });
+});
+
+describe("crew example file", () => {
+  test("each seat says what to fill in and uses the placeholder runtime", () => {
+    const text = readFileSync("specs/crew/crew.example.yaml", "utf8");
+    expect(
+      text.match(
+        /^    # Fill id, runtime, model, and host before this seat is used\.$/gm,
+      ),
+    ).toHaveLength(4);
+    expect(text).toContain("runtime: example");
+    expect(text).toContain("model: example");
+    expect(text).toContain("host: example-host");
+    expect(text).toContain("name: crew.example");
+  });
+});
+
+describeDb("crew example apply", () => {
+  let db: Connection;
+  beforeAll(async () => {
+    await resetDb();
+    db = openDb();
+  });
+  afterAll(() => db.close());
+
+  test("apply --expected-revision none on an empty database does not activate", async () => {
+    const result = runCli([
+      "config",
+      "apply",
+      "specs/crew/crew.example.yaml",
+      "--expected-revision",
+      "none",
+    ]);
+    expect(result).toMatchObject({
+      status: 0,
+      json: { ok: true, result: { activation: null, created: true } },
+    });
+    const rows = await db.sql<{ n: number }[]>`
+      select count(*)::int as n from config.activation`;
+    expect(rows[0]?.n).toBe(0);
   });
 });

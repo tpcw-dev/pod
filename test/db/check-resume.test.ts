@@ -230,5 +230,14 @@ describeDb("pod check --resume", () => {
       result: { resumed: [{ kind: "task", id: "task_b", to: "ready" }] },
     });
     expect(await taskState(conn, "task_b")).toBe("ready");
+    const holds = await conn.sql<{ source: { kind: string; verb: string } }[]>`
+      select source from ledger.event where type = 'hold' order by id`;
+    const resumes = await conn.sql<{ source: { kind: string; verb: string } }[]>`
+      select source from ledger.event where type = 'resume' order by id`;
+    expect(holds.at(-1)?.source).toEqual({ kind: "command", verb: "check" });
+    expect(resumes.at(-1)?.source).toEqual({
+      kind: "command",
+      verb: "check --resume",
+    });
   });
 });
