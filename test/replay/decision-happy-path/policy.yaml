@@ -1,0 +1,7 @@
+kind: policy
+name: decision-happy-path
+schema_version: 1
+value:
+  gates: []
+  limits:
+    decision_rounds: 3

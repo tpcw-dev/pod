@@ -688,7 +688,7 @@ describe("crew example file", () => {
       text.match(
         /^    # Fill id, runtime, model, and host before this seat is used\.$/gm,
       ),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     expect(text).toContain("runtime: example");
     expect(text).toContain("model: example");
     expect(text).toContain("host: example-host");

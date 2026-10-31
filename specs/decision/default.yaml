@@ -9,7 +9,7 @@ value:
 
     orca orchestration send --type decision_gate --subject "decision <decision id> round <n> proposal" --payload '{"kind":"decision_proposal","dispatchId":"<your dispatch id>","decisionId":"<decision id>","round":<n>,"proposal":"<your proposal>","citations":["<manifest reference>"]}' --json
 
-    Take the decision id and the round from the message. Every proposal cites at least one reference of the Evidence manifest by its source and revision, as "<source>:<revision>"; a proposal with no citation is an automatic disagree.
+    Run the command with the Bash tool. Take <your dispatch id> from your preamble, and the decision id and the round from the message. Every proposal cites at least one reference of the Evidence manifest by its source and revision, as "<source>:<revision>"; a proposal with no citation is an automatic disagree.
 
     Question: {{question}}
     Options:
@@ -22,7 +22,7 @@ value:
 
     orca orchestration send --type decision_gate --subject "decision <decision id> round <n> audit" --payload '{"kind":"decision_audit","dispatchId":"<your dispatch id>","decisionId":"<decision id>","round":<n>,"stance":"<agree|disagree|escalate|needs_evidence>","reasons":["<reason>"],"points_of_disagreement":["<point>"]}' --json
 
-    Take the decision id and the round from the message. Use an empty points_of_disagreement list when you agree.
+    Run the command with the Bash tool. Take <your dispatch id> from your preamble, and the decision id and the round from the message. Use an empty points_of_disagreement list when you agree.
 
     Question: {{question}}
     Options:
