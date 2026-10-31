@@ -141,8 +141,8 @@ async function reconcileSeat(
     return still(`request-show ${shown ?? "no answer"}`);
   const receipt = await orca.workerStart({
     run: input.run.run_id,
+    task: ref.orca_task,
     ...LaunchArgs.parse(ref.launch),
-    spec: ref.spec,
     retryRequest: ref.requestId,
   });
   const launched =

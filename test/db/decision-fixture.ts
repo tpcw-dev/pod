@@ -161,6 +161,12 @@ export async function deliveredPlan(
   return templates;
 }
 
+export const seatTask = (role: string): TempEntry =>
+  ok("task-create", { task: { id: `orca_${role}`, status: "ready" } }, [
+    "--run",
+    "run_1",
+  ]);
+
 export function seatStarted(dispatchId: string, model = "m-2"): unknown {
   return {
     dispatchId,
@@ -203,7 +209,8 @@ export async function opened(
   templates: Revision,
 ): Promise<string> {
   const { orca, log } = replay(conn, [
-    ok("worker-start", seatStarted(decider)),
+    seatTask("decider"),
+    ok("worker-start", seatStarted(decider), ["--task", "orca_decider"]),
     sent(decider),
   ]);
   const outcome = await openDecision(

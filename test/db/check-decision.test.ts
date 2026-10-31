@@ -24,6 +24,7 @@ import {
   proposal,
   run,
   seatStarted,
+  seatTask,
   sent,
 } from "./decision-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
@@ -61,7 +62,8 @@ describeDb("pod check advances a Decision", () => {
   }
 
   const opensAuditor = [
-    ok("worker-start", seatStarted(auditor, "m-3")),
+    seatTask("auditor"),
+    ok("worker-start", seatStarted(auditor, "m-3"), ["--task", "orca_auditor"]),
     sent(auditor),
   ];
 
@@ -250,7 +252,7 @@ describeDb("pod check advances a Decision", () => {
 
   async function unknownSeat(reply: TempEntry): Promise<void> {
     const templates = await deliveredPlan(conn);
-    const { orca, log } = replay(conn, [reply]);
+    const { orca, log } = replay(conn, [seatTask("decider"), reply]);
     const outcome = await openDecision(
       conn.db,
       orca,
@@ -268,7 +270,12 @@ describeDb("pod check advances a Decision", () => {
     await unknownSeat(unknownReply("worker-start", "req_seat"));
     const result = await pass([
       ok("request-show", { requestId: "req_seat", state: "completed" }),
-      ok("worker-start", seatStarted(decider), ["--retry-request", "req_seat"]),
+      ok("worker-start", seatStarted(decider), [
+        "--task",
+        "orca_decider",
+        "--retry-request",
+        "req_seat",
+      ]),
       ok("check", empty(), run),
       ok("worker-list", workers([]), run),
     ]);

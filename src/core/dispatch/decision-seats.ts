@@ -128,6 +128,7 @@ export const SeatRef = z.looseObject({
   launch: z.looseObject({ agent: z.string() }),
   spec: z.string(),
   manifest_id: z.string(),
+  orca_task: z.string(),
   requestId: z.string().nullish(),
 });
 export type SeatRef = z.infer<typeof SeatRef>;
@@ -255,10 +256,30 @@ export async function openDecisionSeat(
   }
 
   log.at(context);
+  const created = await orca.taskCreate({
+    spec: input.spec,
+    run: run.run_id,
+    taskTitle: `decision ${input.role}`,
+  });
+  const orcaTask =
+    launchOutcome(created).kind === "ok"
+      ? (created.result?.task.id ?? null)
+      : null;
+  if (orcaTask === null) {
+    await db.moveOperation(
+      opKey,
+      "done",
+      Json.parse({ request, outcome: "failed", raw: created.raw ?? null }),
+      input.now(),
+    );
+    return refuse("failed", `task-create for the ${input.role} Seat failed`, [
+      "pod check",
+    ]);
+  }
   const receipt = await orca.workerStart({
+    task: orcaTask,
     run: run.run_id,
     ...launch,
-    spec: input.spec,
   });
   const outcome = launchOutcome(receipt);
   const launched =
@@ -270,6 +291,7 @@ export async function openDecisionSeat(
     launch,
     spec: input.spec,
     manifest_id: input.manifestId,
+    orca_task: orcaTask,
   };
   const at = input.now();
   if (launched !== null) {

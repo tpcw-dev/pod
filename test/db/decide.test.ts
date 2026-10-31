@@ -11,6 +11,7 @@ import {
   opened,
   planTask,
   seatStarted,
+  seatTask,
   sent,
 } from "./decision-fixture.ts";
 import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
@@ -167,7 +168,10 @@ describeDb("pod decide", () => {
   });
 
   test("an unknown seat launch keeps spec and requestId, moves no Task, and a rerun does not relaunch", async () => {
-    const first = await decide([unknownReply("worker-start", "req_seat")]);
+    const first = await decide([
+      seatTask("decider"),
+      unknownReply("worker-start", "req_seat"),
+    ]);
     expect(first).toMatchObject({
       ok: false,
       refusal: { code: "launch_unknown" },
@@ -178,6 +182,7 @@ describeDb("pod decide", () => {
     expect(seat?.status).toBe("unknown");
     expect(seat?.result_ref).toMatchObject({
       requestId: "req_seat",
+      orca_task: "orca_decider",
       spec: expect.stringContaining("decider Seat"),
       request: { role: "decider", seat: "dec-1", host: "local" },
     });
@@ -199,6 +204,7 @@ describeDb("pod decide", () => {
 
   test("a failed round 1 send leaves the op pending, and a rerun sends once with the open Seat", async () => {
     const first = await decide([
+      seatTask("decider"),
       ok("worker-start", seatStarted(decider)),
       {
         verb: "send",
