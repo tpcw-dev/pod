@@ -314,6 +314,7 @@ async function recordMessage(
         },
       });
   }
+  if (known.task_id === null) return;
   const task = await tx.getTask(known.task_id);
   if (task === null) return;
   if (row.outcome === "unknown") {
@@ -391,7 +392,8 @@ async function recordStops(
       payload: { worker_state: row.workerState },
       source: { kind: "command", verb: "check" },
     });
-    const task = await tx.getTask(dispatch.task_id);
+    const task =
+      dispatch.task_id === null ? null : await tx.getTask(dispatch.task_id);
     if (task?.state === "dispatched")
       await moveTask(tx, task.task_id, "blocked");
     stopped.push(dispatch.dispatch_id);

@@ -73,19 +73,22 @@ export function fromReceipt(result: WorkerStartResult): Launched | null {
 
 const ModelField = z.looseObject({ model: z.unknown() }).nullish().catch(null);
 
-function attribution(launched: Launched): "receipt" | "unknown" {
+export function attribution(launched: Launched): "receipt" | "unknown" {
   const model =
     ModelField.parse(launched.effective)?.model ??
     ModelField.parse(launched.requested)?.model;
   return typeof model === "string" && model !== "" ? "receipt" : "unknown";
 }
 
-function requestedLaunch(input: StartedInput): Json {
-  const { requested, worktreeId } = input.launched;
+export function requestedLaunch(
+  launched: Launched,
+  launch: LaunchArgs | null,
+): Json {
+  const { requested, worktreeId } = launched;
   const base: Record<string, unknown> = {
     ...(requested !== null && typeof requested === "object"
       ? requested
-      : input.launch),
+      : launch),
   };
   if (worktreeId !== null) base["worktree"] = `id:${worktreeId}`;
   return Json.parse(base);
@@ -122,7 +125,7 @@ export async function recordStarted(
     input.at,
   );
   await moveTask(tx, input.task.task_id, "dispatched");
-  await insertStart(tx, input, done, false);
+  await insertTaskStart(tx, input, done, false);
   return done;
 }
 
@@ -135,7 +138,7 @@ export async function recordLate(
   const left = input.request.retry_of === undefined ? "ready" : "blocked";
   if ((await tx.getTask(input.task.task_id))?.state === left)
     await moveTask(tx, input.task.task_id, "dispatched");
-  await insertStart(tx, input, done, true);
+  await insertTaskStart(tx, input, done, true);
   const nextSteps = (await tx.listDispatches(done.run_id))
     .filter(
       (sibling) =>
@@ -150,66 +153,95 @@ export async function recordLate(
   return nextSteps.length === 0 ? done : { ...done, nextSteps };
 }
 
-async function insertStart(
+export type DispatchOwner =
+  | { task_id: string; decision_id: null }
+  | { task_id: null; decision_id: string };
+
+export interface StartRow {
+  owner: DispatchOwner;
+  run_id: string;
+  role: string;
+  seat: string;
+  host: string;
+  launched: Launched;
+  requested_launch: Json;
+  model_attribution: "receipt" | "unknown";
+  retry_of: string | null;
+  op_key: string;
+  manifest_id: string;
+  verb: string;
+  late: boolean;
+  at: Date;
+}
+
+export async function insertStart(tx: Repo, start: StartRow): Promise<void> {
+  const { launched, owner } = start;
+  const row: Dispatch = {
+    dispatch_id: launched.dispatchId,
+    task_id: owner.task_id,
+    decision_id: owner.decision_id,
+    run_id: start.run_id,
+    seat: start.seat,
+    role: start.role,
+    requested_launch: start.requested_launch,
+    effective_launch: Json.parse(launched.effective),
+    model_attribution: start.model_attribution,
+    retry_of: start.retry_of,
+    op_key: start.op_key,
+    settlement: "open",
+    terminal_handle: launched.terminalHandle,
+    created_at: start.at,
+    settled_at: null,
+    activity: "running",
+    manifest_id: start.manifest_id,
+  };
+  await tx.insertDispatch(row);
+  const event = (type: "start" | "retry") =>
+    tx.appendEvent({
+      type,
+      ts: start.at,
+      host: start.host,
+      run_id: start.run_id,
+      task_id: owner.task_id,
+      dispatch_id: launched.dispatchId,
+      op_key: start.op_key,
+      payload: {
+        seat: start.seat,
+        role: start.role,
+        manifest_id: start.manifest_id,
+        ...(owner.decision_id === null
+          ? {}
+          : { decision_id: owner.decision_id }),
+        ...(start.retry_of === null ? {} : { retry_of: start.retry_of }),
+        ...(start.late ? { late: true } : {}),
+      },
+      source: { kind: "command", verb: start.verb },
+    });
+  await event("start");
+  if (start.verb === "retry") await event("retry");
+}
+
+async function insertTaskStart(
   tx: Repo,
   input: StartedInput,
   done: DispatchResult,
   late: boolean,
 ): Promise<void> {
-  const { launched, task, request } = input;
-  const row: Dispatch = {
-    dispatch_id: launched.dispatchId,
-    task_id: task.task_id,
-    run_id: task.run_id,
-    seat: request.seat,
-    role: task.role,
-    requested_launch: requestedLaunch(input),
-    effective_launch: Json.parse(launched.effective),
+  await insertStart(tx, {
+    owner: { task_id: input.task.task_id, decision_id: null },
+    run_id: input.task.run_id,
+    role: input.task.role,
+    seat: input.request.seat,
+    host: input.request.host,
+    launched: input.launched,
+    requested_launch: requestedLaunch(input.launched, input.launch),
     model_attribution: done.model_attribution,
-    retry_of: request.retry_of ?? null,
+    retry_of: input.request.retry_of ?? null,
     op_key: input.opKey,
-    settlement: "open",
-    terminal_handle: launched.terminalHandle,
-    created_at: input.at,
-    settled_at: null,
-    activity: "running",
     manifest_id: input.manifestId,
-  };
-  await tx.insertDispatch(row);
-  await tx.appendEvent({
-    type: "start",
-    ts: input.at,
-    host: request.host,
-    run_id: task.run_id,
-    task_id: task.task_id,
-    dispatch_id: launched.dispatchId,
-    op_key: input.opKey,
-    payload: {
-      seat: request.seat,
-      role: task.role,
-      manifest_id: input.manifestId,
-      ...(request.retry_of === undefined ? {} : { retry_of: request.retry_of }),
-      ...(late ? { late: true } : {}),
-    },
-    source: { kind: "command", verb: input.verb },
-  });
-  if (input.verb !== "retry") return;
-  await tx.appendEvent({
-    type: "retry",
-    ts: input.at,
-    host: request.host,
-    run_id: task.run_id,
-    task_id: task.task_id,
-    dispatch_id: launched.dispatchId,
-    op_key: input.opKey,
-    payload: {
-      seat: request.seat,
-      role: task.role,
-      manifest_id: input.manifestId,
-      ...(request.retry_of === undefined ? {} : { retry_of: request.retry_of }),
-      ...(late ? { late: true } : {}),
-    },
-    source: { kind: "command", verb: input.verb },
+    verb: input.verb,
+    late,
+    at: input.at,
   });
 }
 

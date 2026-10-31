@@ -188,7 +188,8 @@ export interface Task {
 
 export interface Dispatch {
   dispatch_id: string;
-  task_id: string;
+  task_id: string | null;
+  decision_id: string | null;
   run_id: string;
   seat: string;
   role: string;

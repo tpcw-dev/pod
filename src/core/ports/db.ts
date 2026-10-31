@@ -16,7 +16,12 @@ import type {
   NewLearning,
 } from "../domain/learning.ts";
 import type { BriefTree } from "../domain/brief.ts";
-import type { Decision } from "../domain/decision.ts";
+import type {
+  Decision,
+  DecisionChange,
+  DecisionRound,
+  DecisionRow,
+} from "../domain/decision.ts";
 import type { StateScope } from "../domain/state.ts";
 import type { TaskState } from "../domain/task-state.ts";
 import type {
@@ -113,6 +118,14 @@ export interface Repo {
     providers: readonly string[],
   ): Promise<UsageObservation[]>;
   listDecisions(scope: StateScope): Promise<Decision[]>;
+  insertDecision(row: DecisionRow): Promise<void>;
+  getDecision(id: string): Promise<DecisionRow | null>;
+  updateDecisionState(id: string, change: DecisionChange): Promise<boolean>;
+  insertDecisionRound(row: DecisionRound): Promise<void>;
+  listDecisionRounds(decisionId: string): Promise<DecisionRound[]>;
+  openDecisionsForRun(runId: string): Promise<DecisionRow[]>;
+  listRunDecisions(runId: string): Promise<DecisionRow[]>;
+  setDispatchActivity(dispatchId: string, activity: Activity): Promise<boolean>;
   appendEvent(row: NewEvent): Promise<Event>;
   firstEvent(
     runId: string,

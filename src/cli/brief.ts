@@ -88,7 +88,7 @@ export const BriefOutput = z.object({
           dispatches: z.array(
             z.object({
               dispatch_id: z.string(),
-              task_id: z.string(),
+              task_id: z.string().nullable(),
               manifest_id: z.string().nullable(),
               activity: z.string(),
               settlement: z.string(),

@@ -110,6 +110,7 @@ describeDb("evidence manifest", () => {
     const dispatch: Dispatch = {
       dispatch_id: "ctx-manifest",
       task_id: "task-1",
+      decision_id: null,
       run_id: "run-1",
       seat: "seat-a",
       role: "developer",

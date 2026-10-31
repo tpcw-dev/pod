@@ -139,7 +139,8 @@ export async function retry(
   const plan = await retryPlan(db, input.dispatch, input.host);
   if ("ok" in plan) return plan;
   const original = await db.getDispatch(input.dispatch);
-  const task = original === null ? null : await db.getTask(original.task_id);
+  const task =
+    original?.task_id == null ? null : await db.getTask(original.task_id);
   const snapshot = task === null ? null : await db.getSnapshot(task.run_id);
   const crew =
     snapshot === null ? null : await db.getRevision(snapshot.crew_revision_id);

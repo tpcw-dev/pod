@@ -10,6 +10,7 @@ export const manifestSources = [
   "crew",
   "process",
   "policy",
+  "decision",
   "git_status",
 ] as const;
 

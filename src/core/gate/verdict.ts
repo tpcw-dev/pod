@@ -79,6 +79,7 @@ async function independence(
   );
   const authored = (await tx.listDispatches(task.run_id)).find(
     (row) =>
+      row.task_id !== null &&
       needed.has(row.task_id) &&
       (row.settlement === "done" || row.settlement === "failed") &&
       row.seat === reviewer,
