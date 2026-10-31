@@ -13,6 +13,7 @@ import {
 } from "./gate-scenario.ts";
 import { check, scenario, startRun } from "./tracker-scenario.ts";
 
+const keeper = "00000000-0000-4000-8000-000000000018";
 const dir = "fixtures/tracker/forged-author";
 const verdict = "hqa_after_deploy PASS";
 
@@ -22,7 +23,7 @@ describeDb("forged-author", () => {
   beforeAll(async () => {
     await resetDb();
     conn = openDb();
-    applyGateConfig("hqa");
+    applyGateConfig("hqa", keeper);
   });
   afterAll(() => conn.close());
 

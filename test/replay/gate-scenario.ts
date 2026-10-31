@@ -13,12 +13,13 @@ const dir = "test/replay/gate-scenario";
 
 export const recordTimeout = recording ? 3_600_000 : undefined;
 
-function policyFile(): string {
-  const path = join(dir, "policy.yaml");
-  if (!recording) return path;
-  const keeper = process.env["POD_RECORD_KEEPER_ACCOUNT"] ?? "";
+function policyFile(scrubbedKeeper: string): string {
+  const keeper = recording
+    ? (process.env["POD_RECORD_KEEPER_ACCOUNT"] ?? "")
+    : scrubbedKeeper;
   if (keeper === "")
     throw new Error("recording needs POD_RECORD_KEEPER_ACCOUNT");
+  const path = join(dir, "policy.yaml");
   const policy = parse(readFileSync(path, "utf8")) as {
     value: { principals: { human: { tracker_account: string } } };
   };
@@ -28,9 +29,12 @@ function policyFile(): string {
   return out;
 }
 
-export function applyGateConfig(gate: "review" | "hqa"): void {
+export function applyGateConfig(
+  gate: "review" | "hqa",
+  scrubbedKeeper: string,
+): void {
   for (const file of [
-    policyFile(),
+    policyFile(scrubbedKeeper),
     join(dir, "crew.yaml"),
     join(dir, `process-${gate}.yaml`),
   ]) {
