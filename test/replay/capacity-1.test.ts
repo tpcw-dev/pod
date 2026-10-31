@@ -133,7 +133,7 @@ describeDb("capacity-1", () => {
       { task_id: a, settlement: "done", activity: "settled" },
       { task_id: b, settlement: "open", activity: "running" },
     ]);
-    expect((await conn.db.getTask(a ?? ""))?.state).toBe("delivered");
+    expect((await conn.db.getTask(a ?? ""))?.state).toBe("done");
     expect((await conn.db.getTask(b ?? ""))?.state).toBe("dispatched");
   });
 });

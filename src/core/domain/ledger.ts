@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Json } from "./json.ts";
+import type { TaskState } from "./task-state.ts";
 
 export const eventTypes = [
   "start",
@@ -22,6 +23,7 @@ export const eventTypes = [
   "ignored",
   "unknown_launch",
   "learning",
+  "outcome",
 ] as const;
 export const EventType = z.enum(eventTypes);
 export type EventType = z.infer<typeof EventType>;
@@ -106,7 +108,8 @@ export interface Task {
   role: string;
   deps: Json;
   spec_revision_id: string;
-  state: string;
+  state: TaskState;
+  rework_of: string | null;
   created_at: Date;
 }
 

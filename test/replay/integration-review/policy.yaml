@@ -1,0 +1,5 @@
+kind: policy
+name: integration-review
+schema_version: 1
+value:
+  gates: [review]

@@ -99,6 +99,7 @@ describeDb("pod brief", () => {
       role: "developer",
       deps: [],
       spec_revision_id: spec.id,
+      rework_of: null,
       state: "ready",
       created_at: at,
     });

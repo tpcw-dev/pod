@@ -168,7 +168,7 @@ describeDb(scenario, () => {
       settlement: "done",
       activity: "settled",
     });
-    expect((await conn.db.getTask(t1 ?? ""))?.state).toBe("delivered");
+    expect((await conn.db.getTask(t1 ?? ""))?.state).toBe("done");
   });
 
   test.todo(

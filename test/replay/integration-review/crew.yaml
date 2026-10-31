@@ -1,0 +1,15 @@
+kind: crew
+name: integration-review
+schema_version: 1
+value:
+  seats:
+    - id: rec-dev
+      roles: [developer]
+      runtime: claude
+      model: claude-haiku-4-5-20251001
+      effort: low
+    - id: rec-rev
+      roles: [reviewer]
+      runtime: claude
+      model: claude-haiku-4-5-20251001
+      effort: low

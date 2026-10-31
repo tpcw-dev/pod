@@ -2,14 +2,14 @@ import { z } from "zod";
 import { snapshotHash } from "../config/canonical-json.ts";
 import { noSingleActive, singleActive } from "../config/active.ts";
 import type { Revision } from "../domain/config.ts";
-import { Json } from "../domain/json.ts";
 import type { Operation, Size } from "../domain/ledger.ts";
 import { refuse, type Outcome } from "../domain/outcome.ts";
-import { launchOutcome, stopOnOpen } from "../ledger/launch.ts";
+import { failure, launchOutcome, stopOnOpen } from "../ledger/launch.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
+import { projectSteps } from "../process/project.ts";
 import { Selector } from "../process/schema.ts";
 import {
   fits,
@@ -51,7 +51,6 @@ interface Context {
 }
 
 const RunRef = z.looseObject({ run_id: z.string() });
-const TaskRef = z.looseObject({ task_id: z.string() });
 const FailedRef = z.looseObject({ outcome: z.literal("failed") });
 
 function refOf(revision: Pick<Revision, "name" | "rev">): string {
@@ -127,10 +126,6 @@ function stepsOf(process: Revision) {
       error.path,
     ]);
   }
-}
-
-function failure(verb: string, raw: unknown, exitCode: number): Json {
-  return { outcome: "failed", verb, exitCode, raw: Json.parse(raw ?? null) };
 }
 
 export async function runCreate(
@@ -334,106 +329,21 @@ async function project(
   version: string,
 ): Promise<Outcome<RunCreateResult>> {
   const { db, orca, log, input } = ctx;
-  const taskIds = new Map<string, string>();
-  for (const step of ctx.steps) {
-    const stepKey = derivedOpKey("project", {
-      run_id: runId,
-      step_id: step.id,
-    });
-    const { operation, created } = await db.insertOperation({
-      op_key: stepKey,
-      intent: "project",
-      owner_generation: 1,
-      at: input.now(),
-    });
-    if (!created) {
-      if (operation.status === "unknown" || operation.status === "pending")
-        return stopOnOpen(
-          orca,
-          log,
-          { run_id: runId, task_id: null, op_key: stepKey },
-          operation,
-          input.command,
-        );
-      const task = TaskRef.safeParse(operation.result_ref);
-      if (!task.success)
-        return refuse(
-          "failed",
-          `task-create for step ${step.id} failed before`,
-          ["pod check"],
-        );
-      taskIds.set(step.id, task.data.task_id);
-      continue;
-    }
-    const deps = step.needs.map((need) => taskIds.get(need) ?? need);
-    log.at({ run_id: runId, task_id: null, op_key: stepKey });
-    const receipt = await orca.taskCreate({
-      spec:
-        step.spec ??
-        `Process ${ctx.process.name}@${ctx.process.rev}, step ${step.id}, role ${step.role ?? step.type}.`,
-      run: runId,
-      ...(deps.length > 0 ? { deps } : {}),
-      taskTitle: step.id,
-    });
-    const outcome = launchOutcome(receipt);
-    if (outcome.kind !== "ok" || receipt.result === null) {
-      const unknown = outcome.kind === "unknown";
-      await db.transaction(async (tx) => {
-        const at = input.now();
-        await tx.moveOperation(
-          stepKey,
-          unknown ? "unknown" : "done",
-          unknown
-            ? { verb: "task-create", requestId: outcome.requestId }
-            : failure("task-create", receipt.raw, receipt.exitCode),
-          at,
-        );
-        const from = (await tx.getRun(runId))?.state;
-        await tx.setRunState(runId, "hold");
-        await tx.appendEvent({
-          type: "hold",
-          ts: at,
-          host: input.host,
-          run_id: runId,
-          task_id: null,
-          dispatch_id: null,
-          op_key: stepKey,
-          payload: {
-            reason: unknown ? "launch_unknown" : "failed",
-            op_key: stepKey,
-            ...(from === undefined ? {} : { from }),
-          },
-          source: { kind: "command", verb: "run create" },
-        });
-      });
-      return unknown
-        ? refuse(
-            "launch_unknown",
-            `task-create for step ${step.id} has no known outcome`,
-            [input.command, "pod check"],
-          )
-        : refuse("failed", `task-create for step ${step.id} failed`, [
-            "pod check",
-          ]);
-    }
-    const taskId = receipt.result.task.id;
-    taskIds.set(step.id, taskId);
-    await db.transaction(async (tx) => {
-      const at = input.now();
-      await tx.insertTask({
-        task_id: taskId,
-        run_id: runId,
-        step_id: step.id,
-        lineage_id: `${runId}:${step.id}`,
-        role: step.role ?? step.type,
-        deps,
-        spec_revision_id: ctx.process.id,
-        state: deps.length === 0 ? "ready" : "pending",
-        created_at: at,
-      });
-      await tx.moveOperation(stepKey, "done", { task_id: taskId }, at);
-    });
-  }
+  const refused = await projectSteps(
+    {
+      db,
+      orca,
+      log,
+      process: ctx.process,
+      steps: ctx.steps,
+      host: input.host,
+      command: input.command,
+      source: { kind: "command", verb: "run create" },
+      now: input.now,
+    },
+    runId,
+  );
+  if (refused !== null) return refused;
   const run = await db.getRun(runId);
   if (run === null) throw new Error(`Run ${runId} vanished`);
   const tasks = await db.listTasks(runId);

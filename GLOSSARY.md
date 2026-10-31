@@ -14,6 +14,8 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Process**: the steps, edges, roles, limits, and selector that run a story of one stage and size range. A process is a revision.
 - **Step**: one unit of a process. A worker step runs a role, an external action waits on an outside event, and a human wait waits on a person.
 - **Edge**: a rule that sends a step's outcome to the next step, to hold, or to done.
+- **Lineage**: the tasks of one step in one run, the first task and each rework task that replaced it.
+- **Projector**: the part of Pod that turns process steps into tasks and moves them along the edges.
 - **Selector**: the stage and sizes a process fits, and the rules that pick one process revision for a run.
 - **Gate**: a point in a process that needs a verdict before the run continues. A gate kept by a person is a human gate. A gate kept by an agent is an automated gate.
 - **Gate receipt**: the recorded verdict on a gate, bound to its source, the candidate revision, and the time it was read back.

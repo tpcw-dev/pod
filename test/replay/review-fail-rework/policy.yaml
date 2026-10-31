@@ -1,0 +1,5 @@
+kind: policy
+name: review-fail-rework
+schema_version: 1
+value:
+  gates: [review]

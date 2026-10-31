@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_b64bcee038cb",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"990a56e3-d445-481c-bd4a-4eef928ffbd0\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_b64bcee038cb\",\n    \"deliveryId\": \"delivery_9657d40451a1\",\n    \"messages\": [\n      {\n        \"id\": \"msg_826c8e20765c\",\n        \"run_id\": \"run_b64bcee038cb\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_dd44cff1-fdf8-4cbd-a05e-d13594e76ec7\",\n        \"to_handle\": \"run:run_b64bcee038cb\",\n        \"subject\": \"Task completed\",\n        \"body\": \"Received task to execute worker_done command with outcome succeeded. Verified command template and task parameters from preamble. Sending completion signal now.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_2e9b46b8ea94\\\",\\\"dispatchId\\\":\\\"ctx_ac0fa1e1c77e\\\",\\\"outcome\\\":\\\"succeeded\\\"}\",\n        \"created_at\": \"2026-10-31T01:30:06Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"494e4134-1313-467f-a10c-8a41fbcc7908\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T01:30:12.631Z"
+}

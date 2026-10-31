@@ -1,0 +1,5 @@
+ALTER TABLE "ledger"."event" DROP CONSTRAINT "event_type_check";--> statement-breakpoint
+ALTER TABLE "ledger"."task" ADD COLUMN "rework_of" text;--> statement-breakpoint
+ALTER TABLE "ledger"."task" ADD CONSTRAINT "task_rework_of_task_task_id_fk" FOREIGN KEY ("rework_of") REFERENCES "ledger"."task"("task_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ledger"."event" ADD CONSTRAINT "event_type_check" CHECK ("ledger"."event"."type" in ('start', 'delivery', 'receipt', 'activation', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'ignored', 'unknown_launch', 'learning', 'outcome'));--> statement-breakpoint
+ALTER TABLE "ledger"."task" ADD CONSTRAINT "task_state_check" CHECK ("ledger"."task"."state" in ('pending', 'ready', 'dispatched', 'delivered', 'passed', 'failed', 'blocked', 'hold', 'done', 'superseded'));

@@ -87,7 +87,8 @@ describeDb("pod check", () => {
       settlement: "done",
       settled_at: expect.any(Date),
     });
-    expect(await taskState(conn, "task_b")).toBe("delivered");
+    expect(await taskState(conn, "task_b")).toBe("done");
+    expect(await taskState(conn, "task_r")).toBe("ready");
     expect((await events(conn, "delivery")).map((row) => row.payload)).toEqual([
       expect.objectContaining({
         message_id: "msg_1",
@@ -95,6 +96,37 @@ describeDb("pod check", () => {
         delivery_id: "delivery_1",
       }),
     ]);
+    expect((await events(conn, "outcome")).map((row) => row.payload)).toEqual([
+      {
+        task_id: "task_b",
+        step_id: "build",
+        lineage_id: "run_1:build",
+        outcome: "done",
+        edge: { to: "review", new_task: false, then: null },
+      },
+    ]);
+  });
+
+  test("a failed worker_done on an ungated step takes the unknown edge to hold", async () => {
+    await pass([
+      ok("check", batch("delivery_1", [done("msg_1", "ctx_1", "failed")]), run),
+      ok("check", empty("delivery_1"), ack("delivery_1")),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_1", workerState: "failed" }]),
+        run,
+      ),
+    ]);
+    expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
+      settlement: "failed",
+    });
+    expect(await taskState(conn, "task_b")).toBe("hold");
+    expect(await taskState(conn, "task_r")).toBe("pending");
+    expect((await events(conn, "hold")).at(-1)?.payload).toEqual({
+      reason: "edge",
+      outcome: "unknown",
+      from: "delivered",
+    });
   });
 
   test("a mismatched dispatchId records ignored and moves nothing", async () => {

@@ -1,0 +1,39 @@
+kind: process
+name: integration-review
+schema_version: 1
+value:
+  summary: integration-review replay scenario
+  selector: { stage: impl, size: [xs, s] }
+  roles: [developer, reviewer]
+  steps:
+    - id: implement-a
+      type: worker
+      role: developer
+      spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.
+    - id: implement-b
+      type: worker
+      role: developer
+      spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.
+    - id: review
+      type: worker
+      role: reviewer
+      needs: [implement-a, implement-b]
+      gate: review
+      spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.
+    - id: pr
+      type: worker
+      role: developer
+      needs: [review]
+      spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.
+  edges:
+    - { from: implement-a, on: done, to: implement-b }
+    - { from: implement-a, on: [timeout, cancel, unknown], to: hold }
+    - { from: implement-b, on: done, to: review }
+    - { from: implement-b, on: [timeout, cancel, unknown], to: hold }
+    - { from: review, on: PASS, to: pr }
+    - { from: review, on: FAIL, to: hold }
+    - { from: review, on: [timeout, cancel, unknown], to: hold }
+    - { from: pr, on: done, to: done }
+    - { from: pr, on: [timeout, cancel, unknown], to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 1 }
+  escalation: { to: operator }

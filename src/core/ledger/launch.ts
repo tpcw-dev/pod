@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Json } from "../domain/json.ts";
 import { refuse, type Refusal } from "../domain/outcome.ts";
 import type { Operation } from "../domain/ledger.ts";
 import type { OrcaPort, Receipt } from "../ports/orca.ts";
@@ -38,6 +39,10 @@ const Envelope = z.looseObject({
     })
     .nullish(),
 });
+
+export function failure(verb: string, raw: unknown, exitCode: number): Json {
+  return { outcome: "failed", verb, exitCode, raw: Json.parse(raw ?? null) };
+}
 
 export function launchOutcome(receipt: Receipt<unknown>): LaunchOutcome {
   const envelope = Envelope.safeParse(receipt.raw);

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Activity, Dispatch } from "./ledger.ts";
+import { TaskState } from "./task-state.ts";
 
 export const HoldPayload = z.looseObject({
   reason: z.string(),
@@ -10,7 +11,7 @@ export type HoldPayload = z.infer<typeof HoldPayload>;
 export type HeldDispatch = Pick<Dispatch, "activity" | "settlement">;
 
 const fromDispatched: {
-  to: string;
+  to: TaskState;
   settlement?: readonly string[];
   activity?: readonly Activity[];
 }[] = [
@@ -22,9 +23,10 @@ const fromDispatched: {
 export function resumeTarget(
   from: string | undefined,
   latest: HeldDispatch | null,
-): string {
-  if (from === undefined || from === "hold") return "ready";
-  if (from !== "dispatched") return from;
+): TaskState {
+  const prior = TaskState.safeParse(from);
+  if (!prior.success || prior.data === "hold") return "ready";
+  if (prior.data !== "dispatched") return prior.data;
   if (latest === null) return "ready";
   const row = fromDispatched.find(
     (rule) =>

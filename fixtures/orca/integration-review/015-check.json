@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_a268c62b6c73",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"8d184fe9-bd45-48b9-961f-198835b151cc\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_a268c62b6c73\",\n    \"deliveryId\": \"delivery_4ba2fb348680\",\n    \"messages\": [\n      {\n        \"id\": \"msg_1ddf59f1f61e\",\n        \"run_id\": \"run_a268c62b6c73\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_d9e5f463-ec50-4ee5-ac28-2eb98255fb96\",\n        \"to_handle\": \"run:run_a268c62b6c73\",\n        \"subject\": \"Task complete\",\n        \"body\": \"Received task to report completion. Sent worker_done command as instructed. No substantive work was required.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_a791837ae064\\\",\\\"dispatchId\\\":\\\"ctx_246549dfefd5\\\",\\\"outcome\\\":\\\"succeeded\\\"}\",\n        \"created_at\": \"2026-10-31T01:29:04Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"3a7a25b7-660c-4294-baf3-781dfbaee5d9\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T01:29:12.314Z"
+}

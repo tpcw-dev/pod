@@ -7,9 +7,11 @@ import { refuse, type Checked, type Refused } from "../domain/outcome.ts";
 import { hostFreeSlots, openLaunches } from "../dispatch/quota.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
+import { moveTask } from "../ledger/move-task.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaMessage, OrcaPort, WorkerRow } from "../ports/orca.ts";
+import { recordDelivery } from "../process/project.ts";
 import { fence, StaleGeneration } from "./fence.ts";
 import { reconcileLaunches, type Reconciled } from "./reconcile.ts";
 import { reconcileTakeovers } from "./takeover-reconcile.ts";
@@ -243,7 +245,7 @@ async function recordMessage(
   if (task === null) return;
   if (row.outcome === "unknown") {
     if (task.state !== "dispatched") return;
-    await tx.setTaskState(task.task_id, "hold");
+    await moveTask(tx, task.task_id, "hold");
     await tx.appendEvent({
       ...base,
       type: "hold",
@@ -261,7 +263,15 @@ async function recordMessage(
     settled_at: row.settlement === "open" ? null : at,
   });
   if (moved && task.state === "dispatched")
-    await tx.setTaskState(task.task_id, "delivered");
+    await moveTask(tx, task.task_id, "delivered");
+  if (moved && row.settlement !== "open")
+    await recordDelivery(tx, {
+      task: task.task_id,
+      settlement: row.settlement,
+      at,
+      host: input.host,
+      source: base.source,
+    });
 }
 
 async function recordWorkers(
@@ -310,7 +320,7 @@ async function recordStops(
     });
     const task = await tx.getTask(dispatch.task_id);
     if (task?.state === "dispatched")
-      await tx.setTaskState(task.task_id, "blocked");
+      await moveTask(tx, task.task_id, "blocked");
     stopped.push(dispatch.dispatch_id);
   }
   return stopped;
@@ -373,7 +383,7 @@ async function recordUnknownWorkers(
   await hold(null, current.state);
   for (const task of await tx.listTasks(run.run_id)) {
     if (!openTaskStates.includes(task.state)) continue;
-    await tx.setTaskState(task.task_id, "hold");
+    await moveTask(tx, task.task_id, "hold");
     await hold(task.task_id, task.state);
   }
   return found;
@@ -503,7 +513,7 @@ export async function resume(db: Db, input: ResumeInput): Promise<Resumed> {
         payload?.from,
         latestDispatch(await tx.listDispatches(run.run_id), held.task_id),
       );
-      await tx.setTaskState(held.task_id, to);
+      await moveTask(tx, held.task_id, to);
       await record(held.task_id, to);
       resumed.push({ kind: "task", id: held.task_id, to });
     };

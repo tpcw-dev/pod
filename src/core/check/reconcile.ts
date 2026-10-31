@@ -9,6 +9,7 @@ import {
   type Launched,
 } from "../dispatch/launch-record.ts";
 import { launchOutcome } from "../ledger/launch.ts";
+import { moveTask } from "../ledger/move-task.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort, Receipt, WorkerRow } from "../ports/orca.ts";
@@ -197,7 +198,7 @@ async function reconcileOne(
         : HoldPayload.safeParse(hold.payload).data?.from,
       latestDispatch(await tx.listDispatches(runId), request.task_id),
     );
-    await tx.setTaskState(request.task_id, to);
+    await moveTask(tx, request.task_id, to);
     await tx.appendEvent({
       type: "resume",
       ts: at,
