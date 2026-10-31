@@ -1,0 +1,5 @@
+kind: policy
+name: direct-launch
+schema_version: 1
+value:
+  gates: []

@@ -40,6 +40,7 @@ const resumeRows: [TaskState, TaskState][] = [
   ["hold", "dispatched"],
   ["hold", "delivered"],
   ["hold", "blocked"],
+  ["hold", "pending"],
 ];
 
 test.each([...specRows, ...resumeRows])("%s -> %s is allowed", (from, to) => {

@@ -105,6 +105,7 @@ export const transitions: readonly Transition[] = [
   { from: "hold", to: "dispatched", trigger: resume },
   { from: "hold", to: "delivered", trigger: resume },
   { from: "hold", to: "blocked", trigger: resume },
+  { from: "hold", to: "pending", trigger: resume },
 ];
 
 export function canMove(from: TaskState, to: TaskState): boolean {

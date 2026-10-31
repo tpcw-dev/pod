@@ -1,0 +1,18 @@
+{
+  "verb": "terminal-show",
+  "match": {
+    "argv": [
+      "terminal",
+      "show",
+      "--terminal",
+      "term_138f909e-aaa2-496c-97ea-796ec49e4fb8",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"99ffbd8e-0218-4b4e-8a5f-c39e4a994f05\",\n  \"ok\": true,\n  \"result\": {\n    \"terminal\": {\n      \"handle\": \"term_138f909e-aaa2-496c-97ea-796ec49e4fb8\",\n      \"ptyId\": \"902f0fc5-edba-4879-a032-58e853f081bb::/w/1@@c05e7420\",\n      \"incarnationId\": \"2d873810-a40e-4319-8148-bbb535504739\",\n      \"orphaned\": false,\n      \"worktreeId\": \"902f0fc5-edba-4879-a032-58e853f081bb::/w/1\",\n      \"worktreePath\": \"/w/1\",\n      \"branch\": \"\",\n      \"tabId\": \"8847104e-d0bd-46c9-ab1c-4bc208e5c41c\",\n      \"leafId\": \"6d6ef062-0768-4655-b64b-cff6a2e3a931\",\n      \"title\": \"\",\n      \"connected\": false,\n      \"writable\": false,\n      \"lastOutputAt\": 1793059370761,\n      \"preview\": \"\",\n      \"exitCause\": {\n        \"kind\": \"operator_close\"\n      },\n      \"executionHostId\": \"local\",\n      \"paneRuntimeId\": -1,\n      \"rendererGraphEpoch\": 0\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-27T00:03:28.761Z"
+}

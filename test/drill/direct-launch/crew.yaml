@@ -1,0 +1,10 @@
+kind: crew
+name: direct-launch
+schema_version: 1
+value:
+  seats:
+    - id: rec-dev
+      roles: [developer]
+      runtime: claude
+      model: claude-haiku-4-5-20251001
+      effort: low

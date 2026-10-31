@@ -34,7 +34,7 @@ test("from dispatched with no Dispatch resumes to ready", () => {
 });
 
 test("any other recorded state comes back as recorded", () => {
-  for (const from of ["blocked", "delivered", "ready"]) {
+  for (const from of ["blocked", "delivered", "ready", "pending"]) {
     expect(resumeTarget(from, null)).toBe(from);
     expect(resumeTarget(from, stopped)).toBe(from);
   }

@@ -1,0 +1,14 @@
+{
+  "method": "readback",
+  "match": {
+    "operation": "StoryComments",
+    "variables": {
+      "id": "TRK-1",
+      "after": null
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"issue\":{\"comments\":{\"nodes\":[{\"id\":\"00000000-0000-4000-8000-000000000015\",\"body\":\"rec-rev: review PASS\\nHead: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"}},{\"id\":\"00000000-0000-4000-8000-000000000013\",\"body\":\"pod adapter probe for the TRK-2 tech design (shape check)\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"}}],\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":\"00000000-0000-4000-8000-000000000013\"}}}}}",
+  "error": null,
+  "recordedAt": "2026-10-31T01:43:51.945Z"
+}

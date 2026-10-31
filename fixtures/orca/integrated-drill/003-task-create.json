@@ -1,0 +1,18 @@
+{
+  "verb": "task-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "task-create",
+      "--run",
+      "run_93ad51f835ba",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"e6fc0347-fb1a-4fff-9cc5-c92fb77a4d2e\",\n  \"ok\": true,\n  \"result\": {\n    \"task\": {\n      \"id\": \"task_2b3ff5a78b43\",\n      \"run_id\": \"run_93ad51f835ba\",\n      \"parent_id\": null,\n      \"created_by_terminal_handle\": \"term_17184123-e8d8-4b8b-9dcc-928011a17212\",\n      \"created_by_pane_key\": \"78adf602-8587-4c31-9728-ed30ef79a22b:ac086165-be90-4b82-b0d4-08b77f0a8364\",\n      \"created_by_process_incarnation\": \"902f0fc5-edba-4879-a032-58e853f081bb::/w/1@@2edf36f3:dd640991-3991-476d-841c-d18072b1ec74\",\n      \"created_by_run_generation\": 1,\n      \"task_title\": \"build\",\n      \"display_name\": \"build\",\n      \"spec\": \"Reply DONE and exit at once. Do not edit any file.\",\n      \"status\": \"ready\",\n      \"deps\": \"[]\",\n      \"result\": null,\n      \"created_at\": \"2026-10-26 12:08:12\",\n      \"completed_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"83292ecc-f87e-46d1-b533-0a3f94e5d062\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-26T12:08:12.294Z"
+}
