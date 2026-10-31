@@ -44,7 +44,7 @@ describeDb("dropped connection", () => {
           }),
         ),
     };
-    const e = envelope("process", "dropped", { steps: ["a"] });
+    const e = envelope("policy", "dropped", { steps: ["a"] });
     const apply = applyConfig(db, {
       envelope: e,
       actor: "operator",

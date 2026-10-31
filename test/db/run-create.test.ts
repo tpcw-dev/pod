@@ -13,7 +13,7 @@ import {
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
-import { activeRevision, seedConfig } from "./seed.ts";
+import { activeRevision, processValue, seedConfig } from "./seed.ts";
 
 const requestId = "33333333-3333-4333-8333-333333333333";
 
@@ -145,7 +145,8 @@ describeDb("pod run create", () => {
     const first = replay(happy);
     expect((await create(first.orca, first.log)).ok).toBe(true);
     await activeRevision(conn.db, "process", "other", {
-      steps: [{ id: "solo", role: "developer" }],
+      ...processValue,
+      summary: "other",
     });
     const outcome = await create(noCalls(), undefined, {
       process: { name: "other", rev: 1 },
@@ -160,18 +161,77 @@ describeDb("pod run create", () => {
     expect(await conn.db.listTasks("run_1")).toHaveLength(2);
   });
 
-  test("a missing --process, size, or stage is selector_none", async () => {
-    for (const over of [{ process: null }, { size: null }, { stage: null }]) {
+  test("a missing size or stage is selector_none", async () => {
+    for (const over of [{ size: null }, { stage: null }]) {
       const outcome = await create(noCalls(), undefined, over);
       expect(outcome).toMatchObject({
         ok: false,
         refusal: { code: "selector_none" },
       });
     }
+  });
+
+  test("no --process selects the single matching activation and pins it", async () => {
+    const { orca, log } = replay(happy);
+    const outcome = await create(orca, log, { process: null });
+    orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { process: "process.impl@1" },
+    });
+    const snapshot = await conn.db.getSnapshot("run_1");
+    const pinned = await conn.db.getRevisionByRef("process", "impl", 1);
+    expect(snapshot?.process_revision_id).toBe(pinned?.id);
+  });
+
+  test("a second activation with the same selector is selector_many naming both", async () => {
+    await activeRevision(conn.db, "process", "twin", {
+      ...processValue,
+      summary: "twin",
+    });
     const outcome = await create(noCalls(), undefined, { process: null });
     expect(outcome).toMatchObject({
-      refusal: { nextSteps: [expect.stringContaining("--process")] },
+      ok: false,
+      refusal: {
+        code: "selector_many",
+        message: expect.stringMatching(
+          /stage impl, size s: .*process\.impl@1.*process\.twin@1|stage impl, size s: .*process\.twin@1.*process\.impl@1/,
+        ),
+        nextSteps: expect.arrayContaining([
+          "--process name@rev",
+          "--process impl@1",
+          "--process twin@1",
+        ]),
+      },
     });
+    expect((await conn.sql`select 1 from ledger.operation`).length).toBe(0);
+  });
+
+  test("no matching activation is selector_none naming --process", async () => {
+    const outcome = await create(noCalls(), undefined, {
+      process: null,
+      stage: "prd",
+    });
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "selector_none",
+        message: expect.stringContaining("stage prd, size s"),
+        nextSteps: ["--process name@rev"],
+      },
+    });
+  });
+
+  test("--process impl@1 with --size m is selector_conflict", async () => {
+    const outcome = await create(noCalls(), undefined, { size: "m" });
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "selector_conflict",
+        message: "process.impl@1 does not fit stage impl, size m",
+      },
+    });
+    expect((await conn.sql`select 1 from ledger.operation`).length).toBe(0);
   });
 
   test("a ref with no process Revision is revision_not_found", async () => {
@@ -198,7 +258,9 @@ describeDb("pod run create", () => {
 
   test("a bad step is schema_invalid naming the path, before any Orca call", async () => {
     await activeRevision(conn.db, "process", "broken", {
-      steps: [{ id: "a", role: "developer", deps: ["a"] }],
+      ...processValue,
+      steps: [{ id: "a", type: "worker", role: "developer", needs: ["a"] }],
+      edges: [],
     });
     const outcome = await create(noCalls(), undefined, {
       process: { name: "broken", rev: 1 },

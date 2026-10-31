@@ -42,17 +42,39 @@ export const crewValue = {
   ],
 };
 
+const hold = ["timeout", "cancel", "unknown"];
+
 export const processValue = {
+  summary: "build, then an independent review",
+  selector: { stage: "impl", size: ["xs", "s"] },
+  roles: ["developer", "reviewer"],
   steps: [
-    { id: "build", role: "developer", spec: "Build it." },
-    { id: "review", role: "reviewer", deps: ["build"], gate: "pr" },
+    { id: "build", type: "worker", role: "developer", spec: "Build it." },
+    {
+      id: "review",
+      type: "worker",
+      role: "reviewer",
+      needs: ["build"],
+      gate: "pr",
+    },
   ],
+  edges: [
+    { from: "build", on: "done", to: "review" },
+    { from: "build", on: hold, to: "hold" },
+    { from: "review", on: "PASS", to: "done" },
+    { from: "review", on: "FAIL", to: "hold" },
+    { from: "review", on: hold, to: "hold" },
+  ],
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 },
+  escalation: { to: "operator" },
 };
 
 export async function seedConfig(
   db: Db,
 ): Promise<{ process: Revision; crew: Revision; policy: Revision }> {
-  const policy = await activeRevision(db, "policy", "default", { gates: [] });
+  const policy = await activeRevision(db, "policy", "default", {
+    gates: ["pr"],
+  });
   const crew = await activeRevision(db, "crew", "default", crewValue);
   const process = await activeRevision(db, "process", "impl", processValue);
   return { process, crew, policy };

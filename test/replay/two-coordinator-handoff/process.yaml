@@ -2,10 +2,22 @@ kind: process
 name: two-coordinator-handoff
 schema_version: 1
 value:
+  summary: two-coordinator-handoff replay scenario
+  selector: { stage: impl, size: [xs, s] }
+  roles: [developer]
   steps:
     - id: build-a
+      type: worker
       role: developer
       spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.
     - id: build-b
+      type: worker
       role: developer
       spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.
+  edges:
+    - { from: build-a, on: done, to: build-b }
+    - { from: build-a, on: [timeout, cancel, unknown], to: hold }
+    - { from: build-b, on: done, to: done }
+    - { from: build-b, on: [timeout, cancel, unknown], to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+  escalation: { to: operator }

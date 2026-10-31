@@ -8,6 +8,7 @@ export type ErrorCode =
   | "story_not_found"
   | "selector_none"
   | "selector_conflict"
+  | "selector_many"
   | "owner_generation_stale"
   | "task_not_ready"
   | "quota_exhausted"

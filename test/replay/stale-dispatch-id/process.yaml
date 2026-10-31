@@ -2,7 +2,16 @@ kind: process
 name: stale-dispatch-id
 schema_version: 1
 value:
+  summary: stale-dispatch-id replay scenario
+  selector: { stage: impl, size: [xs, s] }
+  roles: [developer]
   steps:
     - id: build
+      type: worker
       role: developer
       spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.
+  edges:
+    - { from: build, on: done, to: done }
+    - { from: build, on: [timeout, cancel, unknown], to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+  escalation: { to: operator }

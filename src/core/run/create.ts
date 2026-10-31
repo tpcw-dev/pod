@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { snapshotHash } from "../config/canonical-json.ts";
-import type { Kind, Revision } from "../domain/config.ts";
+import { noSingleActive, singleActive } from "../config/active.ts";
+import type { Revision } from "../domain/config.ts";
 import { Json } from "../domain/json.ts";
 import type { Operation, Size } from "../domain/ledger.ts";
 import { refuse, type Outcome } from "../domain/outcome.ts";
@@ -9,11 +10,19 @@ import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
+import { Selector } from "../process/schema.ts";
+import {
+  fits,
+  selectProcess,
+  type ActiveProcess,
+  type ProcessRef,
+  type SelectorErrorCode,
+} from "../process/select.ts";
 import { readSteps, StepsInvalid, topoOrder, type Step } from "./steps.ts";
 
 export interface RunCreateInput {
   story: string;
-  process: { name: string; rev: number } | null;
+  process: ProcessRef | null;
   size: Size | null;
   stage: string | null;
   coordinator: string;
@@ -45,18 +54,79 @@ const RunRef = z.looseObject({ run_id: z.string() });
 const TaskRef = z.looseObject({ task_id: z.string() });
 const FailedRef = z.looseObject({ outcome: z.literal("failed") });
 
-async function singleActive(db: Repo, kind: Kind): Promise<Revision | null> {
-  const rows = await db.listActivations(kind, "global", "");
-  const [only] = rows;
-  return rows.length === 1 && only !== undefined
-    ? db.getRevision(only.revision_id)
+function refOf(revision: Pick<Revision, "name" | "rev">): string {
+  return `process.${revision.name}@${revision.rev}`;
+}
+
+function activeOf(revision: Revision): ActiveProcess | null {
+  const value = revision.value;
+  const selector = Selector.safeParse(
+    value !== null && typeof value === "object" && "selector" in value
+      ? value.selector
+      : undefined,
+  );
+  return selector.success
+    ? {
+        revisionId: revision.id,
+        name: revision.name,
+        rev: revision.rev,
+        selector: selector.data,
+      }
     : null;
 }
 
-function noSingle(kind: Kind) {
-  return refuse("selector_none", `no single active global ${kind} Revision`, [
-    `pod config apply ${kind}.yaml --activate --scope global --expected-revision none`,
-  ]);
+async function activeProcesses(db: Repo): Promise<ActiveProcess[]> {
+  const rows = await db.listActivations("process", "global", "");
+  const active: ActiveProcess[] = [];
+  for (const row of rows) {
+    const revision = await db.getRevision(row.revision_id);
+    const process = revision === null ? null : activeOf(revision);
+    if (process !== null) active.push(process);
+  }
+  return active;
+}
+
+function notSelected(
+  code: SelectorErrorCode,
+  story: string,
+  stage: string,
+  size: Size,
+  input: RunCreateInput,
+  activations: readonly ActiveProcess[],
+) {
+  const at = `stage ${stage}, size ${size}`;
+  if (code === "selector_conflict")
+    return refuse(
+      code,
+      `${input.process === null ? "the named process" : refOf(input.process)} does not fit ${at}`,
+      ["--process name@rev names a process whose selector fits"],
+    );
+  if (code === "selector_none")
+    return refuse(code, `no process Revision fits ${story} at ${at}`, [
+      "--process name@rev",
+    ]);
+  const matching = activations
+    .filter((active) => fits(active.selector, stage, size))
+    .map(refOf);
+  return refuse(
+    code,
+    `several process Revisions fit ${story} at ${at}: ${matching.join(", ")}`,
+    [
+      "--process name@rev",
+      ...matching.map((ref) => `--process ${ref.slice("process.".length)}`),
+    ],
+  );
+}
+
+function stepsOf(process: Revision) {
+  try {
+    return { ok: true as const, steps: topoOrder(readSteps(process.value)) };
+  } catch (error) {
+    if (!(error instanceof StepsInvalid)) throw error;
+    return refuse("schema_invalid", `${refOf(process)} ${error.message}`, [
+      error.path,
+    ]);
+  }
 }
 
 function failure(verb: string, raw: unknown, exitCode: number): Json {
@@ -70,12 +140,6 @@ export async function runCreate(
   input: RunCreateInput,
 ): Promise<Outcome<RunCreateResult>> {
   const story = `story:${input.story}`;
-  if (input.process === null)
-    return refuse(
-      "selector_none",
-      `no process Revision is selected for ${story}`,
-      ["--process name@rev names the process Revision; S5 adds the selector"],
-    );
   const { size, stage } = input;
   if (size === null)
     return refuse("selector_none", `${story} has no size`, [
@@ -83,27 +147,46 @@ export async function runCreate(
     ]);
   if (stage === null)
     return refuse("selector_none", `${story} has no stage`, ["--stage T"]);
-  const ref = `process.${input.process.name}@${input.process.rev}`;
-  const process = await db.getRevisionByRef(
-    "process",
-    input.process.name,
-    input.process.rev,
-  );
-  if (process === null)
-    return refuse("revision_not_found", `no Revision ${ref}`, [
-      "pod config apply FILE",
-    ]);
-  const crew = await singleActive(db, "crew");
-  if (crew === null) return noSingle("crew");
-  const policy = await singleActive(db, "policy");
-  if (policy === null) return noSingle("policy");
-  let steps: Step[];
-  try {
-    steps = topoOrder(readSteps(process.value));
-  } catch (error) {
-    if (!(error instanceof StepsInvalid)) throw error;
-    return refuse("schema_invalid", `${ref} ${error.message}`, [error.path]);
+  let named: Revision | null = null;
+  if (input.process !== null) {
+    named = await db.getRevisionByRef(
+      "process",
+      input.process.name,
+      input.process.rev,
+    );
+    if (named === null)
+      return refuse(
+        "revision_not_found",
+        `no Revision ${refOf(input.process)}`,
+        ["pod config apply FILE"],
+      );
+    const checked = stepsOf(named);
+    if (!checked.ok) return checked;
   }
+  const activations = await activeProcesses(db);
+  const selected = selectProcess({
+    stage,
+    size,
+    kickoffLine: null,
+    cliProcess: input.process,
+    activations,
+    named: named === null ? null : activeOf(named),
+  });
+  if (!selected.ok)
+    return notSelected(selected.code, story, stage, size, input, activations);
+  const process =
+    named?.id === selected.revisionId
+      ? named
+      : await db.getRevision(selected.revisionId);
+  if (process === null)
+    throw new Error(`Revision ${selected.revisionId} vanished`);
+  const checked = stepsOf(process);
+  if (!checked.ok) return checked;
+  const { steps } = checked;
+  const crew = await singleActive(db, "crew", "global", "");
+  if (crew === null) return noSingleActive("crew", "global", "");
+  const policy = await singleActive(db, "policy", "global", "");
+  if (policy === null) return noSingleActive("policy", "global", "");
   const { version } = await orca.version();
   const ctx: Context = { db, orca, log, input, process, steps };
   const opKey = derivedOpKey("run_create", {
@@ -282,12 +365,12 @@ async function project(
       taskIds.set(step.id, task.data.task_id);
       continue;
     }
-    const deps = step.deps.map((dep) => taskIds.get(dep) ?? dep);
+    const deps = step.needs.map((need) => taskIds.get(need) ?? need);
     log.at({ run_id: runId, task_id: null, op_key: stepKey });
     const receipt = await orca.taskCreate({
       spec:
         step.spec ??
-        `Process ${ctx.process.name}@${ctx.process.rev}, step ${step.id}, role ${step.role}.`,
+        `Process ${ctx.process.name}@${ctx.process.rev}, step ${step.id}, role ${step.role ?? step.type}.`,
       run: runId,
       ...(deps.length > 0 ? { deps } : {}),
       taskTitle: step.id,
@@ -342,7 +425,7 @@ async function project(
         run_id: runId,
         step_id: step.id,
         lineage_id: `${runId}:${step.id}`,
-        role: step.role,
+        role: step.role ?? step.type,
         deps,
         spec_revision_id: ctx.process.id,
         state: deps.length === 0 ? "ready" : "pending",
