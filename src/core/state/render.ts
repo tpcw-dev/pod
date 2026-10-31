@@ -21,7 +21,8 @@ function roadmapLines(view: StateView): string[] {
     `page ${roadmap.page}`,
     ...roadmap.current.map((line) => `current: ${line}`),
     ...roadmap.milestones.map(
-      (row) => `${row.current ? "current milestone" : "milestone"}: ${row.text}`,
+      (row) =>
+        `${row.current ? "current milestone" : "milestone"}: ${row.text}`,
     ),
   ];
 }

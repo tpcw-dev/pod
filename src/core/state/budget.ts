@@ -25,7 +25,10 @@ const trims: readonly Trim[] = [
     drop: (view) => {
       const roadmap = view.roadmap;
       if (roadmap.status !== "ok") return null;
-      const milestones = dropLastWhere(roadmap.milestones, (row) => !row.current);
+      const milestones = dropLastWhere(
+        roadmap.milestones,
+        (row) => !row.current,
+      );
       return milestones === null
         ? null
         : { ...view, roadmap: { ...roadmap, milestones } };

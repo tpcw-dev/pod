@@ -44,7 +44,9 @@ function observed(ctx: StateContext): string {
 function sectionLines(section: Section): string[] {
   return [
     ...section.paragraphs,
-    ...section.tables.flatMap((table) => table.rows.map((row) => row.join(" | "))),
+    ...section.tables.flatMap((table) =>
+      table.rows.map((row) => row.join(" | ")),
+    ),
   ]
     .map((line) => line.trim())
     .filter((line) => line !== "");
@@ -102,7 +104,9 @@ export async function roadmapSection(
       refused.refusal.nextSteps[0] ?? "pod config apply",
     );
   }
-  const roadmap = Fields.safeParse(Fields.safeParse(policy.value).data?.["roadmap"]);
+  const roadmap = Fields.safeParse(
+    Fields.safeParse(policy.value).data?.["roadmap"],
+  );
   const page = roadmap.data?.["page"];
   if (typeof page !== "string" || page.trim() === "")
     return notOk(
@@ -111,7 +115,11 @@ export async function roadmapSection(
       "set roadmap { provider, page } in the active policy",
     );
   const failed = (error: string, heading: string) =>
-    notOk("read_failed", error, `pod docs read --page ${page} --heading ${heading}`);
+    notOk(
+      "read_failed",
+      error,
+      `pod docs read --page ${page} --heading ${heading}`,
+    );
   const current = await readHeading(ctx.docs, page, "Current milestone");
   if ("error" in current) return failed(current.error, "Current milestone");
   const milestones = await readHeading(ctx.docs, page, "Milestones");
@@ -230,7 +238,8 @@ function strings(value: unknown): string[] {
   const fields = Fields.safeParse(value);
   if (!fields.success) return [];
   return Object.entries(fields.data).map(
-    ([key, item]) => `${key}: ${typeof item === "string" ? item : JSON.stringify(item)}`,
+    ([key, item]) =>
+      `${key}: ${typeof item === "string" ? item : JSON.stringify(item)}`,
   );
 }
 

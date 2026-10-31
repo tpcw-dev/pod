@@ -248,8 +248,18 @@ describeDb("pod state", () => {
   test("usage with no source is unknown with no_source, and a measured value keeps its number", async () => {
     await conn.sql`truncate ledger.usage_observation`;
     expect((await state()).usage.providers).toEqual([
-      { provider: "claude", value: "unknown", coverage: "no_source", observed_at: null },
-      { provider: "codex", value: "unknown", coverage: "no_source", observed_at: null },
+      {
+        provider: "claude",
+        value: "unknown",
+        coverage: "no_source",
+        observed_at: null,
+      },
+      {
+        provider: "codex",
+        value: "unknown",
+        coverage: "no_source",
+        observed_at: null,
+      },
     ]);
     await conn.db.insertUsageObservation({
       provider: "claude",
@@ -269,7 +279,12 @@ describeDb("pod state", () => {
         coverage: "measured",
         observed_at: new Date(now.getTime() - 60_000).toISOString(),
       },
-      { provider: "codex", value: "unknown", coverage: "no_source", observed_at: null },
+      {
+        provider: "codex",
+        value: "unknown",
+        coverage: "no_source",
+        observed_at: null,
+      },
     ]);
     await conn.db.insertUsageObservation({
       provider: "claude",

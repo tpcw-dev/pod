@@ -95,7 +95,8 @@ function view(
           gate: "hqa_after_deploy",
           keeper: "human-gatekeeper",
           open: true,
-          reason: "awaiting hqa_after_deploy PASS or FAIL from human-gatekeeper",
+          reason:
+            "awaiting hqa_after_deploy PASS or FAIL from human-gatekeeper",
           at: observed_at,
         },
         ...Array.from({ length: sizes.closed ?? 1 }, (_, i) => ({

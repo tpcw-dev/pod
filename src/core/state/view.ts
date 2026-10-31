@@ -43,9 +43,11 @@ export async function buildState(
 ): Promise<{ ok: true; view: StateView } | Refused> {
   const tree = await ctx.repo.readBrief(scope.story);
   if (scope.story !== null && tree.stories.length === 0)
-    return refuse("story_not_found", `no Story has external_id ${scope.story}`, [
-      "pod brief",
-    ]);
+    return refuse(
+      "story_not_found",
+      `no Story has external_id ${scope.story}`,
+      ["pod brief"],
+    );
   const [level, ref] =
     scope.project === null
       ? (["global", ""] as const)

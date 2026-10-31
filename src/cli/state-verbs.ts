@@ -34,7 +34,11 @@ export async function stateVerb(input: StateInput): Promise<StateView> {
   try {
     log = receiptLog(connection.db, host.hostId);
     const built = await buildState(
-      { repo: connection.db, docs: wiring?.port ?? null, now: () => new Date() },
+      {
+        repo: connection.db,
+        docs: wiring?.port ?? null,
+        now: () => new Date(),
+      },
       {
         story: arg === undefined ? null : arg.slice("story:".length),
         project: input.project ?? null,

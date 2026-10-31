@@ -3,8 +3,7 @@ import type { Decision } from "../../src/core/domain/decision.ts";
 import { applicableDecisions } from "../../src/core/state/decisions.ts";
 
 const at = new Date("2026-10-31T00:00:00Z");
-const daysBefore = (days: number) =>
-  new Date(at.getTime() - days * 86_400_000);
+const daysBefore = (days: number) => new Date(at.getTime() - days * 86_400_000);
 const project = { story: "S-1", project: "pod" };
 
 function decision(over: Partial<Decision>): Decision {
@@ -45,7 +44,9 @@ test("a decision whose in_force_until has passed does not apply", () => {
 
 test("a standing decision older than 30 days still applies", () => {
   expect(
-    ids([decision({ id: "standing", decided_at: daysBefore(45), standing: true })]),
+    ids([
+      decision({ id: "standing", decided_at: daysBefore(45), standing: true }),
+    ]),
   ).toEqual(["standing"]);
 });
 
