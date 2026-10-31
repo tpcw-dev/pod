@@ -12,6 +12,7 @@ export const Listing = z.looseObject({
   next_cursor: z.string().nullable(),
 });
 
+const Payload = z.record(z.string(), z.unknown());
 const RichText = z.array(z.looseObject({ plain_text: z.string() }));
 const Cells = z.array(RichText);
 
@@ -27,10 +28,7 @@ export const headingTypes: ReadonlySet<string> = new Set([
 ]);
 
 function payloadOf(block: Block): Record<string, unknown> {
-  const payload: unknown = block[block.type];
-  return payload !== null && typeof payload === "object"
-    ? (payload as Record<string, unknown>)
-    : {};
+  return Payload.safeParse(block[block.type]).data ?? {};
 }
 
 function plainText(items: z.infer<typeof RichText>): string {

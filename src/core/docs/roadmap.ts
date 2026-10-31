@@ -1,11 +1,6 @@
 import { z } from "zod";
 import type { Refusal } from "../domain/outcome.ts";
 
-export interface Roadmap {
-  provider: string;
-  page: string;
-}
-
 const Fields = z.record(z.string(), z.unknown());
 
 function invalid(field: string, message: string): Refusal {
@@ -14,16 +9,6 @@ function invalid(field: string, message: string): Refusal {
     message: `${field} ${message}`,
     nextSteps: [`fix ${field} in the policy value and apply again`],
   };
-}
-
-export function roadmapOf(policy: unknown): Roadmap | null {
-  const value = Fields.safeParse(policy).data ?? {};
-  const roadmap = Fields.safeParse(value["roadmap"]).data;
-  if (roadmap === undefined) return null;
-  const { provider, page } = roadmap;
-  return typeof provider === "string" && typeof page === "string"
-    ? { provider, page }
-    : null;
 }
 
 export function roadmapRefusal(

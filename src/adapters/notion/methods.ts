@@ -41,7 +41,7 @@ export function docsMethods(send: Send): DocsPort {
     ref: SectionRef,
     id: string,
     reads: Reads,
-    visit: (block: Block) => Promise<Step>,
+    visit: (block: Block) => Step | Promise<Step>,
   ): Promise<string | null> {
     let cursor: string | null = null;
     for (let page = 0; page < maxPages; page += 1) {
@@ -76,11 +76,11 @@ export function docsMethods(send: Send): DocsPort {
   ): Promise<Table | { error: string }> {
     const rows: string[][] = [];
     const error = await eachBlock(ref, table.id, reads, (block) => {
-      if (block.type !== "table_row") return Promise.resolve("next");
+      if (block.type !== "table_row") return "next";
       const cells = cellsOf(block);
-      if (cells === null) return Promise.resolve({ error: "unparsed" });
+      if (cells === null) return { error: "unparsed" };
       rows.push(cells);
-      return Promise.resolve("next");
+      return "next";
     });
     if (error !== null) return { error };
     if (!hasColumnHeader(table)) return { header: [], rows };
