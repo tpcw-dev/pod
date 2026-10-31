@@ -65,6 +65,31 @@ interface Case {
   message: string;
 }
 
+function relay() {
+  return variant((v) => {
+    v.steps = [
+      { id: "build", type: "worker", role: "developer" },
+      { id: "read", type: "worker", role: "reviewer", needs: ["build"] },
+      {
+        id: "review",
+        type: "worker",
+        role: "reviewer",
+        needs: ["read"],
+        gate: "pr",
+      },
+    ];
+    v.edges = [
+      { from: "build", on: "done", to: "read" },
+      { from: "build", on: hold, to: "hold" },
+      { from: "read", on: "done", to: "review" },
+      { from: "read", on: hold, to: "hold" },
+      { from: "review", on: "PASS", to: "done" },
+      { from: "review", on: "FAIL", to: "hold" },
+      { from: "review", on: hold, to: "hold" },
+    ];
+  });
+}
+
 const cases: Case[] = [
   {
     name: "schema: an unknown top-level key",
@@ -109,6 +134,12 @@ const cases: Case[] = [
     value: { ...base(), selector: { stage: "impl", size: [] } },
     code: "schema_invalid",
     message: "selector.size",
+  },
+  {
+    name: "schema: an impl selector with no size",
+    value: { ...base(), selector: { stage: "impl" } },
+    code: "schema_invalid",
+    message: "selector.size: an impl selector names at least one size",
   },
   {
     name: "schema: no steps",
@@ -296,6 +327,18 @@ const cases: Case[] = [
     message: "step review: no seat with role reviewer is free of developer",
   },
   {
+    name: "rule 8: a reviewer after a reviewer step is independent of the developer before it",
+    value: relay(),
+    crew: {
+      seats: [
+        { id: "dev", roles: ["developer"] },
+        { id: "both", roles: ["developer", "reviewer"] },
+      ],
+    },
+    code: "reviewer_not_independent",
+    message: "step review: no seat with role reviewer is free of developer",
+  },
+  {
     name: "rule 9: a gate the policy list lacks",
     value: base(),
     policy: { gates: ["merge"] },
@@ -341,6 +384,15 @@ test.each(cases)("$name is $code", (c) => {
 
 test("the base value passes against a two-seat crew", () => {
   expect(validateProcess(base(), crew, policy)).toMatchObject({ ok: true });
+});
+
+test("a size-less selector passes on a non-impl stage", () => {
+  const value = { ...base(), selector: { stage: "prd" } };
+  expect(validateProcess(value, crew, policy)).toMatchObject({ ok: true });
+});
+
+test("a reviewer step that needs a reviewer step passes with a free reviewer seat", () => {
+  expect(validateProcess(relay(), crew, policy)).toMatchObject({ ok: true });
 });
 
 test("policy gates read as a list of ids, a list of objects, or a map", () => {

@@ -1,0 +1,22 @@
+kind: process
+name: design
+schema_version: 1
+value:
+  summary: design stage, a designer drafts, an independent taste reviewer checks, a person keeps the click-through
+  selector: { stage: design }
+  roles: [designer, taste_reviewer]
+  steps:
+    - { id: design, type: worker, role: designer, produces: [document] }
+    - { id: taste_qa, type: worker, role: taste_reviewer, needs: [design], gate: taste_qa }
+    - { id: design_clickthrough, type: human_wait, needs: [taste_qa], gate: design_clickthrough }
+  edges:
+    - { from: design, on: done, to: taste_qa }
+    - { from: design, on: [timeout, cancel, unknown], to: hold }
+    - { from: taste_qa, on: PASS, to: design_clickthrough }
+    - { from: taste_qa, on: FAIL, to: design, new_task: true, then: taste_qa }
+    - { from: taste_qa, on: [timeout, cancel, unknown], to: hold }
+    - { from: design_clickthrough, on: PASS, to: done }
+    - { from: design_clickthrough, on: FAIL, to: design, new_task: true, then: taste_qa }
+    - { from: design_clickthrough, on: cancel, to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+  escalation: { to: decision-pair }

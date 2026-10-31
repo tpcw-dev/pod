@@ -3,11 +3,13 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { stringify } from "yaml";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { snapshotHash } from "../../src/core/config/canonical-json.ts";
+import type { Json } from "../../src/core/domain/json.ts";
 import type { Run, Story } from "../../src/core/domain/ledger.ts";
+import { waitingOn } from "../../src/cli/brief.ts";
 import { envelope, storeRevision } from "../db/fixtures.ts";
 import { dbUrl, describeDb, openDb, podHome, resetDb } from "../db/helpers.ts";
 
@@ -162,6 +164,7 @@ describeDb("pod brief", () => {
     const pre = file.match(/<pre id="brief-json">([\s\S]*)<\/pre>/);
     expect(unescapeHtml(pre?.[1] ?? "")).toBe(JSON.stringify(parsed.result));
     expect(parsed.result.stories[0]?.stage).toBe("a<b");
+    expect(result.stdout).toContain('"waiting_on":null');
     expect(parsed.result.stories[0]?.drift.map((item) => item.name)).toEqual([
       "policy",
     ]);
@@ -180,5 +183,70 @@ describeDb("pod brief", () => {
       ok: false,
       error: { code: "story_not_found", nextSteps: ["pod brief"] },
     });
+  });
+});
+
+describe("waiting_on", () => {
+  const hold = ["timeout", "cancel", "unknown"];
+  const value = {
+    summary: "plan, then build, then review",
+    selector: { stage: "impl", size: ["xl"] },
+    roles: ["planner", "developer", "reviewer"],
+    steps: [
+      { id: "plan", type: "worker", role: "planner", decision: "plan" },
+      { id: "build", type: "worker", role: "developer", needs: ["plan"] },
+      {
+        id: "review",
+        type: "worker",
+        role: "reviewer",
+        needs: ["build"],
+        gate: "review",
+      },
+      {
+        id: "both",
+        type: "worker",
+        role: "reviewer",
+        needs: ["review"],
+        gate: "review",
+        decision: "plan",
+      },
+    ],
+    edges: [
+      { from: "plan", on: "agreed", to: "build" },
+      { from: "plan", on: ["cancelled", ...hold], to: "hold" },
+    ],
+    limits: { attempts_per_task: 3, rework_per_lineage: 3 },
+    escalation: { to: "operator" },
+  };
+  const revision = (body: unknown) => ({ value: body as Json });
+  const process = revision(value);
+
+  test.each([
+    ["a ready decision step", process, "plan", "ready", "decision plan"],
+    [
+      "a delivered decision step",
+      process,
+      "plan",
+      "delivered",
+      "decision plan",
+    ],
+    ["a gated step", process, "review", "dispatched", "gate review"],
+    ["a plain step", process, "build", "ready", null],
+    ["a step with decision and gate", process, "both", "ready", null],
+    ["a step id the process lacks", process, "gone", "ready", null],
+    ["a passed decision step", process, "plan", "passed", null],
+    ["a failed gated step", process, "review", "failed", null],
+    ["a done gated step", process, "review", "done", null],
+    ["a superseded gated step", process, "review", "superseded", null],
+    [
+      "a process that does not parse",
+      revision({ steps: ["plan"] }),
+      "plan",
+      "ready",
+      null,
+    ],
+    ["no process Revision", null, "plan", "ready", null],
+  ] as const)("%s", (_name, rev, step_id, state, expected) => {
+    expect(waitingOn(rev, { step_id, state })).toBe(expected);
   });
 });

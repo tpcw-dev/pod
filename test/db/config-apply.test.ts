@@ -597,4 +597,68 @@ describeDb("pod config apply of a process", () => {
     expect(result.status).toBe(0);
     expect(result.json.result).toMatchObject({ ref: "policy.map-notion@1" });
   });
+
+  const gatePolicy = Object.fromEntries(
+    [
+      "audit",
+      "prd_review",
+      "taste_qa",
+      "design_clickthrough",
+      "plan_review",
+      "story_qa",
+      "review",
+      "integration_review",
+      "merge",
+      "hqa_after_deploy",
+    ].map((gate) => [gate, { keeper: "keeper", type: "AQA" }]),
+  );
+  const extendedCrew = {
+    seats: [
+      ...crewValue.seats,
+      ...[
+        "writer",
+        "auditor",
+        "designer",
+        "taste_reviewer",
+        "planner",
+        "qa",
+      ].map((role) => ({ id: `${role}-1`, roles: [role], runtime: "claude" })),
+    ],
+  };
+
+  test.each(["prd", "design", "impl-medium", "impl-large", "impl-xlarge"])(
+    "specs/process/%s.yaml applies against the extended seed crew",
+    async (name) => {
+      await clearDb(db);
+      await seedCrewAndPolicy(extendedCrew, gatePolicy);
+      const applied = activate(`specs/process/${name}.yaml`);
+      expect(applied.status).toBe(0);
+      expect(applied.json.result).toMatchObject({ ref: `process.${name}@1` });
+    },
+  );
+
+  test("specs/process/impl-medium.yaml against the two-seat seed crew is role_unfilled naming planner", async () => {
+    await clearDb(db);
+    await seedCrewAndPolicy(
+      {
+        seats: [
+          { id: "dev-1", roles: ["developer"], runtime: "claude" },
+          { id: "rev-1", roles: ["reviewer"], runtime: "codex" },
+        ],
+      },
+      gatePolicy,
+    );
+    const before = await counts();
+    for (const refused of [
+      runCli(["config", "apply", "specs/process/impl-medium.yaml"]),
+      activate("specs/process/impl-medium.yaml"),
+    ]) {
+      expect(refused.status).toBe(3);
+      expect(refused.json.error).toMatchObject({
+        code: "role_unfilled",
+        message: "no crew seat holds role planner",
+      });
+    }
+    expect(await counts()).toEqual(before);
+  });
 });

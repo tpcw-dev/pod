@@ -1,0 +1,42 @@
+kind: process
+name: impl-medium
+schema_version: 1
+value:
+  summary: m impl, a planner plans, the decision pair reviews the plan, one developer, an independent qa, one PR
+  selector: { stage: impl, size: [m] }
+  roles: [planner, developer, qa]
+  steps:
+    - { id: plan, type: worker, role: planner, produces: [plan] }
+    - { id: plan_review, type: human_wait, needs: [plan], gate: plan_review }
+    - { id: implement, type: worker, role: developer, needs: [plan_review], produces: [commit] }
+    - { id: story_qa, type: worker, role: qa, needs: [implement], gate: story_qa }
+    - { id: pr, type: worker, role: developer, needs: [story_qa], produces: [pr] }
+    - { id: merge, type: human_wait, needs: [pr], gate: merge }
+    - id: deploy
+      type: external_action
+      needs: [merge]
+      adapter: deploy
+      event_fields: [environment, deployment_id, deployed_revision, source_commit]
+    - { id: hqa, type: human_wait, needs: [deploy], gate: hqa_after_deploy, binds: deployed_revision }
+  edges:
+    - { from: plan, on: done, to: plan_review }
+    - { from: plan, on: [timeout, cancel, unknown], to: hold }
+    - { from: plan_review, on: PASS, to: implement }
+    - { from: plan_review, on: FAIL, to: plan, new_task: true, then: plan_review }
+    - { from: plan_review, on: cancel, to: hold }
+    - { from: implement, on: done, to: story_qa }
+    - { from: implement, on: [timeout, cancel, unknown], to: hold }
+    - { from: story_qa, on: PASS, to: pr }
+    - { from: story_qa, on: FAIL, to: implement, new_task: true, then: story_qa }
+    - { from: story_qa, on: [timeout, cancel, unknown], to: hold }
+    - { from: pr, on: done, to: merge }
+    - { from: pr, on: [timeout, cancel, unknown], to: hold }
+    - { from: merge, on: PASS, to: deploy }
+    - { from: merge, on: [FAIL, cancel], to: hold }
+    - { from: deploy, on: done, to: hqa }
+    - { from: deploy, on: [unknown, cancel], to: hold }
+    - { from: hqa, on: PASS, to: done }
+    - { from: hqa, on: FAIL, to: implement, new_task: true, then: story_qa }
+    - { from: hqa, on: cancel, to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+  escalation: { to: decision-pair }
