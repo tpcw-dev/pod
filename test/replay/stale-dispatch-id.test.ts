@@ -110,6 +110,6 @@ describeDb("stale-dispatch-id", () => {
         worktree: expect.stringMatching(/^id:[^:]+::\/w\/1$/),
       },
     });
-    expect((await conn.db.getTask(task))?.state).toBe("delivered");
+    expect((await conn.db.getTask(task))?.state).toBe("done");
   });
 });

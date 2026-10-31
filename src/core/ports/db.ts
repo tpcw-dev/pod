@@ -16,6 +16,7 @@ import type {
   NewLearning,
 } from "../domain/learning.ts";
 import type { BriefTree } from "../domain/brief.ts";
+import type { TaskState } from "../domain/task-state.ts";
 import type {
   Activity,
   Dispatch,
@@ -64,7 +65,8 @@ export interface Repo {
   insertTask(row: Task): Promise<void>;
   getTask(taskId: string): Promise<Task | null>;
   listTasks(runId: string): Promise<Task[]>;
-  setTaskState(taskId: string, state: string): Promise<void>;
+  setTaskState(taskId: string, state: TaskState): Promise<void>;
+  setTaskDeps(taskId: string, deps: string[]): Promise<void>;
   insertDispatch(row: Dispatch): Promise<void>;
   getDispatch(dispatchId: string): Promise<Dispatch | null>;
   listDispatches(runId: string): Promise<Dispatch[]>;

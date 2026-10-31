@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_a268c62b6c73",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"0ee03a59-b44f-4f8b-b603-d5133b3ef336\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_a268c62b6c73\",\n    \"deliveryId\": \"delivery_35aff92e8961\",\n    \"messages\": [\n      {\n        \"id\": \"msg_dbe353e6a420\",\n        \"run_id\": \"run_a268c62b6c73\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_9afb4954-849a-46e2-8e94-89ceebd92c2e\",\n        \"to_handle\": \"run:run_a268c62b6c73\",\n        \"subject\": \"Task initialization complete\",\n        \"body\": \"Received task dispatch for TPC-1313 task state machine and edge case handling. Prepared session context and git worktree environment. Ready to proceed with next instructions or work assignments.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_6ec5b8b2b714\\\",\\\"dispatchId\\\":\\\"ctx_3acc341fe01e\\\",\\\"outcome\\\":\\\"succeeded\\\"}\",\n        \"created_at\": \"2026-10-31T01:27:47Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"e61b8216-446c-4e9d-b6c5-da5a1a4b61d7\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T01:27:55.632Z"
+}

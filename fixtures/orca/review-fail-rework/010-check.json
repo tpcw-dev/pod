@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_b64bcee038cb",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"f5f88159-d366-4798-8f44-bd3470d77c45\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_b64bcee038cb\",\n    \"deliveryId\": \"delivery_46a8ee024ff9\",\n    \"messages\": [\n      {\n        \"id\": \"msg_12708f3fbbe3\",\n        \"run_id\": \"run_b64bcee038cb\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_ca45d22c-483c-44f7-a1fe-18d7b86b9119\",\n        \"to_handle\": \"run:run_b64bcee038cb\",\n        \"subject\": \"Dispatch acknowledged\",\n        \"body\": \"Received task_afa22e24dff4 dispatch with instructions to run worker_done command. Reviewed the Orca CLI protocol and available task context. Marking dispatch as succeeded per instructions.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_afa22e24dff4\\\",\\\"dispatchId\\\":\\\"ctx_9085646c8321\\\",\\\"outcome\\\":\\\"succeeded\\\"}\",\n        \"created_at\": \"2026-10-31T01:30:40Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"2097458f-85a3-49ee-b364-757ce092c915\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T01:30:47.531Z"
+}

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Json } from "../domain/json.ts";
 import type { Dispatch, Task } from "../domain/ledger.ts";
 import { launchOutcome } from "../ledger/launch.ts";
+import { moveTask } from "../ledger/move-task.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type {
   Receipt,
@@ -120,7 +121,7 @@ export async function recordStarted(
     }),
     input.at,
   );
-  await tx.setTaskState(input.task.task_id, "dispatched");
+  await moveTask(tx, input.task.task_id, "dispatched");
   await insertStart(tx, input, done, false);
   return done;
 }
@@ -133,7 +134,7 @@ export async function recordLate(
   if ((await tx.getDispatch(done.dispatch_id)) !== null) return done;
   const left = input.request.retry_of === undefined ? "ready" : "blocked";
   if ((await tx.getTask(input.task.task_id))?.state === left)
-    await tx.setTaskState(input.task.task_id, "dispatched");
+    await moveTask(tx, input.task.task_id, "dispatched");
   await insertStart(tx, input, done, true);
   const nextSteps = (await tx.listDispatches(done.run_id))
     .filter(
@@ -221,7 +222,7 @@ export async function recordUnknown(
     input.at,
   );
   const from = (await tx.getTask(input.task.task_id))?.state;
-  await tx.setTaskState(input.task.task_id, "hold");
+  await moveTask(tx, input.task.task_id, "hold");
   await tx.appendEvent({
     type: "hold",
     ts: input.at,

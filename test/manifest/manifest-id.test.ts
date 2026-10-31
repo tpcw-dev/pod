@@ -42,6 +42,7 @@ const task: Task = {
   role: "developer",
   deps: [],
   spec_revision_id: "spec-1",
+  rework_of: null,
   state: "ready",
   created_at: at,
 };

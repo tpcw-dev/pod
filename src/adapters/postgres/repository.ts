@@ -49,6 +49,7 @@ import {
   type Story,
   type Task,
 } from "../../core/domain/ledger.ts";
+import { TaskState } from "../../core/domain/task-state.ts";
 import type { BundleResult, Db, Repo } from "../../core/ports/db.ts";
 import * as configSchema from "../../db/schema/config.ts";
 import * as ledgerSchema from "../../db/schema/ledger.ts";
@@ -159,7 +160,8 @@ function toTask(row: typeof task.$inferSelect): Task {
     role: row.role,
     deps: json(row.deps),
     spec_revision_id: row.specRevisionId,
-    state: row.state,
+    state: TaskState.parse(row.state),
+    rework_of: row.reworkOf,
     created_at: row.createdAt,
   };
 }
@@ -479,6 +481,7 @@ function makeRepo(x: Executor): Repo {
         deps: row.deps,
         specRevisionId: row.spec_revision_id,
         state: row.state,
+        reworkOf: row.rework_of,
         createdAt: row.created_at,
       });
     },
@@ -499,6 +502,10 @@ function makeRepo(x: Executor): Repo {
 
     async setTaskState(taskId, state) {
       await x.update(task).set({ state }).where(eq(task.taskId, taskId));
+    },
+
+    async setTaskDeps(taskId, deps) {
+      await x.update(task).set({ deps }).where(eq(task.taskId, taskId));
     },
 
     async insertDispatch(row: Dispatch) {

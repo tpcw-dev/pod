@@ -1,5 +1,22 @@
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeAll, expect, test } from "vitest";
-import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import { migrate } from "../../src/adapters/postgres/migrate.ts";
+import { dbUrl, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+
+function journalThrough(tag: string): string {
+  const folder = mkdtempSync(join(tmpdir(), "pod-migrations-"));
+  cpSync("db/migrations", folder, { recursive: true });
+  const path = join(folder, "meta", "_journal.json");
+  const journal = JSON.parse(readFileSync(path, "utf8")) as {
+    entries: { tag: string }[];
+  };
+  const end = journal.entries.findIndex((entry) => entry.tag === tag);
+  journal.entries = journal.entries.slice(0, end + 1);
+  writeFileSync(path, JSON.stringify(journal));
+  return folder;
+}
 
 describeDb("pod db migrate", () => {
   beforeAll(resetDb);
@@ -7,7 +24,7 @@ describeDb("pod db migrate", () => {
   test("a run after the reset's migrate applies nothing", () => {
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 4, applied: 0 } },
+      json: { ok: true, result: { journal: 5, applied: 0 } },
     });
   });
 
@@ -18,11 +35,27 @@ describeDb("pod db migrate", () => {
     await db.close();
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 4, applied: 4 },
+      result: { journal: 5, applied: 5 },
     });
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 4, applied: 0 },
+      result: { journal: 5, applied: 0 },
+    });
+  });
+
+  test("a database at 0003 applies 0004 alone", async () => {
+    const db = openDb();
+    await db.sql`set client_min_messages = warning`;
+    await db.sql`drop schema if exists config, ledger, drizzle cascade`;
+    await db.close();
+    expect(await migrate(dbUrl(), journalThrough("0003_learning"))).toEqual({
+      kind: "ok",
+      journal: 4,
+      applied: 4,
+    });
+    expect(runCli(["db", "migrate"])).toMatchObject({
+      status: 0,
+      json: { ok: true, result: { journal: 5, applied: 1 } },
     });
   });
 

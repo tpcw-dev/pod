@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_a268c62b6c73",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"55e96c09-9224-4e39-9ce2-9c1184585a8b\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_a268c62b6c73\",\n    \"deliveryId\": \"delivery_c133e99b24c6\",\n    \"messages\": [\n      {\n        \"id\": \"msg_bb7baef2ae18\",\n        \"run_id\": \"run_a268c62b6c73\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_1514b245-366d-43a3-9dfc-a01f8e5b75fe\",\n        \"to_handle\": \"run:run_a268c62b6c73\",\n        \"subject\": \"Task initialization complete\",\n        \"body\": \"Received Orca task dispatch and communication initialization instructions. No implementation work was requested in this task. Ready to proceed with next task assignment.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_5d178e8ed14a\\\",\\\"dispatchId\\\":\\\"ctx_edbba8861c29\\\",\\\"outcome\\\":\\\"succeeded\\\"}\",\n        \"created_at\": \"2026-10-31T01:28:08Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"5ce26306-acd2-4d34-b005-fec9282dfdde\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T01:28:14.707Z"
+}

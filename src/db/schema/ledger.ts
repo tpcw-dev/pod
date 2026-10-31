@@ -57,21 +57,32 @@ export const run = ledger.table(
   ],
 );
 
-export const task = ledger.table("task", {
-  taskId: text("task_id").primaryKey(),
-  runId: text("run_id")
-    .notNull()
-    .references(() => run.runId),
-  stepId: text("step_id").notNull(),
-  lineageId: text("lineage_id").notNull(),
-  role: text("role").notNull(),
-  deps: jsonb("deps").notNull(),
-  specRevisionId: text("spec_revision_id")
-    .notNull()
-    .references(() => revision.id),
-  state: text("state").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
-});
+export const task = ledger.table(
+  "task",
+  {
+    taskId: text("task_id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => run.runId),
+    stepId: text("step_id").notNull(),
+    lineageId: text("lineage_id").notNull(),
+    role: text("role").notNull(),
+    deps: jsonb("deps").notNull(),
+    specRevisionId: text("spec_revision_id")
+      .notNull()
+      .references(() => revision.id),
+    state: text("state").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    reworkOf: text("rework_of"),
+  },
+  (t) => [
+    foreignKey({ columns: [t.reworkOf], foreignColumns: [t.taskId] }),
+    check(
+      "task_state_check",
+      sql`${t.state} in ('pending', 'ready', 'dispatched', 'delivered', 'passed', 'failed', 'blocked', 'hold', 'done', 'superseded')`,
+    ),
+  ],
+);
 
 export const evidenceManifest = ledger.table(
   "evidence_manifest",
@@ -197,7 +208,7 @@ export const event = ledger.table(
   (t) => [
     check(
       "event_type_check",
-      sql`${t.type} in ('start', 'delivery', 'receipt', 'activation', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'ignored', 'unknown_launch', 'learning')`,
+      sql`${t.type} in ('start', 'delivery', 'receipt', 'activation', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'ignored', 'unknown_launch', 'learning', 'outcome')`,
     ),
     index("event_run_ts").on(t.runId, t.ts),
   ],
