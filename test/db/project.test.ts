@@ -194,7 +194,7 @@ describeDb("applyOutcome", () => {
         ok("task-create", { task: { id: "task_r1", status: "pending" } }),
         ok("task-create", { task: { id: "task_p", status: "pending" } }),
       ]);
-      const created = await runCreate(conn.db, orca, log, {
+      const created = await runCreate(conn.db, orca, null, log, {
         story: "S-1",
         process: { name: "rework", rev: 1 },
         size: "s",

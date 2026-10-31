@@ -12,6 +12,9 @@ import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaMessage, OrcaPort, WorkerRow } from "../ports/orca.ts";
 import { recordDelivery } from "../process/project.ts";
+import type { TrackerPort } from "../ports/tracker.ts";
+import { drainOutbox } from "../tracker/outbox.ts";
+import { syncStory } from "../tracker/sync.ts";
 import { fence, StaleGeneration } from "./fence.ts";
 import { reconcileLaunches, type Reconciled } from "./reconcile.ts";
 import { reconcileTakeovers } from "./takeover-reconcile.ts";
@@ -66,6 +69,7 @@ async function ownedRun(
 export async function checkPass(
   db: Db,
   orca: OrcaPort,
+  tracker: TrackerPort | null,
   log: ReceiptLog,
   input: CheckInput,
 ): Promise<Checked<CheckResult>> {
@@ -85,7 +89,24 @@ export async function checkPass(
     free_slots: 0,
     nextSteps: [],
   };
+  const tracked: string[] = [];
   try {
+    if (tracker !== null) {
+      const synced = await syncStory(db, tracker, log, {
+        run,
+        generation: input.generation,
+        host: input.host,
+        now: input.now,
+      });
+      if (synced.error !== null)
+        tracked.push(
+          `tracker read of story:${run.story_external_id} failed: ${synced.error}; run pod check again`,
+        );
+      if (synced.canceled)
+        tracked.push(
+          `story:${run.story_external_id} is ${synced.status ?? "Canceled"} in the tracker; the Run is on hold`,
+        );
+    }
     const takeover = await reconcileTakeovers(db, orca, log, {
       run,
       generation: input.generation,
@@ -95,7 +116,7 @@ export async function checkPass(
     if (takeover !== null)
       return {
         ok: true,
-        result: { ...result, nextSteps: takeover },
+        result: { ...result, nextSteps: [...tracked, ...takeover] },
         orca: version,
       };
     const launches = await reconcileLaunches(db, orca, log, {
@@ -112,6 +133,17 @@ export async function checkPass(
         .map((row) => `pod check: launch ${row.op_key} is still unknown`),
       ...launches.nextSteps,
     ];
+    if (tracker !== null) {
+      const drained = await drainOutbox(db, tracker, log, {
+        host: input.host,
+        now: input.now,
+      });
+      for (const failed of drained.failed)
+        tracked.push(
+          `tracker outbox row ${failed.id} failed: ${failed.error}; run pod check again`,
+        );
+    }
+    result.nextSteps.unshift(...tracked);
     const read = await readDeliveries(db, orca, log, input, result);
     if (read !== null) return read;
     const rows = await workers();
@@ -445,12 +477,13 @@ export interface WaitInput extends CheckInput {
 export async function checkWait(
   db: Db,
   orca: OrcaPort,
+  tracker: TrackerPort | null,
   log: ReceiptLog,
   input: WaitInput,
 ): Promise<Checked<CheckResult>> {
   const start = input.now().getTime();
   for (;;) {
-    const pass = await checkPass(db, orca, log, input);
+    const pass = await checkPass(db, orca, tracker, log, input);
     if (!pass.ok) return pass;
     if (pass.result.deliveries.length > 0 || pass.result.free_slots >= 1)
       return pass;

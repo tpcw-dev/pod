@@ -2,14 +2,15 @@ import { z } from "zod";
 import { snapshotHash } from "../config/canonical-json.ts";
 import { noSingleActive, singleActive } from "../config/active.ts";
 import type { Revision } from "../domain/config.ts";
-import type { Operation, Size } from "../domain/ledger.ts";
-import { refuse, type Outcome } from "../domain/outcome.ts";
+import type { Operation, Size, Story } from "../domain/ledger.ts";
+import { refuse, type Outcome, type Refused } from "../domain/outcome.ts";
 import { failure, launchOutcome, stopOnOpen } from "../ledger/launch.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { projectSteps } from "../process/project.ts";
+import type { TrackerPort } from "../ports/tracker.ts";
 import { Selector } from "../process/schema.ts";
 import {
   fits,
@@ -128,14 +129,66 @@ function stepsOf(process: Revision) {
   }
 }
 
+interface Tracked {
+  size: Size | null;
+  stage: string | null;
+  kickoffLine: ProcessRef | null;
+  fields: Pick<Story, "status" | "title" | "kickoff_line">;
+}
+
+const untracked: Tracked = {
+  size: null,
+  stage: null,
+  kickoffLine: null,
+  fields: { status: null, title: null, kickoff_line: null },
+};
+
+async function readTracked(
+  tracker: TrackerPort | null,
+  log: ReceiptLog,
+  input: RunCreateInput,
+): Promise<Tracked | Refused> {
+  if (tracker === null) return untracked;
+  log.at({ run_id: null, task_id: null, op_key: null });
+  const read = await tracker.readStory({
+    provider: input.provider,
+    external_id: input.story,
+  });
+  if (!read.ok)
+    return refuse(
+      "failed",
+      `tracker read of story:${input.story} failed: ${read.error ?? "no reply"}`,
+      [input.command],
+    );
+  if (read.result === null)
+    return refuse("story_not_found", `no Story ${input.story} in the tracker`, [
+      "check the Story id",
+    ]);
+  const story = read.result;
+  return {
+    size: story.size,
+    stage: story.stageLabel,
+    kickoffLine: story.kickoffLine,
+    fields: {
+      status: story.status,
+      title: story.title,
+      kickoff_line: story.kickoffText,
+    },
+  };
+}
+
 export async function runCreate(
   db: Db,
   orca: OrcaPort,
+  tracker: TrackerPort | null,
   log: ReceiptLog,
   input: RunCreateInput,
 ): Promise<Outcome<RunCreateResult>> {
   const story = `story:${input.story}`;
-  const { size, stage } = input;
+  const tracked = await readTracked(tracker, log, input);
+  if ("ok" in tracked) return tracked;
+  const size = input.size ?? tracked.size;
+  const stage = input.stage ?? tracked.stage;
   if (size === null)
     return refuse("selector_none", `${story} has no size`, [
       "--size xs|s|m|l|xl",
@@ -162,7 +215,7 @@ export async function runCreate(
   const selected = selectProcess({
     stage,
     size,
-    kickoffLine: null,
+    kickoffLine: tracked.kickoffLine,
     cliProcess: input.process,
     activations,
     named: named === null ? null : activeOf(named),
@@ -205,6 +258,7 @@ export async function runCreate(
         run_id: null,
         dependencies: [],
         synced_at: now,
+        ...tracked.fields,
       });
     return inserted;
   });
@@ -274,6 +328,7 @@ export async function runCreate(
       run_id: runId,
       dependencies: [],
       synced_at: at,
+      ...tracked.fields,
     });
     await tx.moveOperation(opKey, "done", { run_id: runId }, at);
   });

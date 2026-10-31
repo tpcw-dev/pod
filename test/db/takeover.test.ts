@@ -151,7 +151,7 @@ describeDb("pod takeover", () => {
 
   async function pass(entries: readonly TempEntry[], generation = 1) {
     const { orca, log } = replay(conn, entries);
-    const outcome = await checkPass(conn.db, orca, log, {
+    const outcome = await checkPass(conn.db, orca, null, log, {
       run: "run_1",
       generation,
       host: "local",

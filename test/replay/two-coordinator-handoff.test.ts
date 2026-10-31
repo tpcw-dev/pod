@@ -52,7 +52,7 @@ describeDb(scenario, () => {
       },
     });
     const now = () => new Date();
-    const created = await runCreate(conn.db, orca, log, {
+    const created = await runCreate(conn.db, orca, null, log, {
       story: "REC-H",
       process: { name: scenario, rev: 1 },
       size: "s",
@@ -112,7 +112,7 @@ describeDb(scenario, () => {
     const stale = { ok: false, refusal: { code: "owner_generation_stale" } };
     expect(await dispatchAs(t2 ?? "", "rec-b")).toMatchObject(stale);
     expect(
-      await checkPass(conn.db, orca, log, {
+      await checkPass(conn.db, orca, null, log, {
         run: run_id,
         generation: 1,
         host: "rec",
@@ -132,7 +132,7 @@ describeDb(scenario, () => {
     ).toMatchObject(stale);
     expect(verbs.length).toBe(afterRunUse);
 
-    const checked = await checkPass(conn.db, orca, log, {
+    const checked = await checkPass(conn.db, orca, null, log, {
       run: run_id,
       generation: 2,
       host: "rec",

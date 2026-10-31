@@ -59,7 +59,7 @@ describeDb("pod check --wait", () => {
 
   async function wait(entries: readonly TempEntry[]) {
     const { orca, log } = replay(conn, entries);
-    const outcome = await checkWait(conn.db, orca, log, input());
+    const outcome = await checkWait(conn.db, orca, null, log, input());
     orca.assertDone();
     return outcome;
   }

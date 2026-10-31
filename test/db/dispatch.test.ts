@@ -67,7 +67,7 @@ describeDb("pod dispatch", () => {
       ]),
       sink: log.sink,
     });
-    const created = await runCreate(conn.db, orca, log, {
+    const created = await runCreate(conn.db, orca, null, log, {
       story: "S-1",
       process: { name: "impl", rev: 1 },
       size: "s",

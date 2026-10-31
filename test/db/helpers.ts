@@ -87,7 +87,15 @@ export function runCli(
     ["src/cli/index.ts", ...args],
     {
       encoding: "utf8",
-      env: { ...process.env, POD_DB_URL: dbUrl(), POD_HOME: podHome, ...env },
+      env: {
+        ...process.env,
+        POD_TRACKER_TOKEN: "",
+        POD_TRACKER_RECORD: "",
+        POD_TRACKER_FIXTURES: "",
+        POD_DB_URL: dbUrl(),
+        POD_HOME: podHome,
+        ...env,
+      },
     },
   );
   return {

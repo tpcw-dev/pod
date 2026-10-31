@@ -86,6 +86,53 @@ export interface Story {
   run_id: string | null;
   dependencies: Json;
   synced_at: Date;
+  status: string | null;
+  title: string | null;
+  kickoff_line: string | null;
+}
+
+export interface StorySync {
+  status: string;
+  title: string;
+  kickoff_line: string | null;
+  synced_at: Date;
+}
+
+const OutboxStoryRef = z.strictObject({
+  provider: z.string().min(1),
+  external_id: z.string().min(1),
+});
+
+export const OutboxPayload = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("comment"),
+    story: OutboxStoryRef,
+    body: z.string().min(1),
+    hash: z.string().regex(/^[0-9a-f]{64}$/),
+  }),
+  z.strictObject({
+    kind: z.literal("status"),
+    story: OutboxStoryRef,
+    status: z.string().min(1),
+  }),
+]);
+export type OutboxPayload = z.infer<typeof OutboxPayload>;
+
+export interface NewOutboxRow {
+  op_key: string;
+  target: "tracker";
+  payload: OutboxPayload;
+}
+
+export interface OutboxRow {
+  id: number;
+  op_key: string;
+  target: "tracker";
+  payload: Json;
+  tries: number;
+  last_error: string | null;
+  acked_at: Date | null;
+  readback: Json | null;
 }
 
 export interface Run {

@@ -3,6 +3,8 @@
 Terms Pod uses. Orca's words keep Orca's meaning.
 
 - **Story**: the unit of work a tracker holds. One story, one run.
+- **Outbox**: the ledger queue of tracker writes. A row is done only when a readback shows the write.
+- **Readback**: a tracker read after a write that shows whether the write landed.
 - **Size**: the magnitude of a story, one of xs, s, m, l, xl. The tracker's estimate maps onto it.
 - **Run**: Orca's run for one story. A run pins one revision each of crew, process, and policy.
 - **Coordinator**: the agent session that runs the `pod` verbs for one run and holds its owner generation. Not Orca's orchestration layer.

@@ -71,7 +71,7 @@ describeDb("pod check reconciles unknown launches", () => {
     over: { now?: () => Date; leaseSeconds?: number } = {},
   ) {
     const { orca, log } = replay(conn, entries);
-    const outcome = await checkPass(conn.db, orca, log, {
+    const outcome = await checkPass(conn.db, orca, null, log, {
       run: "run_1",
       generation: 1,
       host: "local",

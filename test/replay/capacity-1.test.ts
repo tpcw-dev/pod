@@ -45,7 +45,7 @@ describeDb("capacity-1", () => {
         await log.sink(record);
       },
     });
-    const created = await runCreate(conn.db, orca, log, {
+    const created = await runCreate(conn.db, orca, null, log, {
       story: "REC-3",
       process: { name: "capacity-1", rev: 1 },
       size: "s",
@@ -89,7 +89,7 @@ describeDb("capacity-1", () => {
       refusal: { code: "quota_exhausted" },
     });
 
-    const checked = await checkPass(conn.db, orca, log, {
+    const checked = await checkPass(conn.db, orca, null, log, {
       run: run_id,
       generation: 1,
       host: "rec",

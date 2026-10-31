@@ -17,7 +17,12 @@ function home(profile: string | null): void {
   process.env["POD_HOME"] = dir;
 }
 
-const defaults = { capacity: 2, trackerKind: "linear" };
+const defaults = {
+  capacity: 2,
+  trackerKind: "linear",
+  trackerTokenEnv: "POD_TRACKER_TOKEN",
+  estimateScale: "fibonacci",
+};
 
 test("no profile reads the defaults", () => {
   home(null);
@@ -75,6 +80,19 @@ test("capacity and tracker.kind are read when set", () => {
     urlEnv: "POD_DB_URL",
     capacity: 1,
     trackerKind: "other",
+    trackerTokenEnv: "POD_TRACKER_TOKEN",
+    estimateScale: "fibonacci",
+  });
+});
+
+test("tracker.token_env and tracker.estimate_scale are read when set", () => {
+  home("tracker:\n  token_env: T\n  estimate_scale: tshirt\n");
+  expect(readHostProfile()).toEqual({
+    ...defaults,
+    hostId: "local",
+    urlEnv: "POD_DB_URL",
+    trackerTokenEnv: "T",
+    estimateScale: "tshirt",
   });
 });
 
