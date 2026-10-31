@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Stance } from "./decision.ts";
 import { TestResult } from "./ledger.ts";
 import type { OrcaMessage } from "../ports/orca.ts";
 
@@ -14,7 +15,12 @@ const AckedOnly = z.enum([
 const WorkerOutcome = z.enum(["succeeded", "failed"]);
 
 export type IgnoredReason =
-  "no_dispatch" | "unknown_dispatch" | "settled_dispatch";
+  | "no_dispatch"
+  | "unknown_dispatch"
+  | "settled_dispatch"
+  | "settled_decision"
+  | "out_of_turn"
+  | "malformed_decision";
 
 export type DeliveryRow =
   | { kind: "ignored"; reason: IgnoredReason }
@@ -126,4 +132,51 @@ export function deliveryTests(message: OrcaMessage): {
       );
   }
   return { tests, ignored };
+}
+
+const DecisionKind = z.enum(["decision_proposal", "decision_audit"]);
+const Round = z.int().min(1).max(3);
+
+const DecisionProposal = z.looseObject({
+  kind: z.literal("decision_proposal"),
+  dispatchId: Text,
+  decisionId: Text,
+  round: Round,
+  proposal: Text,
+  citations: z.array(z.string()),
+});
+
+const DecisionAudit = z.looseObject({
+  kind: z.literal("decision_audit"),
+  dispatchId: Text,
+  decisionId: Text,
+  round: Round,
+  stance: Stance,
+  reasons: z.array(z.string()),
+  points_of_disagreement: z.array(z.string()),
+});
+
+export type DecisionProposal = z.infer<typeof DecisionProposal>;
+export type DecisionAudit = z.infer<typeof DecisionAudit>;
+export type DecisionMessage = DecisionProposal | DecisionAudit;
+
+export type DecisionRead =
+  | { kind: "none" }
+  | { kind: "malformed"; detail: string }
+  | { kind: "message"; message: DecisionMessage };
+
+export function readDecisionMessage(message: OrcaMessage): DecisionRead {
+  if (message.type !== "decision_gate") return { kind: "none" };
+  const payload: Record<string, unknown> = message.payload;
+  const kind = DecisionKind.safeParse(payload["kind"]);
+  if (!kind.success) return { kind: "none" };
+  const parsed = (
+    kind.data === "decision_proposal" ? DecisionProposal : DecisionAudit
+  ).safeParse(payload);
+  if (!parsed.success)
+    return {
+      kind: "malformed",
+      detail: `${kind.data} on message ${message.id}: ${parsed.error.issues[0]?.message ?? "malformed"}`,
+    };
+  return { kind: "message", message: parsed.data };
 }

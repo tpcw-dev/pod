@@ -7,7 +7,6 @@ import {
   type Outcome,
   type Refusal,
 } from "../domain/outcome.ts";
-import { drainInForce } from "../ledger/drain-in-force.ts";
 import { stopOnOpen } from "../ledger/launch.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
@@ -26,7 +25,8 @@ import {
   type DispatchResult,
   type LaunchArgs,
 } from "./launch-record.ts";
-import { freeSlots, onHost, openLaunches } from "./quota.ts";
+import { drainRefusal, slotRefusal } from "./launch-gate.ts";
+import { openLaunches } from "./quota.ts";
 import { readSeats, SeatsInvalid, type Seat } from "./seats.ts";
 
 export interface DispatchInput {
@@ -69,12 +69,8 @@ async function precondition(
   checked: Checked,
 ): Promise<{ refusal: Refusal } | { seat: Seat }> {
   const { run, task, seat } = checked;
-  if (await drainInForce(tx, run.run_id))
-    return stopWith("drained", `a drain is in force on Run ${run.run_id}`, [
-      "pod check",
-      "pod release",
-      "this refusal is recorded under its op key; pass a new --op-key once the drain ends",
-    ]);
+  const drained = await drainRefusal(tx, run.run_id);
+  if (drained !== null) return { refusal: drained };
   const unmet: string[] = [];
   for (const dep of z.array(z.string()).parse(task.deps)) {
     const row = await tx.getTask(dep);
@@ -107,21 +103,8 @@ async function precondition(
         ...(blocked === null ? [] : [`Run blocked by a ${blocked.type} event`]),
       ],
     );
-  const reservations = onHost(launches, input.host);
-  const slots = freeSlots(
-    input.capacity,
-    await tx.hostActivities(input.host),
-    reservations,
-  );
-  if (slots < 1)
-    return stopWith("quota_exhausted", `no free slot on host ${input.host}`, [
-      ...reservations.map(
-        (row) => `reservation ${row.op_key} is ${row.status}`,
-      ),
-      "running Dispatches on this host hold the rest",
-      "pod check --wait",
-      "this refusal is recorded under its op key; pass a new --op-key once a slot frees",
-    ]);
+  const full = await slotRefusal(tx, input.host, input.capacity, launches);
+  if (full !== null) return { refusal: full };
   if (
     seat === undefined ||
     !seat.roles.includes(task.role) ||

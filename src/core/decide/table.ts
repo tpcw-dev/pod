@@ -1,25 +1,13 @@
 import type { DecisionState, Round } from "../domain/decision.ts";
 
 export type DecisionEvent =
-  | "open"
-  | "agree"
-  | "disagree"
-  | "escalate"
-  | "needs_evidence"
-  | "cancel";
+  "open" | "agree" | "disagree" | "escalate" | "needs_evidence" | "cancel";
 
 export type Effect =
-  | "send_round_open"
-  | "send_round_next"
-  | "record_outcome"
-  | "hold_task";
+  "send_round_open" | "send_round_next" | "record_outcome" | "hold_task";
 
 type From =
-  | "requested"
-  | "round"
-  | "round_below_bound"
-  | "round_at_bound"
-  | "open";
+  "requested" | "round" | "round_below_bound" | "round_at_bound" | "open";
 
 type To = DecisionState | "next_round";
 
@@ -112,6 +100,8 @@ export function next(
   };
 }
 
-export function proposalStance(citations: readonly string[]): "disagree" | null {
+export function proposalStance(
+  citations: readonly string[],
+): "disagree" | null {
   return citations.length === 0 ? "disagree" : null;
 }

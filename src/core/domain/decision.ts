@@ -16,7 +16,12 @@ export interface Decision {
   standing: boolean;
 }
 
-export const Stance = z.enum(["agree", "disagree", "escalate", "needs_evidence"]);
+export const Stance = z.enum([
+  "agree",
+  "disagree",
+  "escalate",
+  "needs_evidence",
+]);
 export type Stance = z.infer<typeof Stance>;
 
 export const DecisionEffect = z.enum(["accept_plan"]);
@@ -25,10 +30,7 @@ export type DecisionEffect = z.infer<typeof DecisionEffect>;
 export type Round = 1 | 2 | 3;
 
 export type NeedsHumanReason =
-  | "policy-required"
-  | "disagreement"
-  | "context-missing"
-  | "runtime-failure";
+  "policy-required" | "disagreement" | "context-missing" | "runtime-failure";
 
 export type DecisionState =
   | { kind: "requested" }
@@ -66,9 +68,15 @@ export function parseDecisionState(
   if (round !== null) return { kind: "round", n: Number(round[1]) as Round };
   if (text === "requested" || text === "agreed" || text === "cancelled")
     return { kind: text };
-  if (text === "needs_human" && reason !== null && needsHumanReasons.includes(reason))
+  if (
+    text === "needs_human" &&
+    reason !== null &&
+    needsHumanReasons.includes(reason)
+  )
     return { kind: "needs_human", reason: reason as NeedsHumanReason };
-  throw new Error(`unknown Decision state ${text} (reason ${reason ?? "none"})`);
+  throw new Error(
+    `unknown Decision state ${text} (reason ${reason ?? "none"})`,
+  );
 }
 
 export interface DecisionRow {

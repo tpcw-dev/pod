@@ -18,7 +18,11 @@ const sideEffectVerbs = [
   "learning add",
 ] as const;
 
-const expectedVerbs = [
+const expectedVerbs: readonly {
+  story: string;
+  name: string;
+  status: "done" | "todo";
+}[] = [
   { story: "S2", name: "db migrate", status: "done" },
   { story: "S2", name: "config apply", status: "done" },
   { story: "S2", name: "config export", status: "done" },
@@ -35,8 +39,8 @@ const expectedVerbs = [
   { story: "S10", name: "learning add", status: "done" },
   { story: "S10", name: "learning query", status: "done" },
   { story: "S11", name: "state", status: "done" },
-  { story: "S12", name: "decide", status: "todo" },
-] as const;
+  { story: "S12", name: "decide", status: "done" },
+];
 
 const extraVerbs = [
   { story: "S11", name: "docs read", sideEffect: "none" },

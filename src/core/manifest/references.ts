@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { canonicalJson, sha256Hex } from "../config/canonical-json.ts";
 import type { Revision } from "../domain/config.ts";
-import type { Run, Story, Task } from "../domain/ledger.ts";
+import type { Event, Run, Story, Task } from "../domain/ledger.ts";
 
 export const manifestSources = [
   "story",
@@ -11,6 +11,7 @@ export const manifestSources = [
   "process",
   "policy",
   "decision",
+  "delivery",
   "git_status",
 ] as const;
 
@@ -105,6 +106,24 @@ export function revisionReference(revision: Revision): ManifestReference {
     coverage: "full",
     excerpt: canonical,
   };
+}
+
+export function deliveryReference(event: Event): ManifestReference {
+  const observedAt = iso(event.ts);
+  const canonical = canonicalJson({
+    dispatch_id: event.dispatch_id,
+    event_id: event.id,
+    payload: event.payload,
+    task_id: event.task_id,
+    ts: observedAt,
+  });
+  return reference("delivery", canonical, observedAt, canonical);
+}
+
+export function manifestText(references: readonly ManifestReference[]): string {
+  return references
+    .map((row) => `- ${row.source}:${row.revision} ${row.excerpt}`)
+    .join("\n");
 }
 
 export function gitStatusReference(

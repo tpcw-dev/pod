@@ -26,6 +26,7 @@ import {
   VerdictPostOutput,
   verdictPostVerb,
 } from "./gate-verbs.ts";
+import { DecideInput, DecideOutput, decideVerb } from "./decide-verbs.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
 import {
   DocsReadInput,
@@ -180,6 +181,18 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
       'Task state `ready`, every dependency satisfied as "Task states" defines, a free quota slot, which on an xl Run counts the coordinator\'s slot as released by the dispatch transaction, an authorized Seat for the Role, reviewer independent of developer, no drain in force',
     ],
     meta: runMeta,
+  }),
+  row({
+    name: "decide",
+    input: DecideInput,
+    output: DecideOutput,
+    handler: decideVerb,
+    sideEffect: "orca",
+    cancelBy: ["operator"],
+    evidenceRequired: [
+      'the Reserved check passed, an Evidence manifest is pinned, and the `effect` fits the Task as "Decision effects" requires',
+    ],
+    meta: (output) => ({ opKey: output.op_key, orca: output.orca }),
   }),
   row({
     name: "check",
