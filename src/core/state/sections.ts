@@ -195,7 +195,11 @@ async function taskWaiting(
       const process = run.snapshot?.process ?? null;
       const step = stepOf(process, task);
       if (step?.gate === undefined || step.decision !== undefined)
-        return waitingOn(process, task);
+        return waitingOn(
+          process,
+          task,
+          run.decisions.find((row) => row.task_id === task.task_id),
+        );
       if (liveReceipt(receipts, task, step.gate) !== null) return null;
       const keeper = gateOf(run.snapshot?.policy?.value, step.gate);
       return keeper === null
@@ -334,6 +338,18 @@ export async function needsHumanSection(
   const closed: NeedsHumanSection["items"] = [];
   for (const story of tree.stories)
     for (const run of story.runs) {
+      for (const decision of await ctx.repo.listRunDecisions(run.run.run_id))
+        if (decision.state === "needs_human")
+          open.push({
+            story: story.story.external_id,
+            run_id: run.run.run_id,
+            task_id: decision.task_id ?? "",
+            gate: `decision ${decision.id}`,
+            keeper: "operator",
+            open: true,
+            reason: `decision needs_human: ${decision.reason ?? "unknown"}`,
+            at: (decision.closed_at ?? decision.created_at).toISOString(),
+          });
       const policy = run.snapshot?.policy ?? null;
       if (policy === null) continue;
       const receipts = await ctx.repo.listGateReceipts(run.run.run_id);

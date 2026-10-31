@@ -4,6 +4,7 @@ import { contentHash } from "../../src/core/gate/receipt.ts";
 import { postVerdict, type VerdictFile } from "../../src/core/gate/verdict.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { noCalls } from "../orca/temp-fixtures.ts";
+import { deliveredPlan, planTask } from "./decision-fixture.ts";
 import { gatedRun, headSha } from "./gate-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
 import { taskState } from "./run-fixture.ts";
@@ -179,5 +180,39 @@ describeDb("pod verdict post", () => {
       ok: false,
       refusal: { code: "role_unfilled" },
     });
+  });
+});
+
+describeDb("pod verdict post on a decision step", () => {
+  let conn: Connection;
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  test("the plan Task of an xl Run is decision_not_gate naming pod decide", async () => {
+    await deliveredPlan(conn);
+    const outcome = await postVerdict(
+      conn.db,
+      noCalls(),
+      receiptLog(conn.db, "local"),
+      {
+        file: file({ gate: "plan", task: planTask }),
+        generation: 1,
+        host: "local",
+        command: "pod verdict post verdict.yaml --generation 1",
+        now: () => new Date(),
+      },
+    );
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "decision_not_gate",
+        nextSteps: [expect.stringMatching(/^pod decide --task task_plan /)],
+      },
+    });
+    expect(await taskState(conn, planTask)).toBe("delivered");
   });
 });

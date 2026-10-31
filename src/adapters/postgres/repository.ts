@@ -1161,6 +1161,7 @@ function makeRepo(x: Executor): Repo {
                   },
             tasks: runTasks,
             dispatches,
+            decisions: await repo.openDecisionsForRun(runRow.runId),
             counters: countBriefRun(
               { run_id: runRow.runId },
               runTasks,
