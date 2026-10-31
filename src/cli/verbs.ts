@@ -33,6 +33,8 @@ import {
   docsRead,
   renderSection,
 } from "./docs-verbs.ts";
+import { StateInput, StateOutput, stateVerb } from "./state-verbs.ts";
+import { renderState } from "../core/state/render.ts";
 import {
   DrainInput,
   drainMeta,
@@ -101,6 +103,18 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     evidenceRequired: [
       "a Story whose external_id matches story:<id> when that argument is set",
     ],
+  }),
+  row({
+    name: "state",
+    input: StateInput,
+    output: StateOutput,
+    handler: stateVerb,
+    sideEffect: "none",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "a Story whose external_id matches story:<id> when that argument is set",
+    ],
+    render: renderState,
   }),
   row({
     name: "config apply",

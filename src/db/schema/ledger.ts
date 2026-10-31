@@ -6,6 +6,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgSchema,
   primaryKey,
   text,
@@ -269,5 +270,27 @@ export const gateReceipt = ledger.table(
       sql`${t.syncState} in ('pending', 'synced', 'voided')`,
     ),
     index("gate_receipt_run_idx").on(t.runId),
+  ],
+);
+
+export const usageObservation = ledger.table(
+  "usage_observation",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    provider: text("provider").notNull(),
+    seat: text("seat"),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    windowEnd: timestamp("window_end", { withTimezone: true }).notNull(),
+    value: numeric("value"),
+    coverage: text("coverage").notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    source: jsonb("source").notNull(),
+  },
+  (t) => [
+    check(
+      "usage_observation_coverage_check",
+      sql`${t.coverage} in ('measured', 'partial', 'no_source')`,
+    ),
+    index("usage_observation_provider_idx").on(t.provider, t.observedAt),
   ],
 );

@@ -247,3 +247,21 @@ export interface Operation {
   created_at: Date;
   updated_at: Date;
 }
+
+export const Coverage = z.enum(["measured", "partial", "no_source"]);
+export type Coverage = z.infer<typeof Coverage>;
+
+export interface NewUsageObservation {
+  provider: string;
+  seat: string | null;
+  window_start: Date;
+  window_end: Date;
+  value: string | null;
+  coverage: Coverage;
+  observed_at: Date;
+  source: Json;
+}
+
+export interface UsageObservation extends NewUsageObservation {
+  id: number;
+}
