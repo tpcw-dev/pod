@@ -56,12 +56,14 @@ test("help lists the verbs sorted by name", () => {
     "db migrate",
     "dispatch",
     "drain",
+    "hqa record",
     "learning add",
     "learning query",
     "release",
     "retry",
     "run create",
     "takeover",
+    "verdict post",
   ]);
 });
 

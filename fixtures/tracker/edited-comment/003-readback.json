@@ -1,0 +1,14 @@
+{
+  "method": "readback",
+  "match": {
+    "operation": "StoryComments",
+    "variables": {
+      "id": "TRK-1",
+      "after": null
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"issue\":{\"comments\":{\"nodes\":[{\"id\":\"00000000-0000-4000-8000-000000000013\",\"body\":\"review PASS\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"}},{\"id\":\"00000000-0000-4000-8000-000000000015\",\"body\":\"hqa_after_deploy PASS\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"}},{\"id\":\"00000000-0000-4000-8000-000000000016\",\"body\":\"hqa_after_deploy PASS\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000017\"}},{\"id\":\"00000000-0000-4000-8000-000000000018\",\"body\":\"pod fixture: tracker-dropped-reply\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000017\"}},{\"id\":\"00000000-0000-4000-8000-000000000019\",\"body\":\"pod adapter probe for the TRK-2 tech design (shape check)\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000017\"}}],\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":\"00000000-0000-4000-8000-000000000019\"}}}}}\n",
+  "error": null,
+  "recordedAt": "2026-10-31T06:29:06.436Z"
+}

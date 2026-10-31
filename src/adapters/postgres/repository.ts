@@ -36,12 +36,16 @@ import {
   Intent,
   ModelAttribution,
   OperationStatus,
+  ReceiptOutcome,
   RunState,
   Size,
+  SyncState,
   statusesMovingTo,
   type Dispatch,
   type EvidenceManifest,
   type Event,
+  type GateReceipt,
+  type NewGateReceipt,
   type NewEvent,
   type NewOperation,
   type NewOutboxRow,
@@ -62,6 +66,7 @@ const {
   dispatch,
   event,
   evidenceManifest,
+  gateReceipt,
   learning,
   operation,
   outbox,
@@ -213,6 +218,24 @@ function toOutbox(row: typeof outbox.$inferSelect): OutboxRow {
     last_error: row.lastError,
     acked_at: row.ackedAt,
     readback: jsonOrNull(row.readback),
+  };
+}
+
+function toGateReceipt(row: typeof gateReceipt.$inferSelect): GateReceipt {
+  return {
+    id: row.id,
+    gate_id: row.gateId,
+    run_id: row.runId,
+    task_id: row.taskId,
+    scope: row.scope,
+    spec_revision_id: row.specRevisionId,
+    candidate_sha: row.candidateSha,
+    deployed_revision: row.deployedRevision,
+    keeper: row.keeper,
+    outcome: ReceiptOutcome.parse(row.outcome),
+    source: json(row.source),
+    sync_state: SyncState.parse(row.syncState),
+    created_at: row.createdAt,
   };
 }
 
@@ -479,6 +502,55 @@ function makeRepo(x: Executor): Repo {
         .update(outbox)
         .set({ lastError: error, tries: sql`${outbox.tries} + 1` })
         .where(and(eq(outbox.id, id), isNull(outbox.ackedAt)));
+    },
+
+    async outboxByOpKey(opKey) {
+      const [row] = await x
+        .select()
+        .from(outbox)
+        .where(eq(outbox.opKey, opKey))
+        .orderBy(asc(outbox.id))
+        .limit(1);
+      return row === undefined ? null : toOutbox(row);
+    },
+
+    async insertGateReceipt(row: NewGateReceipt) {
+      const [inserted] = await x
+        .insert(gateReceipt)
+        .values({
+          gateId: row.gate_id,
+          runId: row.run_id,
+          taskId: row.task_id,
+          scope: row.scope,
+          specRevisionId: row.spec_revision_id,
+          candidateSha: row.candidate_sha,
+          deployedRevision: row.deployed_revision,
+          keeper: row.keeper,
+          outcome: row.outcome,
+          source: row.source,
+          syncState: row.sync_state,
+          createdAt: row.created_at,
+        })
+        .returning();
+      if (inserted === undefined)
+        throw new Error("gate receipt insert returned no row");
+      return toGateReceipt(inserted);
+    },
+
+    async listGateReceipts(runId) {
+      const rows = await x
+        .select()
+        .from(gateReceipt)
+        .where(eq(gateReceipt.runId, runId))
+        .orderBy(asc(gateReceipt.id));
+      return rows.map(toGateReceipt);
+    },
+
+    async setGateReceiptSync(id, state) {
+      await x
+        .update(gateReceipt)
+        .set({ syncState: state })
+        .where(eq(gateReceipt.id, id));
     },
 
     async getStory(provider, externalId) {
@@ -870,6 +942,21 @@ function makeRepo(x: Executor): Repo {
         )
         .limit(1);
       return rows.length > 0;
+    },
+
+    async eventWith(type, payload) {
+      const [row] = await x
+        .select()
+        .from(event)
+        .where(
+          and(
+            eq(event.type, type),
+            sql`${event.payload} @> ${JSON.stringify(payload)}::jsonb`,
+          ),
+        )
+        .orderBy(asc(event.id))
+        .limit(1);
+      return row === undefined ? null : toEvent(row);
     },
 
     async latestEvent(runId, type, options) {

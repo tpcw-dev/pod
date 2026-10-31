@@ -1,0 +1,13 @@
+{
+  "method": "readStory",
+  "match": {
+    "operation": "Story",
+    "variables": {
+      "id": "TRK-1"
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"issue\":{\"id\":\"00000000-0000-4000-8000-000000000001\",\"identifier\":\"TRK-1\",\"title\":\"meta: Pod tracker fixture scratch Story (do not groom or launch)\",\"description\":\"Scratch Story for recording Pod tracker fixtures (TRK-2 S6a, later TRK-3 S6b). Pod leads post and read comments here, edit one comment, and set Canceled during recordings. Nobody grooms, launches, or drives this ticket. Cancel it when S6b's fixtures are recorded.\\n\\nLogged from: trk-dev/pod\",\"estimate\":null,\"state\":{\"id\":\"00000000-0000-4000-8000-000000000002\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"labels\":{\"nodes\":[{\"name\":\"meta\"}]},\"team\":{\"id\":\"00000000-0000-4000-8000-000000000003\",\"key\":\"trk\",\"states\":{\"nodes\":[{\"id\":\"00000000-0000-4000-8000-000000000004\",\"name\":\"HQA\",\"type\":\"started\"},{\"id\":\"00000000-0000-4000-8000-000000000005\",\"name\":\"Pending-groom\",\"type\":\"backlog\"},{\"id\":\"00000000-0000-4000-8000-000000000006\",\"name\":\"Story-verified\",\"type\":\"started\"},{\"id\":\"00000000-0000-4000-8000-000000000007\",\"name\":\"In-review\",\"type\":\"started\"},{\"id\":\"00000000-0000-4000-8000-000000000008\",\"name\":\"Done\",\"type\":\"completed\"},{\"id\":\"00000000-0000-4000-8000-000000000009\",\"name\":\"Todo\",\"type\":\"unstarted\"},{\"id\":\"00000000-0000-4000-8000-000000000010\",\"name\":\"Doing\",\"type\":\"started\"},{\"id\":\"00000000-0000-4000-8000-000000000011\",\"name\":\"Canceled\",\"type\":\"canceled\"},{\"id\":\"00000000-0000-4000-8000-000000000002\",\"name\":\"Backlog\",\"type\":\"backlog\"},{\"id\":\"00000000-0000-4000-8000-000000000012\",\"name\":\"Duplicate\",\"type\":\"duplicate\"}]}}}}}\n",
+  "error": null,
+  "recordedAt": "2026-10-31T05:41:18.253Z"
+}

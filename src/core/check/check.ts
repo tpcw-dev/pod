@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { deliveryOutcome, type DeliveryRow } from "../domain/delivery.ts";
+import {
+  deliveryFacts,
+  deliveryOutcome,
+  type DeliveryRow,
+} from "../domain/delivery.ts";
 import { HoldPayload, latestDispatch, resumeTarget } from "../domain/hold.ts";
 import { Json } from "../domain/json.ts";
 import type { Dispatch, Run, Task } from "../domain/ledger.ts";
@@ -15,6 +19,8 @@ import { recordDelivery } from "../process/project.ts";
 import type { TrackerPort } from "../ports/tracker.ts";
 import { drainOutbox } from "../tracker/outbox.ts";
 import { syncStory } from "../tracker/sync.ts";
+import { voidEditedReceipts } from "../gate/hqa.ts";
+import { syncVerdictReceipts } from "../gate/verdict.ts";
 import { fence, StaleGeneration } from "./fence.ts";
 import { reconcileLaunches, type Reconciled } from "./reconcile.ts";
 import { reconcileTakeovers } from "./takeover-reconcile.ts";
@@ -142,6 +148,14 @@ export async function checkPass(
         tracked.push(
           `tracker outbox row ${failed.id} failed: ${failed.error}; run pod check again`,
         );
+      await syncVerdictReceipts(db, run.run_id);
+      const voids = await voidEditedReceipts(db, tracker, log, {
+        run: run.run_id,
+        generation: input.generation,
+        host: input.host,
+        now: input.now,
+      });
+      tracked.push(...voids.nextSteps);
     }
     result.nextSteps.unshift(...tracked);
     const read = await readDeliveries(db, orca, log, input, result);
@@ -273,6 +287,20 @@ async function recordMessage(
     dispatch_id: known.dispatch_id,
     outcome: row.outcome,
   });
+  if (message.type === "worker_done") {
+    const { facts, ignored } = deliveryFacts(message);
+    result.nextSteps.push(...ignored);
+    for (const fact of facts)
+      await tx.appendEvent({
+        ...base,
+        type: fact.type,
+        payload: {
+          task_id: known.task_id,
+          dispatch_id: known.dispatch_id,
+          ...fact.fields,
+        },
+      });
+  }
   const task = await tx.getTask(known.task_id);
   if (task === null) return;
   if (row.outcome === "unknown") {

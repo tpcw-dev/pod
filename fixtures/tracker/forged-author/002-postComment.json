@@ -1,0 +1,14 @@
+{
+  "method": "postComment",
+  "match": {
+    "operation": "PostComment",
+    "variables": {
+      "issueId": "TRK-1",
+      "bodyHash": "7c1ec43e48c5e12a8772bcedb6c128b94d4319650e9dabb99ad25b56edbd81fb"
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"commentCreate\":{\"success\":true,\"comment\":{\"id\":\"00000000-0000-4000-8000-000000000013\",\"body\":\"hqa_after_deploy PASS\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"}}}}}\n",
+  "error": null,
+  "recordedAt": "2026-10-31T05:41:18.533Z"
+}

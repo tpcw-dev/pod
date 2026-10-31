@@ -81,11 +81,12 @@ export async function scenario(
 export async function startRun(
   conn: Connection,
   { log, story }: Scenario,
+  processName = "stale-dispatch-id",
 ): Promise<{ orca: ReturnType<typeof makeReplayOrca>; runId: string }> {
   const orca = makeReplayOrca({ dir: orcaDir, sink: log.sink });
   const created = await runCreate(conn.db, orca, null, log, {
     story: story.external_id,
-    process: { name: "stale-dispatch-id", rev: 1 },
+    process: { name: processName, rev: 1 },
     size: "s",
     stage: "impl",
     coordinator: "record",

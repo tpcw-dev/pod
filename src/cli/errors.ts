@@ -19,6 +19,9 @@ export type ErrorCode =
   | "release_refused"
   | "takeover_unsafe"
   | "orca_version_unsupported"
+  | "receipt_stale_sha"
+  | "receipt_no_deploy"
+  | "receipt_unverified_source"
   | "failed";
 
 const exits: Partial<Record<ErrorCode, number>> = {

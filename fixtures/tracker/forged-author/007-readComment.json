@@ -1,0 +1,13 @@
+{
+  "method": "readComment",
+  "match": {
+    "operation": "Comment",
+    "variables": {
+      "id": "00000000-0000-4000-8000-000000000017"
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"comment\":{\"id\":\"00000000-0000-4000-8000-000000000017\",\"body\":\"hqa_after_deploy PASS\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000018\"},\"issue\":{\"identifier\":\"TRK-1\"}}}}\n",
+  "error": null,
+  "recordedAt": "2026-10-31T05:59:15.354Z"
+}

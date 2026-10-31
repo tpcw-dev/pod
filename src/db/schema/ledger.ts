@@ -238,3 +238,36 @@ export const outbox = ledger.table(
       .where(sql`${t.ackedAt} is null`),
   ],
 );
+
+export const gateReceipt = ledger.table(
+  "gate_receipt",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    gateId: text("gate_id").notNull(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => run.runId),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => task.taskId),
+    scope: text("scope").notNull(),
+    specRevisionId: text("spec_revision_id")
+      .notNull()
+      .references(() => revision.id),
+    candidateSha: text("candidate_sha").notNull(),
+    deployedRevision: text("deployed_revision"),
+    keeper: text("keeper").notNull(),
+    outcome: text("outcome").notNull(),
+    source: jsonb("source").notNull(),
+    syncState: text("sync_state").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    check("gate_receipt_outcome_check", sql`${t.outcome} in ('PASS', 'FAIL')`),
+    check(
+      "gate_receipt_sync_state_check",
+      sql`${t.syncState} in ('pending', 'synced', 'voided')`,
+    ),
+    index("gate_receipt_run_idx").on(t.runId),
+  ],
+);
