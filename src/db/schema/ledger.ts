@@ -11,6 +11,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { revision } from "./config.ts";
 
@@ -156,12 +157,11 @@ export const dispatch = ledger.table(
   "dispatch",
   {
     dispatchId: text("dispatch_id").primaryKey(),
-    taskId: text("task_id")
-      .notNull()
-      .references(() => task.taskId),
+    taskId: text("task_id").references(() => task.taskId),
     runId: text("run_id")
       .notNull()
       .references(() => run.runId),
+    decisionId: text("decision_id").references(() => decision.id),
     seat: text("seat").notNull(),
     role: text("role").notNull(),
     requestedLaunch: jsonb("requested_launch").notNull(),
@@ -192,6 +192,96 @@ export const dispatch = ledger.table(
     check(
       "dispatch_activity_check",
       sql`${t.activity} in ('running', 'waiting', 'settled')`,
+    ),
+    check(
+      "dispatch_owner_check",
+      sql`(${t.taskId} is null) = (${t.decisionId} is not null)`,
+    ),
+  ],
+);
+
+export const decision = ledger.table(
+  "decision",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => run.runId),
+    taskId: text("task_id").references(() => task.taskId),
+    category: text("category").notNull(),
+    effect: text("effect").notNull(),
+    question: text("question").notNull(),
+    options: jsonb("options").notNull(),
+    manifestId: text("manifest_id")
+      .notNull()
+      .references(() => evidenceManifest.id),
+    state: text("state").notNull(),
+    outcome: jsonb("outcome"),
+    reason: text("reason"),
+    binding: text("binding").notNull(),
+    budget: jsonb("budget").notNull(),
+    spent: jsonb("spent").notNull(),
+    supersedesDecisionId: text("supersedes_decision_id"),
+    adoption: text("adoption").notNull().default("pending"),
+    adoptionEvidence: jsonb("adoption_evidence").notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.supersedesDecisionId],
+      foreignColumns: [t.id],
+    }),
+    check(
+      "decision_effect_check",
+      sql`${t.effect} in ('accept_plan', 'change_spec')`,
+    ),
+    check(
+      "decision_state_check",
+      sql`${t.state} in ('requested', 'round:1', 'round:2', 'round:3', 'agreed', 'needs_human', 'cancelled')`,
+    ),
+    check(
+      "decision_reason_check",
+      sql`${t.reason} in ('policy-required', 'disagreement', 'context-missing', 'runtime-failure', 'agreed', 'cancelled', 'denied')`,
+    ),
+    check("decision_binding_check", sql`${t.binding} = 'run'`),
+    check(
+      "decision_adoption_check",
+      sql`${t.adoption} in ('pending', 'adopted', 'reworked', 'reversed')`,
+    ),
+    uniqueIndex("decision_open_task_idx")
+      .on(t.taskId)
+      .where(sql`${t.state} in ('requested', 'round:1', 'round:2', 'round:3')`),
+  ],
+);
+
+export const decisionRound = ledger.table(
+  "decision_round",
+  {
+    decisionId: text("decision_id")
+      .notNull()
+      .references(() => decision.id),
+    round: integer("round").notNull(),
+    deciderDispatchId: text("decider_dispatch_id")
+      .notNull()
+      .references(() => dispatch.dispatchId),
+    auditorDispatchId: text("auditor_dispatch_id")
+      .notNull()
+      .references(() => dispatch.dispatchId),
+    proposal: jsonb("proposal").notNull(),
+    audit: jsonb("audit").notNull(),
+    stance: text("stance").notNull(),
+    manifestId: text("manifest_id")
+      .notNull()
+      .references(() => evidenceManifest.id),
+    ts: timestamp("ts", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.decisionId, t.round] }),
+    check("decision_round_round_check", sql`${t.round} between 1 and 3`),
+    check(
+      "decision_round_stance_check",
+      sql`${t.stance} in ('agree', 'disagree', 'escalate')`,
     ),
   ],
 );

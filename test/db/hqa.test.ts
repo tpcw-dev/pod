@@ -7,6 +7,7 @@ import { HqaAmbiguous, recordHqa } from "../../src/core/gate/hqa.ts";
 import { contentHash } from "../../src/core/gate/receipt.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { noCalls } from "../orca/temp-fixtures.ts";
+import { deliveredPlan } from "./decision-fixture.ts";
 import { fakeTracker, type FakeTracker } from "./fake-tracker.ts";
 import { gatedRun, headSha, type GatedRun } from "./gate-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
@@ -235,5 +236,49 @@ describeDb("pod hqa record", () => {
     await setup({ shipGate: "pr" });
     await conn.sql`update ledger.task set state = 'delivered' where task_id = 'task_s'`;
     await expect(record()).rejects.toBeInstanceOf(HqaAmbiguous);
+  });
+});
+
+describeDb("pod hqa record on a decision step", () => {
+  let conn: Connection;
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  test("a Story whose waiting Task is a decision step is decision_not_gate", async () => {
+    await deliveredPlan(conn, { gates: [], principals });
+    const bypassPath = join(
+      mkdtempSync(join(tmpdir(), "pod-hqa-")),
+      "bypass.jsonl",
+    );
+    writeFileSync(
+      bypassPath,
+      `${JSON.stringify({ host: "h1", result: "pass", at: "2026-10-31T00:00:00.000Z" })}\n`,
+    );
+    const outcome = await recordHqa(
+      conn.db,
+      noCalls(),
+      fakeTracker(),
+      receiptLog(conn.db, "local"),
+      {
+        story: { provider: "linear", external_id: "S-9" },
+        generation: 1,
+        host: "local",
+        hostName: "h1",
+        bypassPath,
+        command: "pod hqa record story:S-9 --generation 1",
+        now: () => new Date(),
+      },
+    );
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "decision_not_gate",
+        nextSteps: [expect.stringMatching(/^pod decide --task task_plan /)],
+      },
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import type { Task } from "../domain/ledger.ts";
 import type { Repo } from "../ports/db.ts";
 import type { TrackerComment } from "../ports/tracker.ts";
 import type { BypassResult } from "./bypass.ts";
@@ -156,4 +157,8 @@ export async function pinnedConfig(
   const crew = await tx.getRevision(snapshot.crew_revision_id);
   if (policy === null || crew === null) return null;
   return { policy: policy.value, crew: crew.value };
+}
+
+export function decideStep(task: Pick<Task, "task_id">): string {
+  return `pod decide --task ${task.task_id} --category C --effect accept_plan FILE --generation N`;
 }

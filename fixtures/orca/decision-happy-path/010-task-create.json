@@ -1,0 +1,18 @@
+{
+  "verb": "task-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "task-create",
+      "--run",
+      "run_5bba472f639a",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"00000000-0000-4000-8000-000000000025\",\n  \"ok\": true,\n  \"result\": {\n    \"task\": {\n      \"id\": \"task_0ac82dcb5bda\",\n      \"run_id\": \"run_5bba472f639a\",\n      \"parent_id\": null,\n      \"created_by_terminal_handle\": \"term_00000000-0000-4000-8000-000000000002\",\n      \"created_by_pane_key\": \"00000000-0000-4000-8000-000000000006:00000000-0000-4000-8000-000000000007\",\n      \"created_by_process_incarnation\": \"00000000-0000-4000-8000-000000000008::/w/1@@4e6647be:00000000-0000-4000-8000-000000000009\",\n      \"created_by_run_generation\": 1,\n      \"task_title\": \"decision decider\",\n      \"display_name\": \"decision decider\",\n      \"spec\": \"This is your assigned Orca task. You are the decider Seat of Pod Decision dec_f699f34f430c6aaf9dca55d67b4f1cfdfdd5729da09024a66436ec40e1df8dba. You propose; an auditor Seat audits each proposal.\\nDo not edit files, run pod verbs, or send worker_done. Each round arrives as a message from the Run coordinator. Read it now, and after each answer, with the Bash tool:\\n\\norca orchestration check --wait --timeout-ms 540000 --json\\n\\nRun it again if it returns no message. Pass --ack <deliveryId> from the previous result on the next check. Answer each round with exactly one message:\\n\\norca orchestration send --type decision_gate --subject \\\"decision <decision id> round <n> proposal\\\" --payload '{\\\"kind\\\":\\\"decision_proposal\\\",\\\"dispatchId\\\":\\\"<your dispatch id>\\\",\\\"decisionId\\\":\\\"<decision id>\\\",\\\"round\\\":<n>,\\\"proposal\\\":\\\"<your proposal>\\\",\\\"citations\\\":[\\\"<manifest reference>\\\"]}' --json\\n\\nRun the command with the Bash tool. Take <your dispatch id> from your preamble, and the decision id and the round from the message. Every proposal cites at least one reference of the Evidence manifest by its source and revision, as \\\"<source>:<revision>\\\"; a proposal with no citation is an automatic disagree.\\n\\nQuestion: Which rollout should the plan use? The plan must name a rollback step before it can be agreed. The auditor disagrees with any proposal that does not name a rollback step. The decider proposes the first option in round 1.\\nOptions:\\n- ship everything in one release\\n- ship in two releases with a rollback step between them\\n\",\n      \"status\": \"ready\",\n      \"deps\": \"[]\",\n      \"result\": null,\n      \"created_at\": \"2026-10-31 21:44:32\",\n      \"completed_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"00000000-0000-4000-8000-000000000026\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"00000000-0000-4000-8000-000000000004\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:44:32.193Z"
+}

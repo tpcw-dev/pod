@@ -88,7 +88,7 @@ export const BriefOutput = z.object({
           dispatches: z.array(
             z.object({
               dispatch_id: z.string(),
-              task_id: z.string(),
+              task_id: z.string().nullable(),
               manifest_id: z.string().nullable(),
               activity: z.string(),
               settlement: z.string(),
@@ -218,7 +218,11 @@ function toBriefResult(tree: BriefTree): BriefResult {
           step_id: task.step_id,
           role: task.role,
           created_at: iso(task.created_at),
-          waiting_on: waitingOn(run.snapshot?.process ?? null, task),
+          waiting_on: waitingOn(
+            run.snapshot?.process ?? null,
+            task,
+            run.decisions.find((row) => row.task_id === task.task_id),
+          ),
         })),
         dispatches: run.dispatches.map((dispatch) => ({
           dispatch_id: dispatch.dispatch_id,

@@ -117,6 +117,7 @@ describeDb("pod brief", () => {
     await conn.db.insertDispatch({
       dispatch_id: "ctx-1",
       task_id: "task-1",
+      decision_id: null,
       run_id: "run-1",
       seat: "seat-a",
       role: "developer",

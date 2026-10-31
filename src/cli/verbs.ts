@@ -26,6 +26,7 @@ import {
   VerdictPostOutput,
   verdictPostVerb,
 } from "./gate-verbs.ts";
+import { DecideInput, DecideOutput, decideVerb } from "./decide-verbs.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
 import {
   DocsReadInput,
@@ -182,6 +183,18 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     meta: runMeta,
   }),
   row({
+    name: "decide",
+    input: DecideInput,
+    output: DecideOutput,
+    handler: decideVerb,
+    sideEffect: "orca",
+    cancelBy: ["operator"],
+    evidenceRequired: [
+      'the Reserved check passed, an Evidence manifest is pinned, and the `effect` fits the Task as "Decision effects" requires',
+    ],
+    meta: (output) => ({ opKey: output.op_key, orca: output.orca }),
+  }),
+  row({
     name: "check",
     input: CheckInput,
     output: CheckOutput,
@@ -189,7 +202,7 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     sideEffect: "ledger",
     cancelBy: ["nobody"],
     evidenceRequired: [
-      "the delivery's `payload.dispatchId` matches a recorded Dispatch, and its owner generation matches the Run",
+      "the delivery's `payload.dispatchId` matches a recorded Dispatch, or a Decision Seat's message for an open Decision, and its owner generation matches the Run",
     ],
     meta: checkMeta,
   }),

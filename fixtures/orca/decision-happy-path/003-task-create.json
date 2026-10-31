@@ -1,0 +1,20 @@
+{
+  "verb": "task-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "task-create",
+      "--run",
+      "run_5bba472f639a",
+      "--deps",
+      "[\"task_51ebf6638fdf\"]",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"00000000-0000-4000-8000-000000000011\",\n  \"ok\": true,\n  \"result\": {\n    \"task\": {\n      \"id\": \"task_12692a276b1f\",\n      \"run_id\": \"run_5bba472f639a\",\n      \"parent_id\": null,\n      \"created_by_terminal_handle\": \"term_00000000-0000-4000-8000-000000000002\",\n      \"created_by_pane_key\": \"00000000-0000-4000-8000-000000000006:00000000-0000-4000-8000-000000000007\",\n      \"created_by_process_incarnation\": \"00000000-0000-4000-8000-000000000008::/w/1@@4e6647be:00000000-0000-4000-8000-000000000009\",\n      \"created_by_run_generation\": 1,\n      \"task_title\": \"implement\",\n      \"display_name\": \"implement\",\n      \"spec\": \"Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.\",\n      \"status\": \"pending\",\n      \"deps\": \"[\\\"task_51ebf6638fdf\\\"]\",\n      \"result\": null,\n      \"created_at\": \"2026-10-31 21:44:05\",\n      \"completed_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"00000000-0000-4000-8000-000000000012\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"00000000-0000-4000-8000-000000000004\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:44:05.906Z"
+}

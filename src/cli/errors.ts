@@ -25,6 +25,7 @@ export type ErrorCode =
   | "docs_section_not_found"
   | "docs_port_missing"
   | "config_invalid"
+  | "decision_not_gate"
   | "failed";
 
 const exits: Partial<Record<ErrorCode, number>> = {

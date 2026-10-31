@@ -17,6 +17,7 @@ import { commentPayload } from "../tracker/outbox.ts";
 import {
   candidateSha,
   contentHash,
+  decideStep,
   gateOf,
   pinnedConfig,
   shaMatches,
@@ -79,6 +80,7 @@ async function independence(
   );
   const authored = (await tx.listDispatches(task.run_id)).find(
     (row) =>
+      row.task_id !== null &&
       needed.has(row.task_id) &&
       (row.settlement === "done" || row.settlement === "failed") &&
       row.seat === reviewer,
@@ -102,6 +104,12 @@ async function evidence(
       `Task state ${task.state}`,
     ]);
   const { step } = await readProcess(tx, task, file.outcome);
+  if (step.decision !== undefined)
+    return refuse(
+      "decision_not_gate",
+      `Task ${task.task_id}'s step ${step.id} is a decision step; a Decision outcome is not a Gate PASS`,
+      [decideStep(task)],
+    );
   if (step.gate !== file.gate)
     return notReady(
       `Task ${task.task_id}'s step ${step.id} has gate ${step.gate ?? "none"}, not ${file.gate}`,

@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_5bba472f639a",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"00000000-0000-4000-8000-000000000056\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_5bba472f639a\",\n    \"deliveryId\": \"delivery_349ce95e9027\",\n    \"messages\": [\n      {\n        \"id\": \"msg_9c15124c58b7\",\n        \"run_id\": \"run_5bba472f639a\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_00000000-0000-4000-8000-000000000028\",\n        \"to_handle\": \"run:run_5bba472f639a\",\n        \"subject\": \"decision dec_f699f34f430c6aaf9dca55d67b4f1cfdfdd5729da09024a66436ec40e1df8dba round 2 proposal\",\n        \"body\": \"\",\n        \"type\": \"decision_gate\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"kind\\\":\\\"decision_proposal\\\",\\\"dispatchId\\\":\\\"ctx_ec2a8e31ad36\\\",\\\"decisionId\\\":\\\"dec_f699f34f430c6aaf9dca55d67b4f1cfdfdd5729da09024a66436ec40e1df8dba\\\",\\\"round\\\":2,\\\"proposal\\\":\\\"Ship in two releases with a rollback step between them: release 1 ships the first slice, then a rollback step (revert release 1 to the prior known-good state if issues surface) gates before release 2 ships the remainder.\\\",\\\"citations\\\":[\\\"story:d080af93fe177dd5a86f09d0285abc4a0d9d12c137551333ac612b437241448a\\\"]}\",\n        \"created_at\": \"2026-10-31T21:45:33Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"00000000-0000-4000-8000-000000000057\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"00000000-0000-4000-8000-000000000004\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:45:44.266Z"
+}

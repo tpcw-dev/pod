@@ -35,7 +35,7 @@ export const revision = config.table(
     foreignKey({ columns: [t.parent], foreignColumns: [t.id] }),
     check(
       "revision_kind_check",
-      sql`${t.kind} in ('crew', 'process', 'policy', 'task')`,
+      sql`${t.kind} in ('crew', 'process', 'policy', 'task', 'decision')`,
     ),
     check(
       "revision_scope_check",

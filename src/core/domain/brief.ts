@@ -1,5 +1,6 @@
 import { countRun, sumCounters } from "../brief/counters.ts";
 import type { Revision } from "./config.ts";
+import type { DecisionRow } from "./decision.ts";
 import type {
   Dispatch,
   Run,
@@ -36,6 +37,7 @@ export interface BriefRun {
   snapshot: BriefSnapshot | null;
   tasks: readonly Task[];
   dispatches: readonly BriefDispatch[];
+  decisions: readonly Pick<DecisionRow, "id" | "task_id" | "state">[];
   counters: BriefCounters;
 }
 

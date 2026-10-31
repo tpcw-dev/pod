@@ -688,7 +688,7 @@ describe("crew example file", () => {
       text.match(
         /^    # Fill id, runtime, model, and host before this seat is used\.$/gm,
       ),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     expect(text).toContain("runtime: example");
     expect(text).toContain("model: example");
     expect(text).toContain("host: example-host");
@@ -719,5 +719,29 @@ describeDb("crew example apply", () => {
     const rows = await db.sql<{ n: number }[]>`
       select count(*)::int as n from config.activation`;
     expect(rows[0]?.n).toBe(0);
+  });
+});
+
+describeDb("pod config apply of decision templates", () => {
+  beforeAll(resetDb);
+
+  test("specs/decision/default.yaml applies and activates globally", () => {
+    const applied = activate("specs/decision/default.yaml");
+    expect(applied.status).toBe(0);
+    expect(applied.json.result).toMatchObject({ ref: "decision.default@1" });
+  });
+
+  test("a copy with an unknown placeholder is schema_invalid naming the field", () => {
+    const text = readFileSync("specs/decision/default.yaml", "utf8").replace(
+      "Decision {{decision_id}} round {{round}}. The auditor",
+      "Decision {{decision_id}} round {{round}} {{secret}}. The auditor",
+    );
+    const result = runCli(["config", "apply", file("bad-decision.yaml", text)]);
+    expect(result.status).toBe(2);
+    expect(result.json.error?.code).toBe("schema_invalid");
+    expect(result.json.error?.message).toBe(
+      "value.round_next uses unknown placeholder {{secret}}",
+    );
+    expect(result.json.error?.nextSteps).toEqual(["value.round_next"]);
   });
 });

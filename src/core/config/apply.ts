@@ -3,6 +3,7 @@ import type { Revision, RevisionEnvelope } from "../domain/config.ts";
 import type { Json } from "../domain/json.ts";
 import type { Refusal } from "../domain/outcome.ts";
 import type { Db, Repo } from "../ports/db.ts";
+import { validateDecisionTemplates } from "../decide/templates.ts";
 import { validateProcess } from "../process/validate.ts";
 import { noSingleActive, singleActive } from "./active.ts";
 import { canonicalJson, revisionId, sha256Hex } from "./canonical-json.ts";
@@ -85,6 +86,16 @@ async function processRefusal(
   tx: Repo,
   envelope: RevisionEnvelope,
 ): Promise<Refusal | null> {
+  if (envelope.kind === "decision") {
+    const problem = validateDecisionTemplates(envelope.value);
+    return problem === null
+      ? null
+      : {
+          code: "schema_invalid",
+          message: problem.message,
+          nextSteps: [problem.path],
+        };
+  }
   if (envelope.kind !== "process") return null;
   const { scope, scope_ref } = envelope;
   const crew = await singleActive(tx, "crew", scope, scope_ref);

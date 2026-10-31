@@ -25,6 +25,15 @@ module.exports = {
       to: { path: "^src/cli/" },
     },
     {
+      name: "decide-core-only",
+      severity: "error",
+      from: { path: "^src/core/decide/" },
+      to: {
+        path: "^src/",
+        pathNot: "^src/core/(decide|domain|ports|process|manifest|dispatch)/",
+      },
+    },
+    {
       name: "core-not-adapters",
       severity: "error",
       from: { path: "^src/core/" },

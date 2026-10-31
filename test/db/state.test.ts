@@ -11,6 +11,8 @@ import type {
   Section,
 } from "../../src/core/ports/docs.ts";
 import { buildState } from "../../src/core/state/view.ts";
+import { cancelDecision } from "../../src/core/decide/advance.ts";
+import { deliveredPlan, opened, planTask } from "./decision-fixture.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
 import { gatedRun } from "./gate-fixture.ts";
 import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
@@ -379,5 +381,73 @@ describeDb("pod state", () => {
     for (const heading of headings) expect(html).toContain(heading);
     const missing = join(tmpdir(), "no-such-dir-pod-state", "out.html");
     expect(runCli(["state", "--html", missing, "--json"]).status).toBe(1);
+  });
+});
+
+describeDb("pod state with Decisions", () => {
+  let conn: Connection;
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  async function view(): Promise<StateView> {
+    const built = await buildState(
+      { repo: conn.db, docs: null, now: () => new Date() },
+      { story: "S-9", project: null },
+    );
+    if (!built.ok) throw new Error(built.refusal.message);
+    return built.view;
+  }
+
+  test("an open Decision names its round in waiting_on and is not yet applicable", async () => {
+    const id = await opened(conn, await deliveredPlan(conn));
+    const state = await view();
+    expect(state.runs.runs[0]?.waiting_on).toContain(
+      `${planTask} decision ${id} round 1`,
+    );
+    expect(state.decisions.decisions).toEqual([]);
+  });
+
+  test("a settled Decision is listed under applicable Decisions with standing false and in_force_until null", async () => {
+    const id = await opened(conn, await deliveredPlan(conn));
+    await conn.db.transaction((tx) =>
+      cancelDecision(tx, { decision: id, at: new Date(), host: "local" }),
+    );
+    const state = await view();
+    expect(state.decisions.decisions).toEqual([
+      {
+        id,
+        scope: "story:S-9",
+        question: "Which rollout should the plan use?",
+        outcome: "cancelled",
+        decided_at: expect.any(String),
+        in_force_until: null,
+        standing: false,
+      },
+    ]);
+  });
+
+  test("a needs_human Decision is an open needs-human item with its reason", async () => {
+    const id = await opened(conn, await deliveredPlan(conn));
+    await conn.db.updateDecisionState(id, {
+      from: "round:1",
+      to: { kind: "needs_human", reason: "disagreement" },
+      outcome: { result: "needs_human", text: "needs_human: disagreement" },
+      closed_at: new Date(),
+    });
+    const state = await view();
+    expect(state.needs_human.items).toContainEqual({
+      story: "S-9",
+      run_id: "run_1",
+      task_id: planTask,
+      gate: `decision ${id}`,
+      keeper: "operator",
+      open: true,
+      reason: "decision needs_human: disagreement",
+      at: expect.any(String),
+    });
   });
 });

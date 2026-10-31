@@ -15,7 +15,8 @@ export interface RestoreView {
   dispatches: {
     dispatch_id: string;
     seat: string;
-    task_id: string;
+    task_id: string | null;
+    decision_id: string | null;
     worktree: string | null;
     terminal_handle: string | null;
   }[];
@@ -68,6 +69,7 @@ export async function restoreView(
       dispatch_id: row.dispatch_id,
       seat: row.seat,
       task_id: row.task_id,
+      decision_id: row.decision_id,
       worktree: Placement.parse(row.requested_launch).worktree ?? null,
       terminal_handle: row.terminal_handle,
     }));
@@ -125,7 +127,7 @@ export function renderRestoreView(view: RestoreView): string {
       "Open Dispatches",
       view.dispatches.map(
         (row) =>
-          `- ${row.dispatch_id} seat ${row.seat} task ${row.task_id} worktree ${row.worktree ?? "unknown"} terminal ${row.terminal_handle ?? "unknown"}`,
+          `- ${row.dispatch_id} seat ${row.seat} ${row.task_id === null ? `decision ${row.decision_id ?? "unknown"}` : `task ${row.task_id}`} worktree ${row.worktree ?? "unknown"} terminal ${row.terminal_handle ?? "unknown"}`,
       ),
     ),
     section(

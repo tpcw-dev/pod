@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   and,
   asc,
@@ -5,6 +6,7 @@ import {
   eq,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   max,
   sql,
@@ -28,6 +30,14 @@ import {
   type BriefRun,
   type BriefTree,
 } from "../../core/domain/brief.ts";
+import {
+  openStates,
+  reasonOf,
+  stateText,
+  type Decision,
+  type DecisionRound,
+  type DecisionRow,
+} from "../../core/domain/decision.ts";
 import { Json } from "../../core/domain/json.ts";
 import {
   Adoption,
@@ -73,6 +83,8 @@ import * as ledgerSchema from "../../db/schema/ledger.ts";
 
 const { activation, revision, snapshot } = configSchema;
 const {
+  decision,
+  decisionRound,
   dispatch,
   event,
   evidenceManifest,
@@ -194,6 +206,7 @@ function toDispatch(row: typeof dispatch.$inferSelect): Dispatch {
   return {
     dispatch_id: row.dispatchId,
     task_id: row.taskId,
+    decision_id: row.decisionId,
     run_id: row.runId,
     seat: row.seat,
     role: row.role,
@@ -210,6 +223,48 @@ function toDispatch(row: typeof dispatch.$inferSelect): Dispatch {
     manifest_id: row.manifestId,
   };
 }
+
+function toDecision(row: typeof decision.$inferSelect): DecisionRow {
+  return {
+    id: row.id,
+    run_id: row.runId,
+    task_id: row.taskId,
+    category: row.category,
+    effect: row.effect,
+    question: row.question,
+    options: json(row.options),
+    manifest_id: row.manifestId,
+    state: row.state,
+    outcome: jsonOrNull(row.outcome),
+    reason: row.reason,
+    binding: "run",
+    budget: json(row.budget),
+    spent: json(row.spent),
+    supersedes_decision_id: row.supersedesDecisionId,
+    adoption: row.adoption,
+    adoption_evidence: json(row.adoptionEvidence),
+    created_at: row.createdAt,
+    closed_at: row.closedAt,
+  };
+}
+
+function toDecisionRound(
+  row: typeof decisionRound.$inferSelect,
+): DecisionRound {
+  return {
+    decision_id: row.decisionId,
+    round: row.round,
+    decider_dispatch_id: row.deciderDispatchId,
+    auditor_dispatch_id: row.auditorDispatchId,
+    proposal: json(row.proposal),
+    audit: json(row.audit),
+    stance: z.enum(["agree", "disagree", "escalate"]).parse(row.stance),
+    manifest_id: row.manifestId,
+    ts: row.ts,
+  };
+}
+
+const OutcomeText = z.looseObject({ text: z.string() });
 
 function strings(value: unknown): string[] {
   if (!Array.isArray(value))
@@ -688,6 +743,7 @@ function makeRepo(x: Executor): Repo {
       await x.insert(dispatch).values({
         dispatchId: row.dispatch_id,
         taskId: row.task_id,
+        decisionId: row.decision_id,
         runId: row.run_id,
         seat: row.seat,
         role: row.role,
@@ -833,8 +889,128 @@ function makeRepo(x: Executor): Repo {
       return rows.map(toUsageObservation);
     },
 
-    listDecisions() {
-      return Promise.resolve([]);
+    async listDecisions(scope) {
+      if (scope.story === null) return [];
+      const rows = await x
+        .select({ decision, externalId: run.storyExternalId })
+        .from(decision)
+        .innerJoin(run, eq(run.runId, decision.runId))
+        .where(
+          and(
+            eq(run.storyExternalId, scope.story),
+            isNotNull(decision.closedAt),
+          ),
+        )
+        .orderBy(asc(decision.closedAt), asc(decision.id));
+      return rows.map(({ decision: row, externalId }): Decision => ({
+        id: row.id,
+        scope: { kind: "story", ref: externalId },
+        question: row.question,
+        outcome: OutcomeText.safeParse(row.outcome).data?.text ?? row.state,
+        decided_at: row.closedAt ?? row.createdAt,
+        in_force_until: null,
+        standing: false,
+      }));
+    },
+
+    async insertDecision(row: DecisionRow) {
+      await x.insert(decision).values({
+        id: row.id,
+        runId: row.run_id,
+        taskId: row.task_id,
+        category: row.category,
+        effect: row.effect,
+        question: row.question,
+        options: row.options,
+        manifestId: row.manifest_id,
+        state: row.state,
+        outcome: row.outcome,
+        reason: row.reason,
+        binding: row.binding,
+        budget: row.budget,
+        spent: row.spent,
+        supersedesDecisionId: row.supersedes_decision_id,
+        adoption: row.adoption,
+        adoptionEvidence: row.adoption_evidence,
+        createdAt: row.created_at,
+        closedAt: row.closed_at,
+      });
+    },
+
+    async getDecision(id) {
+      const [row] = await x.select().from(decision).where(eq(decision.id, id));
+      return row === undefined ? null : toDecision(row);
+    },
+
+    async updateDecisionState(id, change) {
+      const rows = await x
+        .update(decision)
+        .set({
+          state: stateText(change.to),
+          reason: reasonOf(change.to),
+          ...(change.outcome === null ? {} : { outcome: change.outcome }),
+          ...(change.closed_at === null ? {} : { closedAt: change.closed_at }),
+        })
+        .where(and(eq(decision.id, id), eq(decision.state, change.from)))
+        .returning({ id: decision.id });
+      return rows.length > 0;
+    },
+
+    async insertDecisionRound(row: DecisionRound) {
+      await x.insert(decisionRound).values({
+        decisionId: row.decision_id,
+        round: row.round,
+        deciderDispatchId: row.decider_dispatch_id,
+        auditorDispatchId: row.auditor_dispatch_id,
+        proposal: row.proposal,
+        audit: row.audit,
+        stance: row.stance,
+        manifestId: row.manifest_id,
+        ts: row.ts,
+      });
+    },
+
+    async listDecisionRounds(decisionId) {
+      const rows = await x
+        .select()
+        .from(decisionRound)
+        .where(eq(decisionRound.decisionId, decisionId))
+        .orderBy(asc(decisionRound.round));
+      return rows.map(toDecisionRound);
+    },
+
+    async openDecisionsForRun(runId) {
+      const rows = await x
+        .select()
+        .from(decision)
+        .where(
+          and(eq(decision.runId, runId), inArray(decision.state, openStates)),
+        )
+        .orderBy(asc(decision.createdAt), asc(decision.id));
+      return rows.map(toDecision);
+    },
+
+    async listRunDecisions(runId) {
+      const rows = await x
+        .select()
+        .from(decision)
+        .where(eq(decision.runId, runId))
+        .orderBy(asc(decision.createdAt), asc(decision.id));
+      return rows.map(toDecision);
+    },
+
+    async setDispatchActivity(dispatchId, activity) {
+      const rows = await x
+        .update(dispatch)
+        .set({ activity })
+        .where(
+          and(
+            eq(dispatch.dispatchId, dispatchId),
+            eq(dispatch.settlement, "open"),
+          ),
+        )
+        .returning({ id: dispatch.dispatchId });
+      return rows.length > 0;
     },
 
     async insertManifest(row: EvidenceManifest) {
@@ -983,6 +1159,7 @@ function makeRepo(x: Executor): Repo {
                   },
             tasks: runTasks,
             dispatches,
+            decisions: await repo.openDecisionsForRun(runRow.runId),
             counters: countBriefRun(
               { run_id: runRow.runId },
               runTasks,

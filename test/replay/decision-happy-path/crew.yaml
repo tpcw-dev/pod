@@ -1,0 +1,26 @@
+kind: crew
+name: decision-happy-path
+schema_version: 1
+value:
+  seats:
+    - id: rec-plan
+      roles: [planner]
+      runtime: claude
+      model: claude-haiku-4-5-20251001
+      effort: low
+    - id: rec-dev
+      roles: [developer]
+      runtime: claude
+      model: claude-haiku-4-5-20251001
+      effort: low
+    - id: rec-decider
+      roles: [decider]
+      runtime: claude
+      model: claude-sonnet-5
+      effort: low
+    - id: rec-auditor
+      roles: [auditor]
+      runtime: claude
+      model: claude-haiku-4-5-20251001
+      effort: low
+      independent_of: [rec-decider]

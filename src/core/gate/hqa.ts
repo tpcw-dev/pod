@@ -24,6 +24,7 @@ import {
 import { readBypass, type BypassResult } from "./bypass.ts";
 import {
   candidateSha,
+  decideStep,
   findVerdictComment,
   gateOf,
   hashOf,
@@ -92,19 +93,21 @@ async function waitingTasks(
   db: Db,
   run: Run,
   policy: unknown,
-): Promise<{ waiting: Waiting[]; unkept: string[] }> {
+): Promise<{ waiting: Waiting[]; unkept: string[]; decisions: Task[] }> {
   const waiting: Waiting[] = [];
   const unkept: string[] = [];
+  const decisions: Task[] = [];
   for (const task of await db.listTasks(run.run_id)) {
     if (task.state !== "delivered") continue;
     const { step } = await readProcess(db, task, "PASS");
+    if (step.decision !== undefined) decisions.push(task);
     if (step.gate === undefined) continue;
     const keeper = gateOf(policy, step.gate);
     if (keeper === null) unkept.push(step.gate);
     else if (keeper.type === "HQA")
       waiting.push({ task, gate: step.gate, keeper });
   }
-  return { waiting, unkept };
+  return { waiting, unkept, decisions };
 }
 
 function unverified(
@@ -277,7 +280,18 @@ async function accept(
   result: HqaResult,
 ): Promise<Accepted | Refused | null> {
   const pinned = await pinnedConfig(db, run.run_id);
-  const { waiting, unkept } = await waitingTasks(db, run, pinned?.policy);
+  const { waiting, unkept, decisions } = await waitingTasks(
+    db,
+    run,
+    pinned?.policy,
+  );
+  const [decision] = decisions;
+  if (waiting.length === 0 && decision !== undefined)
+    return refuse(
+      "decision_not_gate",
+      `Task ${decision.task_id} waits on a decision step; a Decision outcome is not an HQA PASS`,
+      [decideStep(decision)],
+    );
   if (waiting.length > 1)
     throw new HqaAmbiguous(
       waiting.map((row) => ({ task: row.task.task_id, gate: row.gate })),
