@@ -16,6 +16,8 @@ import type {
   NewLearning,
 } from "../domain/learning.ts";
 import type { BriefTree } from "../domain/brief.ts";
+import type { Decision } from "../domain/decision.ts";
+import type { StateScope } from "../domain/state.ts";
 import type { TaskState } from "../domain/task-state.ts";
 import type {
   Activity,
@@ -32,11 +34,13 @@ import type {
   Run,
   RunState,
   NewOutboxRow,
+  NewUsageObservation,
   OutboxRow,
   Story,
   StorySync,
   SyncState,
   Task,
+  UsageObservation,
 } from "../domain/ledger.ts";
 
 export interface Repo {
@@ -102,6 +106,11 @@ export interface Repo {
   ): Promise<{ manifest: EvidenceManifest; created: boolean }>;
   getManifest(id: string): Promise<EvidenceManifest | null>;
   readBrief(externalId: string | null): Promise<BriefTree>;
+  insertUsageObservation(row: NewUsageObservation): Promise<UsageObservation>;
+  latestUsageObservations(
+    providers: readonly string[],
+  ): Promise<UsageObservation[]>;
+  listDecisions(scope: StateScope): Promise<Decision[]>;
   appendEvent(row: NewEvent): Promise<Event>;
   firstEvent(
     runId: string,

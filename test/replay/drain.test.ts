@@ -114,7 +114,10 @@ describeDb("drain", () => {
     ).toMatchObject(drained);
     expect(await pass()).toMatchObject({
       ok: true,
-      result: { deliveries: [{ outcome: "done" }], nextSteps: [] },
+      result: {
+        deliveries: [{ outcome: "done" }],
+        nextSteps: ["usage has no source for claude; pod state shows unknown"],
+      },
     });
     expect(
       await release(conn.db, orca, log, {

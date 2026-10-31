@@ -800,3 +800,122 @@ describeDb("pod check and Gate receipts", () => {
     });
   });
 });
+
+describeDb("pod check usage observations", () => {
+  let conn: Connection;
+  const start = new Date("2026-10-31T12:00:00Z");
+  const later = (minutes: number) =>
+    new Date(start.getTime() + minutes * 60_000);
+  const line = "usage has no source for claude, codex; pod state shows unknown";
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  beforeEach(async () => {
+    await freshRun(conn);
+    await dispatched(conn, "ctx_1");
+  });
+  afterAll(() => conn.close());
+
+  async function quiet(at: Date) {
+    const { orca, log } = replay(conn, [
+      ok("check", empty(), run),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_1", workerState: "running" }]),
+        run,
+      ),
+    ]);
+    const outcome = await checkPass(
+      conn.db,
+      orca,
+      null,
+      log,
+      input({ now: () => at }),
+    );
+    orca.assertDone();
+    return outcome;
+  }
+
+  async function observations() {
+    return conn.sql<
+      {
+        provider: string;
+        seat: string | null;
+        value: string | null;
+        coverage: string;
+        observed_ms: number;
+        source: unknown;
+      }[]
+    >`select provider, seat, value, coverage, source,
+        (extract(epoch from observed_at) * 1000)::float8 as observed_ms
+      from ledger.usage_observation order by provider, id`;
+  }
+
+  test("a pass records one no_source row per pinned seat provider and names them last", async () => {
+    const outcome = await quiet(start);
+    expect(await observations()).toEqual([
+      {
+        provider: "claude",
+        seat: null,
+        value: null,
+        coverage: "no_source",
+        observed_ms: start.getTime(),
+        source: { kind: "none" },
+      },
+      {
+        provider: "codex",
+        seat: null,
+        value: null,
+        coverage: "no_source",
+        observed_ms: start.getTime(),
+        source: { kind: "none" },
+      },
+    ]);
+    expect(outcome.ok && outcome.result.nextSteps.at(-1)).toBe(line);
+  });
+
+  test("a pass within the hour records nothing and prints no usage line, and one after it records again", async () => {
+    await quiet(start);
+    const within = await quiet(later(30));
+    expect(await observations()).toHaveLength(2);
+    expect(within.ok && within.result.nextSteps).not.toContain(line);
+    const after = await quiet(later(61));
+    expect(await observations()).toHaveLength(4);
+    expect(after.ok && after.result.nextSteps.at(-1)).toBe(line);
+  });
+
+  test("a pass that Orca refuses records no row, and the next pass records and prints the line", async () => {
+    const { orca, log } = replay(conn, [
+      {
+        verb: "check",
+        argv: run,
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          error: { code: "consumer_fenced", message: "no" },
+        }),
+      },
+    ]);
+    const refused = await checkPass(
+      conn.db,
+      orca,
+      null,
+      log,
+      input({ now: () => start }),
+    );
+    expect(refused.ok).toBe(false);
+    expect(await observations()).toEqual([]);
+    const next = await quiet(later(1));
+    expect(await observations()).toHaveLength(2);
+    expect(next.ok && next.result.nextSteps.at(-1)).toBe(line);
+  });
+
+  test("a Run with no pinned configuration records nothing and prints no usage line", async () => {
+    await conn.sql`truncate config.snapshot cascade`;
+    const outcome = await quiet(start);
+    expect(await observations()).toEqual([]);
+    expect(outcome.ok && outcome.result.nextSteps).not.toContain(line);
+  });
+});

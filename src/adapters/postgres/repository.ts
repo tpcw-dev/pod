@@ -32,6 +32,7 @@ import {
 } from "../../core/domain/learning.ts";
 import {
   Activity,
+  Coverage,
   EventType,
   Intent,
   ModelAttribution,
@@ -49,12 +50,14 @@ import {
   type NewEvent,
   type NewOperation,
   type NewOutboxRow,
+  type NewUsageObservation,
   type Operation,
   type OutboxRow,
   type Run,
   type Story,
   type StorySync,
   type Task,
+  type UsageObservation,
 } from "../../core/domain/ledger.ts";
 import { TaskState } from "../../core/domain/task-state.ts";
 import type { BundleResult, Db, Repo } from "../../core/ports/db.ts";
@@ -73,10 +76,14 @@ const {
   run,
   story,
   task,
+  usageObservation,
 } = ledgerSchema;
 
 type Database = PostgresJsDatabase<Record<string, never>>;
-type Executor = Pick<Database, "select" | "insert" | "update" | "execute">;
+type Executor = Pick<
+  Database,
+  "select" | "selectDistinctOn" | "insert" | "update" | "execute"
+>;
 
 function json(value: unknown): Json {
   return Json.parse(value);
@@ -249,6 +256,22 @@ function toLearning(row: typeof learning.$inferSelect): Learning {
     area: Area.parse(row.area),
     project_id: row.projectId,
     created_at: row.createdAt,
+  };
+}
+
+function toUsageObservation(
+  row: typeof usageObservation.$inferSelect,
+): UsageObservation {
+  return {
+    id: row.id,
+    provider: row.provider,
+    seat: row.seat,
+    window_start: row.windowStart,
+    window_end: row.windowEnd,
+    value: row.value,
+    coverage: Coverage.parse(row.coverage),
+    observed_at: row.observedAt,
+    source: json(row.source),
   };
 }
 
@@ -767,6 +790,43 @@ function makeRepo(x: Executor): Repo {
         )
         .orderBy(desc(learning.createdAt), desc(learning.id));
       return rows.map(toLearning);
+    },
+
+    async insertUsageObservation(row: NewUsageObservation) {
+      const [inserted] = await x
+        .insert(usageObservation)
+        .values({
+          provider: row.provider,
+          seat: row.seat,
+          windowStart: row.window_start,
+          windowEnd: row.window_end,
+          value: row.value,
+          coverage: row.coverage,
+          observedAt: row.observed_at,
+          source: row.source,
+        })
+        .returning();
+      if (inserted === undefined)
+        throw new Error("usage observation insert returned no row");
+      return toUsageObservation(inserted);
+    },
+
+    async latestUsageObservations(providers: readonly string[]) {
+      if (providers.length === 0) return [];
+      const rows = await x
+        .selectDistinctOn([usageObservation.provider])
+        .from(usageObservation)
+        .where(inArray(usageObservation.provider, [...providers]))
+        .orderBy(
+          asc(usageObservation.provider),
+          desc(usageObservation.observedAt),
+          desc(usageObservation.id),
+        );
+      return rows.map(toUsageObservation);
+    },
+
+    listDecisions() {
+      return Promise.resolve([]);
     },
 
     async insertManifest(row: EvidenceManifest) {

@@ -133,6 +133,7 @@ describeDb("pod check --wait", () => {
       result: {
         nextSteps: [
           `pod dispatch --task task_r --seat rev-1 --generation 1 --op-key ${key}`,
+          "usage has no source for claude, codex; pod state shows unknown",
         ],
       },
     });
