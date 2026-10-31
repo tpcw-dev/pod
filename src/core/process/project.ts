@@ -428,9 +428,16 @@ async function rework(
   const { failed, target, then } = plan;
   const runId = failed.run_id;
   const tasks = await db.listTasks(runId);
-  const newest = (stepId: string) =>
-    tasks.filter((row) => row.lineage_id === lineageOf(runId, stepId)).at(-1)
-      ?.task_id ?? null;
+  const newest = (stepId: string) => {
+    const lineage = tasks.filter(
+      (row) => row.lineage_id === lineageOf(runId, stepId),
+    );
+    return (
+      lineage.find((row) =>
+        lineage.every((other) => other.rework_of !== row.task_id),
+      )?.task_id ?? null
+    );
+  };
   const states = new Map(tasks.map((row) => [row.task_id, row.state]));
   const targetDeps = target.needs.flatMap((need) => newest(need) ?? []);
   const key = (stepId: string) =>

@@ -54,7 +54,7 @@ const reworkProcess = {
     { from: "pr", on: "done", to: "done" },
     { from: "pr", on: hold, to: "hold" },
   ],
-  limits: { attempts_per_task: 3, rework_per_lineage: 1 },
+  limits: { attempts_per_task: 3, rework_per_lineage: 2 },
   escalation: { to: "operator" },
 };
 
@@ -272,22 +272,57 @@ describeDb("applyOutcome", () => {
       expect(await events(conn, "outcome")).toHaveLength(1);
     });
 
-    test("a FAIL at the rework limit holds the review with reason rework_limit and creates nothing", async () => {
-      await apply(reworkCreates, "task_r1", "FAIL");
-      await setState("task_i2", "done");
-      await setState("task_r2", "delivered");
-      expect(await apply([], "task_r2", "FAIL")).toMatchObject({
+    test("a second rework follows the rework_of chain when created_at ties, and the FAIL at the limit holds", async () => {
+      await apply(
+        [
+          ok("task-create", { task: { id: "task_0i", status: "ready" } }),
+          ok("task-create", { task: { id: "task_0r", status: "pending" } }),
+        ],
+        "task_r1",
+        "FAIL",
+      );
+      await conn.sql`update ledger.task set created_at = (select created_at from ledger.task where task_id = 'task_i1') where task_id in ('task_0i', 'task_0r')`;
+      await conn.sql`update ledger.task set created_at = (select created_at from ledger.task where task_id = 'task_r1') where task_id = 'task_0r'`;
+      await setState("task_0i", "done");
+      await setState("task_0r", "delivered");
+      expect(
+        await apply(
+          [
+            ok("task-create", { task: { id: "task_a3", status: "ready" } }),
+            ok("task-create", { task: { id: "task_a4", status: "pending" } }),
+          ],
+          "task_0r",
+          "FAIL",
+        ),
+      ).toMatchObject({
+        ok: true,
+        result: { created: ["task_a3", "task_a4"] },
+      });
+      expect(await conn.db.getTask("task_a3")).toMatchObject({
+        rework_of: "task_0i",
+      });
+      expect(await conn.db.getTask("task_a4")).toMatchObject({
+        rework_of: "task_0r",
+        deps: ["task_a3"],
+      });
+      expect(await conn.db.getTask("task_p")).toMatchObject({
+        deps: ["task_a4"],
+      });
+
+      await setState("task_a3", "done");
+      await setState("task_a4", "delivered");
+      expect(await apply([], "task_a4", "FAIL")).toMatchObject({
         ok: true,
         result: { state: "hold", created: [] },
       });
-      expect(await taskState(conn, "task_r2")).toBe("hold");
+      expect(await taskState(conn, "task_a4")).toBe("hold");
       expect((await events(conn, "hold")).at(-1)?.payload).toEqual({
         reason: "rework_limit",
         lineage_id: "run_1:implement",
         from: "delivered",
       });
-      expect(await conn.db.listTasks("run_1")).toHaveLength(5);
-      expect(await apply([], "task_r2", "FAIL")).toMatchObject({
+      expect(await conn.db.listTasks("run_1")).toHaveLength(7);
+      expect(await apply([], "task_a4", "FAIL")).toMatchObject({
         ok: true,
         result: { state: "hold", replayed: true },
       });
