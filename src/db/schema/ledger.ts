@@ -25,6 +25,9 @@ export const story = ledger.table(
     runId: text("run_id"),
     dependencies: jsonb("dependencies").notNull(),
     syncedAt: timestamp("synced_at", { withTimezone: true }).notNull(),
+    status: text("status"),
+    title: text("title"),
+    kickoffLine: text("kickoff_line"),
   },
   (t) => [
     primaryKey({ columns: [t.provider, t.externalId] }),
@@ -211,5 +214,27 @@ export const event = ledger.table(
       sql`${t.type} in ('start', 'delivery', 'receipt', 'activation', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'ignored', 'unknown_launch', 'learning', 'outcome')`,
     ),
     index("event_run_ts").on(t.runId, t.ts),
+  ],
+);
+
+export const outbox = ledger.table(
+  "outbox",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    opKey: text("op_key")
+      .notNull()
+      .references(() => operation.opKey),
+    target: text("target").notNull(),
+    payload: jsonb("payload").notNull(),
+    tries: integer("tries").notNull().default(0),
+    lastError: text("last_error"),
+    ackedAt: timestamp("acked_at", { withTimezone: true }),
+    readback: jsonb("readback"),
+  },
+  (t) => [
+    check("outbox_target_check", sql`${t.target} in ('tracker')`),
+    index("outbox_pending_idx")
+      .on(t.id)
+      .where(sql`${t.ackedAt} is null`),
   ],
 );

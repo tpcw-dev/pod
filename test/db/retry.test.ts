@@ -162,7 +162,7 @@ describeDb("pod retry", () => {
         workers([{ dispatchId: "ctx_2", workerState: "ready" }]),
       ),
     ]);
-    await checkPass(conn.db, orca, log, {
+    await checkPass(conn.db, orca, null, log, {
       run: "run_1",
       generation: 1,
       host: "local",

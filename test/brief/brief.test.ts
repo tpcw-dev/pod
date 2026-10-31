@@ -53,6 +53,9 @@ describeDb("pod brief", () => {
       run_id: "run-1",
       dependencies: [],
       synced_at: at,
+      status: null,
+      title: null,
+      kickoff_line: null,
     };
     const run: Run = {
       run_id: "run-1",

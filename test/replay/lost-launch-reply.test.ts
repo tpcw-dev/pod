@@ -45,7 +45,7 @@ describeDb("lost-launch-reply", () => {
         await log.sink(record);
       },
     });
-    const created = await runCreate(conn.db, orca, log, {
+    const created = await runCreate(conn.db, orca, null, log, {
       story: "REC-1",
       process: { name: "lost-launch-reply", rev: 1 },
       size: "s",

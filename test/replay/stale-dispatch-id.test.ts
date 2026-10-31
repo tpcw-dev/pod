@@ -43,7 +43,7 @@ describeDb("stale-dispatch-id", () => {
         await log.sink(record);
       },
     });
-    const created = await runCreate(conn.db, orca, log, {
+    const created = await runCreate(conn.db, orca, null, log, {
       story: "REC-2",
       process: { name: "stale-dispatch-id", rev: 1 },
       size: "s",
@@ -71,7 +71,7 @@ describeDb("stale-dispatch-id", () => {
     const dispatchId = started.result.dispatch_id;
 
     await conn.sql`update ledger.run set owner_generation = 2`;
-    const checked = await checkPass(conn.db, orca, log, {
+    const checked = await checkPass(conn.db, orca, null, log, {
       run: run_id,
       generation: 2,
       host: "rec",

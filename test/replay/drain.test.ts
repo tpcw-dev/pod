@@ -47,7 +47,7 @@ describeDb("drain", () => {
       },
     });
     const now = () => new Date();
-    const created = await runCreate(conn.db, orca, log, {
+    const created = await runCreate(conn.db, orca, null, log, {
       story: "REC-D",
       process: { name: "drain", rev: 1 },
       size: "s",
@@ -73,7 +73,7 @@ describeDb("drain", () => {
         now,
       });
     const pass = () =>
-      checkPass(conn.db, orca, log, {
+      checkPass(conn.db, orca, null, log, {
         run: run_id,
         generation: 1,
         host: "rec",

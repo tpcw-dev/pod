@@ -44,9 +44,12 @@ import {
   type Event,
   type NewEvent,
   type NewOperation,
+  type NewOutboxRow,
   type Operation,
+  type OutboxRow,
   type Run,
   type Story,
+  type StorySync,
   type Task,
 } from "../../core/domain/ledger.ts";
 import { TaskState } from "../../core/domain/task-state.ts";
@@ -61,6 +64,7 @@ const {
   evidenceManifest,
   learning,
   operation,
+  outbox,
   run,
   story,
   task,
@@ -197,6 +201,19 @@ function strings(value: unknown): string[] {
     items.push(item);
   }
   return items;
+}
+
+function toOutbox(row: typeof outbox.$inferSelect): OutboxRow {
+  return {
+    id: row.id,
+    op_key: row.opKey,
+    target: "tracker",
+    payload: json(row.payload),
+    tries: row.tries,
+    last_error: row.lastError,
+    acked_at: row.ackedAt,
+    readback: jsonOrNull(row.readback),
+  };
 }
 
 function toLearning(row: typeof learning.$inferSelect): Learning {
@@ -395,6 +412,9 @@ function makeRepo(x: Executor): Repo {
         runId: row.run_id,
         dependencies: row.dependencies,
         syncedAt: row.synced_at,
+        status: row.status,
+        title: row.title,
+        kickoffLine: row.kickoff_line,
       };
       await x
         .insert(story)
@@ -407,8 +427,58 @@ function makeRepo(x: Executor): Repo {
             runId: values.runId,
             dependencies: values.dependencies,
             syncedAt: values.syncedAt,
+            status: values.status,
+            title: values.title,
+            kickoffLine: values.kickoffLine,
           },
         });
+    },
+
+    async syncStory(provider, externalId, change: StorySync) {
+      await x
+        .update(story)
+        .set({
+          status: change.status,
+          title: change.title,
+          kickoffLine: change.kickoff_line,
+          syncedAt: change.synced_at,
+        })
+        .where(
+          and(eq(story.provider, provider), eq(story.externalId, externalId)),
+        );
+    },
+
+    async enqueueOutbox(row: NewOutboxRow) {
+      const [inserted] = await x
+        .insert(outbox)
+        .values({ opKey: row.op_key, target: row.target, payload: row.payload })
+        .returning();
+      if (inserted === undefined)
+        throw new Error("outbox insert returned no row");
+      return toOutbox(inserted);
+    },
+
+    async listOutboxPending() {
+      const rows = await x
+        .select()
+        .from(outbox)
+        .where(isNull(outbox.ackedAt))
+        .orderBy(asc(outbox.id));
+      return rows.map(toOutbox);
+    },
+
+    async ackOutbox(id, readback) {
+      await x
+        .update(outbox)
+        .set({ ackedAt: sql`now()`, readback, lastError: null })
+        .where(and(eq(outbox.id, id), isNull(outbox.ackedAt)));
+    },
+
+    async failOutbox(id, error) {
+      await x
+        .update(outbox)
+        .set({ lastError: error, tries: sql`${outbox.tries} + 1` })
+        .where(and(eq(outbox.id, id), isNull(outbox.ackedAt)));
     },
 
     async getStory(provider, externalId) {
@@ -427,6 +497,9 @@ function makeRepo(x: Executor): Repo {
         run_id: row.runId,
         dependencies: json(row.dependencies),
         synced_at: row.syncedAt,
+        status: row.status,
+        title: row.title,
+        kickoff_line: row.kickoffLine,
       };
     },
 
@@ -678,6 +751,9 @@ function makeRepo(x: Executor): Repo {
           run_id: row.runId,
           dependencies: json(row.dependencies),
           synced_at: row.syncedAt,
+          status: row.status,
+          title: row.title,
+          kickoff_line: row.kickoffLine,
         };
         const runRows = await x
           .select()

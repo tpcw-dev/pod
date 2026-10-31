@@ -1,0 +1,14 @@
+{
+  "method": "postComment",
+  "match": {
+    "operation": "PostComment",
+    "variables": {
+      "issueId": "TRK-1",
+      "bodyHash": "d1acd32f49986d3e2032e2b700d21667812142b675ee1f2f0e19d6e333b79aa0"
+    }
+  },
+  "status": null,
+  "body": null,
+  "error": "dropped",
+  "recordedAt": "2026-10-31T01:43:51.695Z"
+}

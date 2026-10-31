@@ -6,6 +6,7 @@ import { runBlocked } from "../../src/core/ledger/run-blocked.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
 import { fixtures } from "../orca/temp-fixtures.ts";
+import { fakeTracker, trackerStory } from "./fake-tracker.ts";
 import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import {
   batch,
@@ -55,7 +56,7 @@ describeDb("pod check", () => {
     over: Partial<CheckInput> = {},
   ) {
     const { orca, log } = replay(conn, entries);
-    const outcome = await checkPass(conn.db, orca, log, input(over));
+    const outcome = await checkPass(conn.db, orca, null, log, input(over));
     orca.assertDone();
     return outcome;
   }
@@ -127,6 +128,92 @@ describeDb("pod check", () => {
       outcome: "unknown",
       from: "delivered",
     });
+  });
+
+  test("a tracker Canceled holds the Run and its open Tasks once, each hold naming its prior state", async () => {
+    const tracker = fakeTracker(
+      trackerStory({ status: "Canceled", statusType: "canceled" }),
+    );
+    const quiet = [
+      ok("check", empty(null), run),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_1", workerState: "running" }]),
+        run,
+      ),
+    ];
+    for (let i = 0; i < 2; i += 1) {
+      const { orca, log } = replay(conn, quiet);
+      const outcome = await checkPass(conn.db, orca, tracker, log, input());
+      orca.assertDone();
+      expect(outcome).toMatchObject({
+        ok: true,
+        result: {
+          nextSteps: expect.arrayContaining([
+            "story:S-1 is Canceled in the tracker; the Run is on hold",
+          ]),
+        },
+      });
+    }
+    expect(tracker.calls).toEqual(["readStory", "readStory"]);
+    expect((await events(conn, "cancel")).map((row) => row.payload)).toEqual([
+      { reason: "tracker_canceled", status: "Canceled" },
+    ]);
+    expect((await conn.db.getRun("run_1"))?.state).toBe("hold");
+    expect(await taskState(conn, "task_b")).toBe("hold");
+    expect(
+      await conn.sql`select task_id, payload from ledger.event where type = 'hold' order by id`,
+    ).toEqual([
+      {
+        task_id: null,
+        payload: { reason: "tracker_canceled", from: "active" },
+      },
+      {
+        task_id: "task_b",
+        payload: { reason: "tracker_canceled", from: "dispatched" },
+      },
+      {
+        task_id: "task_r",
+        payload: { reason: "tracker_canceled", from: "pending" },
+      },
+    ]);
+    expect((await conn.db.getStory("linear", "S-1"))?.status).toBe("Canceled");
+  });
+
+  test("a tracker Canceled leaves a Task already on hold with its earlier hold event", async () => {
+    await conn.db.setTaskState("task_b", "hold");
+    await conn.db.appendEvent({
+      type: "hold",
+      ts: new Date(),
+      host: "local",
+      run_id: "run_1",
+      task_id: "task_b",
+      dispatch_id: null,
+      op_key: null,
+      payload: { reason: "unknown_delivery", from: "dispatched" },
+      source: { kind: "command", verb: "check" },
+    });
+    const tracker = fakeTracker(
+      trackerStory({ status: "Canceled", statusType: "canceled" }),
+    );
+    const { orca, log } = replay(conn, [
+      ok("check", empty(null), run),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_1", workerState: "running" }]),
+        run,
+      ),
+    ]);
+    expect((await checkPass(conn.db, orca, tracker, log, input())).ok).toBe(
+      true,
+    );
+    orca.assertDone();
+    expect(
+      await conn.sql`select payload from ledger.event where type = 'hold' and task_id = 'task_b' order by id`,
+    ).toEqual([
+      { payload: { reason: "unknown_delivery", from: "dispatched" } },
+    ]);
+    expect(await taskState(conn, "task_b")).toBe("hold");
   });
 
   test("a mismatched dispatchId records ignored and moves nothing", async () => {
@@ -336,7 +423,7 @@ describeDb("pod check", () => {
   test("a stale generation is refused before any Orca call", async () => {
     const log = receiptLog(conn.db, "local");
     expect(
-      await checkPass(conn.db, noCalls(), log, input({ generation: 2 })),
+      await checkPass(conn.db, noCalls(), null, log, input({ generation: 2 })),
     ).toMatchObject({
       ok: false,
       refusal: { code: "owner_generation_stale" },

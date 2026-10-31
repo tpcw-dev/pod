@@ -29,7 +29,10 @@ import type {
   OperationStatus,
   Run,
   RunState,
+  NewOutboxRow,
+  OutboxRow,
   Story,
+  StorySync,
   Task,
 } from "../domain/ledger.ts";
 
@@ -54,6 +57,15 @@ export interface Repo {
   getSnapshot(runId: string): Promise<Snapshot | null>;
   upsertStory(row: Story): Promise<void>;
   getStory(provider: string, externalId: string): Promise<Story | null>;
+  syncStory(
+    provider: string,
+    externalId: string,
+    change: StorySync,
+  ): Promise<void>;
+  enqueueOutbox(row: NewOutboxRow): Promise<OutboxRow>;
+  listOutboxPending(): Promise<OutboxRow[]>;
+  ackOutbox(id: number, readback: Json): Promise<void>;
+  failOutbox(id: number, error: string): Promise<void>;
   insertRun(row: Run): Promise<void>;
   getRun(runId: string): Promise<Run | null>;
   lockRun(runId: string): Promise<Run | null>;

@@ -9,6 +9,7 @@ import { Size } from "../core/domain/ledger.ts";
 import type { Refused } from "../core/domain/outcome.ts";
 import { receiptLog, type ReceiptLog } from "../core/ledger/receipts.ts";
 import type { Db } from "../core/ports/db.ts";
+import type { TrackerPort } from "../core/ports/tracker.ts";
 import {
   OrcaVersionUnsupported,
   orcaRangeText,
@@ -24,10 +25,12 @@ import {
   type HostSettings,
 } from "./host-profile.ts";
 import { orcaFor } from "./orca.ts";
+import { trackerFor } from "./tracker.ts";
 
 interface Wiring {
   db: Db;
   orca: OrcaPort;
+  tracker: TrackerPort | null;
   log: ReceiptLog;
   host: HostSettings;
 }
@@ -40,13 +43,18 @@ export async function withOrca<R extends { ok: true }>(
   try {
     const log = receiptLog(connection.db, host.hostId);
     const orca = orcaFor(log.sink, host.hostId);
+    const tracker = await trackerFor(log.trackerSink, host);
     const outcome = await work({
       db: connection.db,
       orca: orca.port,
+      tracker: tracker?.port ?? null,
       log,
       host,
     });
-    const [refused] = orca.recordRefusals();
+    const [refused] = [
+      ...orca.recordRefusals(),
+      ...(tracker?.recordRefusals() ?? []),
+    ];
     if (refused !== undefined)
       throw new PodError("failed", 1, refused.message, [
         "the ledger recorded the call's outcome; add the term to the scrubber inputs and record again",
@@ -133,8 +141,8 @@ export async function runCreateVerb(
     .map(quote)
     .join(" ");
   const { result, opKey, orca } = await withOrca(
-    ({ db, orca: port, log, host }) =>
-      runCreate(db, port, log, {
+    ({ db, orca: port, tracker, log, host }) =>
+      runCreate(db, port, tracker, log, {
         story: story.slice("story:".length),
         process: ref,
         size: input.size ?? null,
@@ -313,25 +321,27 @@ export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
     return { ...result, owner_generation: generation, orca: null };
   }
   const run = input.run ?? "";
-  const { result, orca } = await withOrca(({ db, orca: port, log, host }) => {
-    const pass = {
-      run,
-      generation,
-      host: host.hostId,
-      capacity: host.capacity,
-      now,
-      leaseSeconds: lease,
-    };
-    return input.wait === true
-      ? checkWait(db, port, log, {
-          ...pass,
-          interval: Number(input.interval ?? "10"),
-          timeout: Number(input.timeout ?? "600"),
-          sleep: (seconds) =>
-            new Promise((done) => setTimeout(done, seconds * 1000)),
-        })
-      : checkPass(db, port, log, pass);
-  });
+  const { result, orca } = await withOrca(
+    ({ db, orca: port, tracker, log, host }) => {
+      const pass = {
+        run,
+        generation,
+        host: host.hostId,
+        capacity: host.capacity,
+        now,
+        leaseSeconds: lease,
+      };
+      return input.wait === true
+        ? checkWait(db, port, tracker, log, {
+            ...pass,
+            interval: Number(input.interval ?? "10"),
+            timeout: Number(input.timeout ?? "600"),
+            sleep: (seconds) =>
+              new Promise((done) => setTimeout(done, seconds * 1000)),
+          })
+        : checkPass(db, port, tracker, log, pass);
+    },
+  );
   return { ...result, owner_generation: generation, orca };
 }
 

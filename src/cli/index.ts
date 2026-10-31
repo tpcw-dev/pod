@@ -35,15 +35,18 @@ function help(rows: readonly (typeof verbs)[number][]): void {
   });
 }
 
-function verbFrom(positionals: string[]):
-  | { verb: (typeof verbs)[number]; args: string[] }
-  | undefined {
-  const two = verbs.find((item) => item.name === positionals.slice(0, 2).join(" "));
+function verbFrom(
+  positionals: string[],
+): { verb: (typeof verbs)[number]; args: string[] } | undefined {
+  const two = verbs.find(
+    (item) => item.name === positionals.slice(0, 2).join(" "),
+  );
   if (two !== undefined) return { verb: two, args: positionals.slice(2) };
   const one = positionals[0];
   const oneVerb =
     one === undefined ? undefined : verbs.find((item) => item.name === one);
-  if (oneVerb !== undefined) return { verb: oneVerb, args: positionals.slice(1) };
+  if (oneVerb !== undefined)
+    return { verb: oneVerb, args: positionals.slice(1) };
   return undefined;
 }
 

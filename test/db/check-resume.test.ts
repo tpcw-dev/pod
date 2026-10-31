@@ -53,7 +53,7 @@ describeDb("pod check --resume", () => {
 
   async function pass(entries: readonly TempEntry[]) {
     const { orca, log } = replay(conn, entries);
-    const outcome = await checkPass(conn.db, orca, log, {
+    const outcome = await checkPass(conn.db, orca, null, log, {
       run: "run_1",
       generation: 1,
       host: "local",

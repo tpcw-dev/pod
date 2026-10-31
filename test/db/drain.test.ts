@@ -140,7 +140,7 @@ describeDb("pod drain", () => {
         run,
       ),
     ]);
-    const pass = await checkPass(conn.db, orca, log, {
+    const pass = await checkPass(conn.db, orca, null, log, {
       run: "run_1",
       generation: 1,
       host: "local",
@@ -257,7 +257,7 @@ describeDb("pod drain", () => {
         run,
       ),
     ]);
-    const pass = await checkPass(conn.db, checked.orca, checked.log, {
+    const pass = await checkPass(conn.db, checked.orca, null, checked.log, {
       run: "run_1",
       generation: 1,
       host: "local",

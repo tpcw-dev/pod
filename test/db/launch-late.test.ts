@@ -59,7 +59,7 @@ describeDb(
           ok("worker-list", listed, run),
           ok("check", empty(), run),
         ]);
-        const outcome = await checkPass(conn.db, inner.orca, inner.log, {
+        const outcome = await checkPass(conn.db, inner.orca, null, inner.log, {
           run: "run_1",
           generation: 1,
           host: "local",
@@ -119,7 +119,7 @@ describeDb(
           ok("worker-list", workers([]), run),
           ok("check", empty(), run),
         ]);
-        const pass = await checkPass(conn.db, inner.orca, inner.log, {
+        const pass = await checkPass(conn.db, inner.orca, null, inner.log, {
           run: "run_1",
           generation: 1,
           host: "local",

@@ -16,7 +16,10 @@ export function readLearningFile(path: string) {
   const parsed = parseYaml(readText(path), path);
   const accepted = acceptLearningFile(parsed);
   if (!accepted.ok)
-    throw schemaError(`${path} fails the learning file schema`, accepted.issues);
+    throw schemaError(
+      `${path} fails the learning file schema`,
+      accepted.issues,
+    );
   return accepted.file;
 }
 

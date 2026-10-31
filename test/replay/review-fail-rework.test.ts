@@ -45,7 +45,7 @@ describeDb("review-fail-rework", () => {
         await log.sink(record);
       },
     });
-    const created = await runCreate(conn.db, orca, log, {
+    const created = await runCreate(conn.db, orca, null, log, {
       story: "S5B-9",
       process: { name: "review-fail-rework", rev: 1 },
       size: "s",
@@ -75,7 +75,7 @@ describeDb("review-fail-rework", () => {
       expect(started, task).toMatchObject({ ok: true });
     };
     const check = async () => {
-      const checked = await checkPass(conn.db, orca, log, {
+      const checked = await checkPass(conn.db, orca, null, log, {
         run: run_id,
         generation: 1,
         host,

@@ -50,7 +50,7 @@ describeDb("pod check stops at a moved owner generation", () => {
           await conn.sql`update ledger.run set owner_generation = 2`;
       },
     });
-    const outcome = await checkPass(conn.db, orca, log, {
+    const outcome = await checkPass(conn.db, orca, null, log, {
       run: "run_1",
       generation: 1,
       host: "local",

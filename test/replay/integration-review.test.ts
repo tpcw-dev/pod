@@ -38,7 +38,7 @@ describeDb("integration-review", () => {
   test("review waits for both implement Tasks, and pr waits for the review PASS", async () => {
     const log = receiptLog(conn.db, host);
     const orca = makeReplayOrca({ dir, sink: log.sink });
-    const created = await runCreate(conn.db, orca, log, {
+    const created = await runCreate(conn.db, orca, null, log, {
       story: "S5B-13",
       process: { name: "integration-review", rev: 1 },
       size: "s",
@@ -71,7 +71,7 @@ describeDb("integration-review", () => {
       expect(started, step).toMatchObject({ ok: true });
     };
     const check = async () => {
-      const checked = await checkPass(conn.db, orca, log, {
+      const checked = await checkPass(conn.db, orca, null, log, {
         run: run_id,
         generation: 1,
         host,

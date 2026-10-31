@@ -55,7 +55,7 @@ export async function freshRun(conn: Connection): Promise<void> {
     ok("task-create", { task: { id: "task_b", status: "ready" } }),
     ok("task-create", { task: { id: "task_r", status: "pending" } }),
   ]);
-  const created = await runCreate(conn.db, orca, log, {
+  const created = await runCreate(conn.db, orca, null, log, {
     story: "S-1",
     process: { name: "impl", rev: 1 },
     size: "s",

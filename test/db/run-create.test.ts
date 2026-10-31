@@ -12,6 +12,7 @@ import {
   unknownReply,
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
+import { fakeTracker, trackerStory } from "./fake-tracker.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { activeRevision, processValue, seedConfig } from "./seed.ts";
 
@@ -68,7 +69,7 @@ describeDb("pod run create", () => {
     log = receiptLog(conn.db, "local"),
     over: Partial<RunCreateInput> = {},
   ) {
-    return runCreate(conn.db, orca, log, { ...input, ...over });
+    return runCreate(conn.db, orca, null, log, { ...input, ...over });
   }
 
   async function events(type: string) {
@@ -132,6 +133,111 @@ describeDb("pod run create", () => {
       (await conn.sql`select type from ledger.event where type <> 'receipt'`)
         .length,
     ).toBe(0);
+  });
+
+  test("with a tracker, the Story supplies size, stage, and the Kickoff process with no flags", async () => {
+    const { orca, log } = replay(happy);
+    const tracker = fakeTracker(
+      trackerStory({
+        title: "Build it",
+        size: "xs",
+        stageLabel: "impl",
+        kickoffLine: { name: "impl", rev: 1 },
+        kickoffText: "Kickoff: impl@1",
+        status: "Todo",
+        statusType: "unstarted",
+      }),
+    );
+    const outcome = await runCreate(conn.db, orca, tracker, log, {
+      ...input,
+      process: null,
+      size: null,
+      stage: null,
+      command: "pod run create story:S-1",
+    });
+    orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { run_id: "run_1", process: "process.impl@1" },
+    });
+    expect(tracker.calls).toEqual(["readStory"]);
+    expect(await conn.db.getStory("linear", "S-1")).toMatchObject({
+      size: "xs",
+      stage: "impl",
+      run_id: "run_1",
+      status: "Todo",
+      title: "Build it",
+      kickoff_line: "Kickoff: impl@1",
+    });
+  });
+
+  test("with a tracker, --size overrides the tracker's estimate", async () => {
+    const { orca, log } = replay(happy);
+    const tracker = fakeTracker(trackerStory({ size: "xl" }));
+    const outcome = await runCreate(conn.db, orca, tracker, log, {
+      ...input,
+      process: null,
+      size: "s",
+      stage: null,
+    });
+    expect(outcome.ok).toBe(true);
+    expect((await conn.db.getStory("linear", "S-1"))?.size).toBe("s");
+  });
+
+  test("with a tracker, a Story with no estimate refuses selector_none naming the size", async () => {
+    const tracker = fakeTracker(trackerStory({ size: null }));
+    expect(
+      await runCreate(
+        conn.db,
+        noCalls(),
+        tracker,
+        receiptLog(conn.db, "local"),
+        {
+          ...input,
+          size: null,
+        },
+      ),
+    ).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "selector_none",
+        message: "story:S-1 has no size",
+        nextSteps: ["--size xs|s|m|l|xl"],
+      },
+    });
+  });
+
+  test("with a tracker, a Kickoff line that differs from --process refuses selector_conflict", async () => {
+    const tracker = fakeTracker(
+      trackerStory({ kickoffLine: { name: "impl", rev: 2 } }),
+    );
+    const outcome = await runCreate(
+      conn.db,
+      noCalls(),
+      tracker,
+      receiptLog(conn.db, "local"),
+      input,
+    );
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: { code: "selector_conflict" },
+    });
+  });
+
+  test("with a tracker, a Story the tracker does not have refuses story_not_found", async () => {
+    const tracker = fakeTracker(
+      trackerStory({ ref: { provider: "linear", external_id: "OTHER" } }),
+    );
+    expect(
+      await runCreate(
+        conn.db,
+        noCalls(),
+        tracker,
+        receiptLog(conn.db, "local"),
+        input,
+      ),
+    ).toMatchObject({ ok: false, refusal: { code: "story_not_found" } });
+    expect(await conn.db.getStory("linear", "S-1")).toBeNull();
   });
 
   test("a second call for the same Story returns the recorded result with no Orca call", async () => {
