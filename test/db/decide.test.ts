@@ -182,26 +182,35 @@ describeDb("pod decide", () => {
       request: { role: "decider", seat: "dec-1", host: "local" },
     });
     expect((await conn.db.getTask(planTask))?.state).toBe("delivered");
-    const holds = await conn.sql`select 1 from ledger.event where type = 'hold'`;
+    const holds =
+      await conn.sql`select 1 from ledger.event where type = 'hold'`;
     expect(holds).toHaveLength(0);
     const again = await decide([
       ok("request-show", { requestId: "req_seat", state: "pending" }),
     ]);
     expect(again).toMatchObject({
       ok: false,
-      refusal: { code: "launch_unknown", nextSteps: [expect.stringMatching(/^pod check/), "pod check"] },
+      refusal: {
+        code: "launch_unknown",
+        nextSteps: [expect.stringMatching(/^pod check/), "pod check"],
+      },
     });
   });
 
   test("a failed round 1 send leaves the op pending, and a rerun sends once with the open Seat", async () => {
     const first = await decide([
       ok("worker-start", seatStarted(decider)),
-      { verb: "send", exitCode: 1, stdout: '{"ok":false,"error":{"code":"boom"}}' },
+      {
+        verb: "send",
+        exitCode: 1,
+        stdout: '{"ok":false,"error":{"code":"boom"}}',
+      },
     ]);
     expect(first).toMatchObject({ ok: false, refusal: { code: "failed" } });
     const again = await decide([sent(decider)]);
     expect(again).toMatchObject({ ok: true, result: { state: "round:1" } });
-    const starts = await conn.sql`select 1 from ledger.dispatch where role = 'decider'`;
+    const starts =
+      await conn.sql`select 1 from ledger.dispatch where role = 'decider'`;
     expect(starts).toHaveLength(1);
   });
 

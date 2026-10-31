@@ -206,9 +206,7 @@ describeDb("pod check advances a Decision", () => {
 
   test("a malformed decision payload is ignored as malformed_decision", async () => {
     const id = await start();
-    const result = await pass(
-      delivery(1, [proposal("p1", id, 7)]),
-    );
+    const result = await pass(delivery(1, [proposal("p1", id, 7)]));
     expect(result.ignored).toBe(1);
     const [ignored] = await events(conn, "ignored");
     expect(ignored?.payload).toMatchObject({ reason: "malformed_decision" });

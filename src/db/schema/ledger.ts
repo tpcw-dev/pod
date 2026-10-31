@@ -251,9 +251,7 @@ export const decision = ledger.table(
     ),
     uniqueIndex("decision_open_task_idx")
       .on(t.taskId)
-      .where(
-        sql`${t.state} in ('requested', 'round:1', 'round:2', 'round:3')`,
-      ),
+      .where(sql`${t.state} in ('requested', 'round:1', 'round:2', 'round:3')`),
   ],
 );
 

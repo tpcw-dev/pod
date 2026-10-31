@@ -48,7 +48,8 @@ test("a valid value has no problem", () => {
 });
 
 test("a missing field is named", () => {
-  const { round_next: _, ...rest } = value;
+  const rest: Partial<typeof value> = { ...value };
+  delete rest.round_next;
   expect(validateDecisionTemplates(rest)).toEqual({
     path: "value.round_next",
     message: "value.round_next must be a non-empty string",

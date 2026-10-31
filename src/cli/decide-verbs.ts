@@ -36,9 +36,10 @@ const Question = z.strictObject({
 
 export async function decideVerb(input: DecideInput): Promise<DecideOutput> {
   if (input.effect === "change_spec")
-    throw usageError("--effect change_spec is S12b; this Pod takes accept_plan", [
-      "pod decide --effect accept_plan",
-    ]);
+    throw usageError(
+      "--effect change_spec is S12b; this Pod takes accept_plan",
+      ["pod decide --effect accept_plan"],
+    );
   if (input.effect !== "accept_plan")
     throw usageError(`--effect ${input.effect} is not accept_plan`, [
       "pod decide --effect accept_plan",
@@ -46,7 +47,10 @@ export async function decideVerb(input: DecideInput): Promise<DecideOutput> {
   const [file] = input.args;
   const parsed = Question.safeParse(parseYaml(readText(file), file));
   if (!parsed.success)
-    throw schemaError(`${file} fails the decision question schema`, issuesOf(parsed.error));
+    throw schemaError(
+      `${file} fails the decision question schema`,
+      issuesOf(parsed.error),
+    );
   const { result, opKey, orca } = await withOrca(
     async ({ db, orca: port, log, host }) =>
       openDecision(db, port, log, {

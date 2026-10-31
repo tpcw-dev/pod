@@ -22,8 +22,15 @@ value:
       model: example
       host: example-host
     # Fill id, runtime, model, and host before this seat is used.
+    - id: decider
+      roles: [decider]
+      runtime: example
+      model: example
+      host: example-host
+    # Fill id, runtime, model, and host before this seat is used.
     - id: auditor
       roles: [auditor]
       runtime: example
       model: example
       host: example-host
+      independent_of: [decider]

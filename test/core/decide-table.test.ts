@@ -58,7 +58,12 @@ test("escalate and needs_evidence go to needs_human with context-missing", () =>
 });
 
 test("cancel from every open state goes to cancelled and holds the Task", () => {
-  for (const from of [{ kind: "requested" }, round(1), round(2), round(3)] as const)
+  for (const from of [
+    { kind: "requested" },
+    round(1),
+    round(2),
+    round(3),
+  ] as const)
     expect(next(from, "cancel", 3)).toEqual({
       to: { kind: "cancelled" },
       effect: "hold_task",

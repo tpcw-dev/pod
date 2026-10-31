@@ -250,7 +250,10 @@ describeDb("pod hqa record on a decision step", () => {
 
   test("a Story whose waiting Task is a decision step is decision_not_gate", async () => {
     await deliveredPlan(conn, { gates: [], principals });
-    const bypassPath = join(mkdtempSync(join(tmpdir(), "pod-hqa-")), "bypass.jsonl");
+    const bypassPath = join(
+      mkdtempSync(join(tmpdir(), "pod-hqa-")),
+      "bypass.jsonl",
+    );
     writeFileSync(
       bypassPath,
       `${JSON.stringify({ host: "h1", result: "pass", at: "2026-10-31T00:00:00.000Z" })}\n`,

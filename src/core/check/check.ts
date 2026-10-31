@@ -617,10 +617,7 @@ export async function checkWait(
           "pod brief",
         ]);
       if (!openStates.includes(decision.state)) return pass;
-    } else if (
-      pass.result.deliveries.length > 0 ||
-      pass.result.free_slots >= 1
-    )
+    } else if (pass.result.deliveries.length > 0 || pass.result.free_slots >= 1)
       return pass;
     const waited = Math.floor((input.now().getTime() - start) / 1000);
     if (waited >= input.timeout)

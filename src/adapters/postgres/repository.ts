@@ -902,17 +902,15 @@ function makeRepo(x: Executor): Repo {
           ),
         )
         .orderBy(asc(decision.closedAt), asc(decision.id));
-      return rows.map(
-        ({ decision: row, externalId }): Decision => ({
-          id: row.id,
-          scope: { kind: "story", ref: externalId },
-          question: row.question,
-          outcome: OutcomeText.safeParse(row.outcome).data?.text ?? row.state,
-          decided_at: row.closedAt ?? row.createdAt,
-          in_force_until: null,
-          standing: false,
-        }),
-      );
+      return rows.map(({ decision: row, externalId }): Decision => ({
+        id: row.id,
+        scope: { kind: "story", ref: externalId },
+        question: row.question,
+        outcome: OutcomeText.safeParse(row.outcome).data?.text ?? row.state,
+        decided_at: row.closedAt ?? row.createdAt,
+        in_force_until: null,
+        standing: false,
+      }));
     },
 
     async insertDecision(row: DecisionRow) {

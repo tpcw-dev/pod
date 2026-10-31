@@ -76,9 +76,11 @@ export const planProcess = {
 };
 
 export function defaultTemplates(): Json {
-  return (parse(readFileSync("specs/decision/default.yaml", "utf8")) as {
-    value: Json;
-  }).value;
+  return (
+    parse(readFileSync("specs/decision/default.yaml", "utf8")) as {
+      value: Json;
+    }
+  ).value;
 }
 
 export async function seedDecision(
@@ -142,7 +144,9 @@ export async function deliveredPlan(
     ok("check", empty("delivery_plan"), ack("delivery_plan")),
     ok(
       "worker-list",
-      workers([{ dispatchId: planner, taskId: planTask, workerState: "succeeded" }]),
+      workers([
+        { dispatchId: planner, taskId: planTask, workerState: "succeeded" },
+      ]),
       run,
     ),
   ]);
@@ -202,7 +206,12 @@ export async function opened(
     ok("worker-start", seatStarted(decider)),
     sent(decider),
   ]);
-  const outcome = await openDecision(conn.db, orca, log, decideInput(templates));
+  const outcome = await openDecision(
+    conn.db,
+    orca,
+    log,
+    decideInput(templates),
+  );
   orca.assertDone();
   if (!outcome.ok) throw new Error(outcome.refusal.message);
   return outcome.result.decision_id;

@@ -202,7 +202,7 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     sideEffect: "ledger",
     cancelBy: ["nobody"],
     evidenceRequired: [
-      "the delivery's `payload.dispatchId` matches a recorded Dispatch, and its owner generation matches the Run",
+      "the delivery's `payload.dispatchId` matches a recorded Dispatch, or a Decision Seat's message for an open Decision, and its owner generation matches the Run",
     ],
     meta: checkMeta,
   }),
