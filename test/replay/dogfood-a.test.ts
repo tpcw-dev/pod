@@ -9,6 +9,7 @@ import { countRun } from "../../src/core/brief/counters.ts";
 import { checkWait } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { dispatch } from "../../src/core/dispatch/dispatch.ts";
+import { EventType } from "../../src/core/domain/ledger.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import { recordHqa } from "../../src/core/gate/hqa.ts";
 import { postVerdict } from "../../src/core/gate/verdict.ts";
@@ -101,6 +102,7 @@ describeDb("dogfood-a", () => {
           host,
           capacity: 1,
           leaseSeconds: launchLeaseSeconds,
+          decision: null,
           interval: 1,
           timeout: 3600,
           sleep: async () => {},
@@ -168,12 +170,26 @@ describeDb("dogfood-a", () => {
       expect(await events(conn, "push")).toHaveLength(2);
       expect(await events(conn, "pr")).toHaveLength(1);
 
-      const runEvents = await conn.sql<
-        { run_id: string; type: string; op_key: string | null; source: Json }[]
-      >`select run_id, type, op_key, source from ledger.event where run_id = ${run_id}`;
-      const operations = await conn.sql<
-        { op_key: string }[]
-      >`select op_key from ledger.operation`;
+      const runEvents = [
+        ...(await conn.sql<
+          {
+            run_id: string | null;
+            type: string;
+            op_key: string | null;
+            source: Json;
+          }[]
+        >`select run_id, type, op_key, source from ledger.event where run_id = ${run_id}`),
+      ].map((row) => ({
+        run_id: row.run_id,
+        type: EventType.parse(row.type),
+        op_key: row.op_key,
+        source: row.source,
+      }));
+      const operations = [
+        ...(await conn.sql<
+          { op_key: string }[]
+        >`select op_key from ledger.operation`),
+      ];
       const counters = countRun(
         { run_id },
         await conn.db.listTasks(run_id),
