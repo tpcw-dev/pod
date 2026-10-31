@@ -17,6 +17,15 @@ import {
   learningAddMeta,
   learningQuery,
 } from "./learning-verbs.ts";
+import {
+  gateMeta,
+  HqaRecordInput,
+  HqaRecordOutput,
+  hqaRecordVerb,
+  VerdictPostInput,
+  VerdictPostOutput,
+  verdictPostVerb,
+} from "./gate-verbs.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
 import {
   DrainInput,
@@ -173,6 +182,30 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
       "the Dispatch is settled or the caller gives a retain reason, and this host owns the terminal",
     ],
     meta: runMeta,
+  }),
+  row({
+    name: "verdict post",
+    input: VerdictPostInput,
+    output: VerdictPostOutput,
+    handler: verdictPostVerb,
+    sideEffect: "tracker",
+    cancelBy: ["operator"],
+    evidenceRequired: [
+      "Head SHA equals the current candidate SHA, and the reviewer is not the developer",
+    ],
+    meta: gateMeta,
+  }),
+  row({
+    name: "hqa record",
+    input: HqaRecordInput,
+    output: HqaRecordOutput,
+    handler: hqaRecordVerb,
+    sideEffect: "tracker",
+    cancelBy: ["operator"],
+    evidenceRequired: [
+      "a source-verified comment by the human gatekeeper, or by the relay principal with a matching content hash, plus a deploy event for `hqa_after_deploy`",
+    ],
+    meta: gateMeta,
   }),
   row({
     name: "drain",

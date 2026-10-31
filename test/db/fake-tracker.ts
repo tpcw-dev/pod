@@ -69,9 +69,18 @@ export function fakeTracker(story: TrackerStory = trackerStory()): FakeTracker {
         ),
       );
     },
-    readComment() {
+    readComment(ref) {
       fake.calls.push("readComment");
-      return Promise.resolve(receipt<TrackerComment>("readComment", null));
+      const found = fake.comments.find(
+        (comment) => comment.ref.comment_id === ref.comment_id,
+      );
+      return Promise.resolve(
+        receipt<TrackerComment>(
+          "readComment",
+          found ?? null,
+          found === undefined ? "not_found" : null,
+        ),
+      );
     },
     postComment(req) {
       fake.calls.push("postComment");

@@ -60,3 +60,46 @@ export function deliveryOutcome(
   }
   return { kind: "delivery", outcome: "unknown" };
 }
+
+const Sha = z.string().regex(/^[0-9a-f]{40}$/);
+const Text = z.string().min(1);
+const Pr = z.strictObject({ number: z.int(), url: Text, head: Sha });
+const Deploy = z.strictObject({
+  environment: Text,
+  deployment_id: Text,
+  deployed_revision: Text,
+  source_commit: Text,
+});
+
+export type FactType = "push" | "pr" | "deploy";
+
+export interface DeliveryFacts {
+  facts: { type: FactType; fields: Record<string, string | number> }[];
+  ignored: string[];
+}
+
+export function deliveryFacts(message: OrcaMessage): DeliveryFacts {
+  const found: DeliveryFacts = { facts: [], ignored: [] };
+  const payload: Record<string, unknown> = message.payload;
+  const read = <T extends Record<string, string | number>>(
+    field: string,
+    type: FactType,
+    schema: z.ZodType<T>,
+  ) => {
+    if (!(field in payload)) return;
+    const parsed = schema.safeParse(payload[field]);
+    if (parsed.success) found.facts.push({ type, fields: parsed.data });
+    else
+      found.ignored.push(
+        `ignored ${field} on message ${message.id}: ${parsed.error.issues[0]?.message ?? "malformed"}`,
+      );
+  };
+  read(
+    "head",
+    "push",
+    Sha.transform((sha) => ({ sha })),
+  );
+  read("pr", "pr", Pr);
+  read("deploy", "deploy", Deploy);
+  return found;
+}

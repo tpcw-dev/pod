@@ -1,12 +1,23 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
-import { checkPass, type CheckInput } from "../../src/core/check/check.ts";
+import {
+  checkPass,
+  resume,
+  type CheckInput,
+} from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
+import { recordHqa } from "../../src/core/gate/hqa.ts";
+import { candidateSha } from "../../src/core/gate/receipt.ts";
+import { postVerdict } from "../../src/core/gate/verdict.ts";
 import { runBlocked } from "../../src/core/ledger/run-blocked.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
 import { fixtures } from "../orca/temp-fixtures.ts";
-import { fakeTracker, trackerStory } from "./fake-tracker.ts";
+import { fakeTracker, trackerStory, type FakeTracker } from "./fake-tracker.ts";
+import { gatedRun, headSha } from "./gate-fixture.ts";
 import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import {
   batch,
@@ -106,6 +117,85 @@ describeDb("pod check", () => {
         edge: { to: "review", new_task: false, then: null },
       },
     ]);
+  });
+
+  const sha = "0123456789abcdef0123456789abcdef01234567";
+  const deliver = (fields: Record<string, unknown>) =>
+    pass([
+      ok(
+        "check",
+        batch("delivery_1", [
+          message("msg_1", "worker_done", {
+            taskId: "task_b",
+            dispatchId: "ctx_1",
+            outcome: "succeeded",
+            ...fields,
+          }),
+        ]),
+        run,
+      ),
+      ok("check", empty("delivery_1"), ack("delivery_1")),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_1", workerState: "succeeded" }]),
+        run,
+      ),
+    ]);
+
+  test("a worker_done with head appends one push event that is the candidate SHA", async () => {
+    expect(await candidateSha(conn.db, "run_1")).toBeNull();
+    await deliver({ head: sha });
+    expect(await events(conn, "push")).toEqual([
+      {
+        task_id: "task_b",
+        dispatch_id: "ctx_1",
+        payload: { task_id: "task_b", dispatch_id: "ctx_1", sha },
+      },
+    ]);
+    expect(await candidateSha(conn.db, "run_1")).toBe(sha);
+    expect(await events(conn, "pr")).toEqual([]);
+    expect(await events(conn, "deploy")).toEqual([]);
+  });
+
+  test("a worker_done with pr and deploy appends one event of each", async () => {
+    const deploy = {
+      environment: "staging",
+      deployment_id: "dep-1",
+      deployed_revision: "rev-9",
+      source_commit: sha,
+    };
+    await deliver({
+      pr: { number: 7, url: "https://x/pr/7", head: sha },
+      deploy,
+    });
+    expect((await events(conn, "pr")).map((row) => row.payload)).toEqual([
+      {
+        task_id: "task_b",
+        dispatch_id: "ctx_1",
+        number: 7,
+        url: "https://x/pr/7",
+        head: sha,
+      },
+    ]);
+    expect((await events(conn, "deploy")).map((row) => row.payload)).toEqual([
+      { task_id: "task_b", dispatch_id: "ctx_1", ...deploy },
+    ]);
+    expect(await events(conn, "push")).toEqual([]);
+  });
+
+  test("a malformed head or pr is an ignored line and records no event", async () => {
+    const outcome = await deliver({
+      head: sha.toUpperCase(),
+      pr: { number: "7", url: "https://x/pr/7", head: sha },
+    });
+    expect(await events(conn, "push")).toEqual([]);
+    expect(await events(conn, "pr")).toEqual([]);
+    expect(outcome.ok && outcome.result.nextSteps).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^ignored head on message msg_1: /),
+        expect.stringMatching(/^ignored pr on message msg_1: /),
+      ]),
+    );
   });
 
   test("a failed worker_done on an ungated step takes the unknown edge to hold", async () => {
@@ -511,6 +601,200 @@ describeDb("pod check", () => {
     expect(resumed.json).toMatchObject({
       ok: true,
       result: { resumed: [{ kind: "task", id: "task_b", to: "ready" }] },
+    });
+  });
+});
+
+describeDb("pod check and Gate receipts", () => {
+  let conn: Connection;
+  let tracker: FakeTracker;
+  const bypassPath = join(
+    mkdtempSync(join(tmpdir(), "pod-check-bypass-")),
+    "bypass.jsonl",
+  );
+  writeFileSync(
+    bypassPath,
+    `${JSON.stringify({ host: "h1", result: "pass", at: "t-1" })}\n`,
+  );
+  const principals = { human: { tracker_account: "keeper-1" } };
+  const hqaGate = { pr: { keeper: "human", type: "HQA" } };
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  async function quietCheck() {
+    const { orca, log } = replay(conn, [
+      ok("check", empty(null), run),
+      ok("worker-list", workers([]), run),
+    ]);
+    const outcome = await checkPass(
+      conn.db,
+      orca,
+      tracker,
+      log,
+      input({ capacity: 2 }),
+    );
+    orca.assertDone();
+    return outcome;
+  }
+
+  async function recordKeeper(body: string) {
+    tracker.comments.unshift({
+      ref: { provider: "linear", external_id: "S-1", comment_id: "c-keeper" },
+      authorId: "keeper-1",
+      body,
+      editedAt: null,
+    });
+    const recorded = await recordHqa(
+      conn.db,
+      noCalls(),
+      tracker,
+      receiptLog(conn.db, "local"),
+      {
+        story: { provider: "linear", external_id: "S-1" },
+        generation: 1,
+        host: "local",
+        hostName: "h1",
+        bypassPath,
+        command: "pod hqa record story:S-1 --generation 1",
+        now: () => new Date(),
+      },
+    );
+    if (!recorded.ok) throw new Error(recorded.refusal.message);
+    return recorded.result.receipt_id ?? 0;
+  }
+
+  function edit(body: string) {
+    const [comment] = tracker.comments;
+    if (comment === undefined) throw new Error("no comment to edit");
+    tracker.comments[0] = {
+      ...comment,
+      body,
+      editedAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+  }
+
+  const syncStates = async () =>
+    (
+      await conn.sql<
+        { sync_state: string }[]
+      >`select sync_state from ledger.gate_receipt order by id`
+    ).map((row) => row.sync_state);
+
+  const receiptHolds = async () =>
+    (await events(conn, "hold")).filter(
+      (row) => row.payload["reason"] === "receipt_voided",
+    );
+
+  test("a pending verdict receipt is synced once its outbox row is acked", async () => {
+    await gatedRun(conn, { gates: { pr: { keeper: "rev-1", type: "AQA" } } });
+    tracker = fakeTracker();
+    const posted = await postVerdict(
+      conn.db,
+      noCalls(),
+      receiptLog(conn.db, "local"),
+      {
+        file: {
+          gate: "pr",
+          task: "task_r",
+          head_sha: headSha,
+          reviewer: "rev-1",
+          outcome: "PASS",
+        },
+        generation: 1,
+        host: "local",
+        command: "pod verdict post v.yaml --generation 1",
+        now: () => new Date(),
+      },
+    );
+    expect(posted.ok).toBe(true);
+    expect(await syncStates()).toEqual(["pending"]);
+    await quietCheck();
+    expect(tracker.comments.map((row) => row.body)).toEqual([
+      `rev-1: pr PASS\nHead: ${headSha}`,
+    ]);
+    expect(await syncStates()).toEqual(["synced"]);
+  });
+
+  test("an edited keeper comment voids its receipt once and holds the Run, leaving the done Task", async () => {
+    await gatedRun(conn, { gates: hqaGate, principals });
+    tracker = fakeTracker();
+    const receiptId = await recordKeeper("pr PASS");
+    expect(await taskState(conn, "task_r")).toBe("done");
+    await quietCheck();
+    expect(await syncStates()).toEqual(["synced"]);
+    edit("pr PASS (edited)");
+    const first = await quietCheck();
+    expect(first.ok && first.result.nextSteps).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`receipt ${receiptId} on gate pr is voided`),
+      ]),
+    );
+    await quietCheck();
+    expect(await syncStates()).toEqual(["voided"]);
+    expect((await conn.db.getRun("run_1"))?.state).toBe("hold");
+    expect(await taskState(conn, "task_r")).toBe("done");
+    expect(await receiptHolds()).toEqual([
+      {
+        task_id: null,
+        dispatch_id: null,
+        payload: {
+          reason: "receipt_voided",
+          receipt_id: receiptId,
+          from: "active",
+        },
+      },
+      {
+        task_id: "task_r",
+        dispatch_id: null,
+        payload: {
+          reason: "receipt_voided",
+          receipt_id: receiptId,
+          moved: false,
+        },
+      },
+    ]);
+  });
+
+  test("a voided receipt on a held Task adds no Task event, so resume reads the earlier from", async () => {
+    await gatedRun(conn, { gates: hqaGate, principals });
+    tracker = fakeTracker();
+    await recordKeeper("pr FAIL");
+    expect(await taskState(conn, "task_r")).toBe("hold");
+    edit("pr FAIL, edited");
+    await quietCheck();
+    expect(await syncStates()).toEqual(["voided"]);
+    expect((await receiptHolds()).map((row) => row.task_id)).toEqual([null]);
+    const resumed = await resume(conn.db, {
+      run: "run_1",
+      task: null,
+      generation: 1,
+      host: "local",
+      now: () => new Date(),
+    });
+    expect(resumed.ok).toBe(true);
+    expect(await taskState(conn, "task_r")).toBe("delivered");
+  });
+
+  test("a voided receipt on a delivered Task moves it to hold with its from", async () => {
+    await gatedRun(conn, { gates: hqaGate, principals });
+    tracker = fakeTracker();
+    const receiptId = await recordKeeper("pr PASS");
+    await conn.sql`update ledger.task set state = 'delivered' where task_id = 'task_r'`;
+    edit("pr PASS, edited");
+    await quietCheck();
+    expect(await taskState(conn, "task_r")).toBe("hold");
+    expect((await receiptHolds()).at(-1)).toEqual({
+      task_id: "task_r",
+      dispatch_id: null,
+      payload: {
+        reason: "receipt_voided",
+        receipt_id: receiptId,
+        from: "delivered",
+      },
     });
   });
 });

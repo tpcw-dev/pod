@@ -1,4 +1,6 @@
+import { appendFileSync, mkdirSync } from "node:fs";
 import { hostname } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 import { z } from "zod";
 import { relayBody } from "./relay.ts";
@@ -92,6 +94,11 @@ function redact(text: string, token: string): string {
 
 function report(result: "pass" | "fail"): void {
   process.stdout.write(`${JSON.stringify({ host: hostname(), result })}\n`);
+  const home = process.env["POD_HOME"];
+  if (home === undefined || home === "") return;
+  mkdirSync(home, { recursive: true });
+  const line = { host: hostname(), result, at: new Date().toISOString() };
+  appendFileSync(join(home, "bypass.jsonl"), `${JSON.stringify(line)}\n`);
 }
 
 test("a rejection names createAsUser in its message or its path", () => {

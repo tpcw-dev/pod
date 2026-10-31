@@ -142,3 +142,20 @@ export function hashOf(body: string, relayedBy: string | null): string {
   const trailer = relayedBy === null ? null : relayTrailer(body);
   return contentHash(trailer?.rest ?? body);
 }
+
+export interface Pinned {
+  policy: unknown;
+  crew: unknown;
+}
+
+export async function pinnedConfig(
+  tx: Repo,
+  runId: string,
+): Promise<Pinned | null> {
+  const snapshot = await tx.getSnapshot(runId);
+  if (snapshot === null) return null;
+  const policy = await tx.getRevision(snapshot.policy_revision_id);
+  const crew = await tx.getRevision(snapshot.crew_revision_id);
+  if (policy === null || crew === null) return null;
+  return { policy: policy.value, crew: crew.value };
+}

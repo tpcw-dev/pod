@@ -500,6 +500,17 @@ export async function applyOutcome(
     if (task !== null) await tx.lockRun(task.run_id);
     return recordOutcome(tx, input);
   });
+  return followOutcome(db, orca, log, recorded, { ...input, version });
+}
+
+export async function followOutcome(
+  db: Db,
+  orca: OrcaPort,
+  log: ReceiptLog,
+  recorded: Recorded,
+  input: OutcomeInput & { command: string; now: () => Date; version: string },
+): Promise<Checked<OutcomeResult>> {
+  const { version } = input;
   const result = (state: TaskState, promoted: string[], created: string[]) => ({
     ok: true as const,
     orca: version,
