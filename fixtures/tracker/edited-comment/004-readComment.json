@@ -1,0 +1,13 @@
+{
+  "method": "readComment",
+  "match": {
+    "operation": "Comment",
+    "variables": {
+      "id": "00000000-0000-4000-8000-000000000013"
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"comment\":{\"id\":\"00000000-0000-4000-8000-000000000013\",\"body\":\"review PASS\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"},\"issue\":{\"identifier\":\"TRK-1\"}}}}\n",
+  "error": null,
+  "recordedAt": "2026-10-31T06:29:06.569Z"
+}

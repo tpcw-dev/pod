@@ -57,7 +57,7 @@ const PriorVerdict = z.looseObject({
   outcome: z.enum(["PASS", "FAIL"]),
 });
 
-export function verdictBody(file: VerdictFile): string {
+function verdictBody(file: VerdictFile): string {
   const head = `${file.reviewer}: ${file.gate} ${file.outcome}\nHead: ${file.head_sha}`;
   return file.notes === undefined ? head : `${head}\n\n${file.notes}`;
 }

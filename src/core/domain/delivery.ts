@@ -71,9 +71,9 @@ const Deploy = z.strictObject({
   source_commit: Text,
 });
 
-export type FactType = "push" | "pr" | "deploy";
+type FactType = "push" | "pr" | "deploy";
 
-export interface DeliveryFacts {
+interface DeliveryFacts {
   facts: { type: FactType; fields: Record<string, string | number> }[];
   ignored: string[];
 }

@@ -68,7 +68,7 @@ const deployFields =
 const bypassRemedy =
   "move the relay principal to a separate OS user or a separate host and run the bypass test (test/bypass) again";
 
-export const TrackerSource = z.looseObject({
+const TrackerSource = z.looseObject({
   kind: z.literal("tracker_comment"),
   provider: z.string(),
   issue: z.string(),

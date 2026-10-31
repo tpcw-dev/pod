@@ -24,7 +24,7 @@ export async function candidateSha(
   return PushPayload.safeParse(push?.payload).data?.sha ?? null;
 }
 
-export type Verdict = "PASS" | "FAIL";
+type Verdict = "PASS" | "FAIL";
 
 function escaped(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -49,7 +49,7 @@ export function findVerdictComment(
   return null;
 }
 
-export function relayTrailer(
+function relayTrailer(
   body: string,
 ): { session: string; rest: string } | null {
   const lines = body.replaceAll("\r\n", "\n").trimEnd().split("\n");
@@ -97,7 +97,7 @@ export function gateOf(policy: unknown, gateId: string): GateKeeper | null {
     : null;
 }
 
-export const relayPrincipal = "relay";
+const relayPrincipal = "relay";
 
 export type SourceRefusal =
   | "bypass_missing"
@@ -143,7 +143,7 @@ export function hashOf(body: string, relayedBy: string | null): string {
   return contentHash(trailer?.rest ?? body);
 }
 
-export interface Pinned {
+interface Pinned {
   policy: unknown;
   crew: unknown;
 }
