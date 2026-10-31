@@ -10,6 +10,11 @@ import type {
   Snapshot,
 } from "../domain/config.ts";
 import type { Json } from "../domain/json.ts";
+import type {
+  Learning,
+  LearningFilter,
+  NewLearning,
+} from "../domain/learning.ts";
 import type { BriefTree } from "../domain/brief.ts";
 import type {
   Activity,
@@ -69,6 +74,8 @@ export interface Repo {
   ): Promise<boolean>;
   hostActivities(host: string): Promise<Activity[]>;
   lockQuota(host: string): Promise<void>;
+  insertLearning(row: NewLearning): Promise<Learning>;
+  listLearnings(filter: LearningFilter): Promise<Learning[]>;
   insertManifest(
     row: EvidenceManifest,
   ): Promise<{ manifest: EvidenceManifest; created: boolean }>;

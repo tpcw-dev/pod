@@ -1,4 +1,14 @@
-import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  max,
+  sql,
+} from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   Kind,
@@ -13,6 +23,13 @@ import {
 } from "../../core/domain/config.ts";
 import type { BriefRun, BriefTree } from "../../core/domain/brief.ts";
 import { Json } from "../../core/domain/json.ts";
+import {
+  Adoption,
+  Area,
+  type Learning,
+  type LearningFilter,
+  type NewLearning,
+} from "../../core/domain/learning.ts";
 import {
   Activity,
   EventType,
@@ -37,8 +54,16 @@ import * as configSchema from "../../db/schema/config.ts";
 import * as ledgerSchema from "../../db/schema/ledger.ts";
 
 const { activation, revision, snapshot } = configSchema;
-const { dispatch, event, evidenceManifest, operation, run, story, task } =
-  ledgerSchema;
+const {
+  dispatch,
+  event,
+  evidenceManifest,
+  learning,
+  operation,
+  run,
+  story,
+  task,
+} = ledgerSchema;
 
 type Database = PostgresJsDatabase<Record<string, never>>;
 type Executor = Pick<Database, "select" | "insert" | "update" | "execute">;
@@ -158,6 +183,38 @@ function toDispatch(row: typeof dispatch.$inferSelect): Dispatch {
     activity: Activity.parse(row.activity),
     manifest_id: row.manifestId,
   };
+}
+
+function strings(value: unknown): string[] {
+  if (!Array.isArray(value))
+    throw new Error("learning evidence_refs is not an array of strings");
+  const items: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string")
+      throw new Error("learning evidence_refs is not an array of strings");
+    items.push(item);
+  }
+  return items;
+}
+
+function toLearning(row: typeof learning.$inferSelect): Learning {
+  return {
+    id: row.id,
+    source_story: row.sourceStory,
+    evidence_refs: strings(row.evidenceRefs),
+    text: row.text,
+    adoption: Adoption.parse(row.adoption),
+    area: Area.parse(row.area),
+    project_id: row.projectId,
+    created_at: row.createdAt,
+  };
+}
+
+function substring(value: string): string {
+  return `%${value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("%", "\\%")
+    .replaceAll("_", "\\_")}%`;
 }
 
 function toOperation(row: typeof operation.$inferSelect): Operation {
@@ -513,6 +570,51 @@ function makeRepo(x: Executor): Repo {
       await x.execute(
         sql`select pg_advisory_xact_lock(hashtext(${`quota:${host}`}))`,
       );
+    },
+
+    async insertLearning(row: NewLearning) {
+      const [inserted] = await x
+        .insert(learning)
+        .values({
+          sourceStory: row.source_story,
+          evidenceRefs: row.evidence_refs,
+          text: row.text,
+          adoption: row.adoption,
+          area: row.area,
+          projectId: row.project_id,
+          createdAt: row.created_at,
+        })
+        .returning();
+      if (inserted === undefined)
+        throw new Error("learning insert returned no row");
+      return toLearning(inserted);
+    },
+
+    async listLearnings(filter: LearningFilter) {
+      const rows = await x
+        .select()
+        .from(learning)
+        .where(
+          and(
+            filter.story === undefined
+              ? undefined
+              : eq(learning.sourceStory, filter.story),
+            filter.adoption === undefined
+              ? undefined
+              : eq(learning.adoption, filter.adoption),
+            filter.area === undefined
+              ? undefined
+              : eq(learning.area, filter.area),
+            filter.project === undefined
+              ? undefined
+              : eq(learning.projectId, filter.project),
+            filter.text === undefined
+              ? undefined
+              : ilike(learning.text, substring(filter.text)),
+          ),
+        )
+        .orderBy(desc(learning.createdAt), desc(learning.id));
+      return rows.map(toLearning);
     },
 
     async insertManifest(row: EvidenceManifest) {

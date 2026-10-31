@@ -23,3 +23,5 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Snapshot**: the three revision ids and the effective gate map a run pinned at start.
 - **Reserved**: policy classes a decision cannot settle on its own: deny, needs a human, needs an existing authorization.
 - **Area**: the classification of a learning, one of product, design, impl, process.
+- **Learning**: a record of one agent-only lesson, with a source story, evidence, text, and an adoption state.
+- **Adoption**: the state of a learning, one of new, adopted, rejected.

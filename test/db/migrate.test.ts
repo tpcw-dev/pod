@@ -7,7 +7,7 @@ describeDb("pod db migrate", () => {
   test("a run after the reset's migrate applies nothing", () => {
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 3, applied: 0 } },
+      json: { ok: true, result: { journal: 4, applied: 0 } },
     });
   });
 
@@ -18,11 +18,11 @@ describeDb("pod db migrate", () => {
     await db.close();
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 3, applied: 3 },
+      result: { journal: 4, applied: 4 },
     });
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 3, applied: 0 },
+      result: { journal: 4, applied: 0 },
     });
   });
 

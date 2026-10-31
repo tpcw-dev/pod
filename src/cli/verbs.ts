@@ -8,6 +8,15 @@ import {
   configExport,
 } from "./config-verbs.ts";
 import { BriefInput, BriefOutput, brief } from "./brief.ts";
+import {
+  LearningAddInput,
+  LearningAddOutput,
+  LearningQueryInput,
+  LearningQueryOutput,
+  learningAdd,
+  learningAddMeta,
+  learningQuery,
+} from "./learning-verbs.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
 import {
   DrainInput,
@@ -186,5 +195,26 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
       "evidence that the old coordinator has stopped, which on an xl Run is the decider Dispatch",
     ],
     meta: runMeta,
+  }),
+  row({
+    name: "learning add",
+    input: LearningAddInput,
+    output: LearningAddOutput,
+    handler: learningAdd,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "a source Story, at least one evidence reference, and an `area`",
+    ],
+    meta: learningAddMeta,
+  }),
+  row({
+    name: "learning query",
+    input: LearningQueryInput,
+    output: LearningQueryOutput,
+    handler: learningQuery,
+    sideEffect: "none",
+    cancelBy: ["nobody"],
+    evidenceRequired: [],
   }),
 ];

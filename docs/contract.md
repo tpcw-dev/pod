@@ -31,6 +31,10 @@ Spec clarification: TPC-1279. A pending dispatch or retry operation whose update
 Spec clarification: TPC-1306. An unknown dispatch or retry operation, or a pending one past the launch lease, whose request pod check cannot read is named in nextSteps on every pass, with the first field that failed, and keeps its slot; pod check does not reconcile it.
 Spec clarification: TPC-1307. A pending dispatch or retry operation past the launch lease whose worker list pod check cannot read is reported as still pending, not unknown: result.reconciled names it with to pending, nextSteps names the lease and the unreadable worker list, and the operation keeps its status and its slot.
 Spec clarification: TPC-1305. A late start recorded on a Task that already has another open Dispatch is reported on the receipt's nextSteps, one line per open Dispatch naming both Dispatches and both op keys. Pod settles neither Dispatch; the coordinator releases one with pod release.
+Spec clarification: S10. The learning file is YAML with source_story, evidence_refs, and text. area and project come only from the flags.
+Spec clarification: S10. adoption defaults to new.
+Spec clarification: S10. The op key is learning: plus the sha256 of the canonical JSON of source_story, text, area, and project_id.
+Spec clarification: S10. The learning event has no Run. run_id is null.
 
 ## Authority
 
