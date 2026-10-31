@@ -30,6 +30,17 @@ test("a positional is not help", () => {
   }
 });
 
+test("learning help exits 0", () => {
+  for (const args of [
+    ["learning", "add", "--help"],
+    ["learning", "query", "--help"],
+  ]) {
+    const result = run(args);
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).ok).toBe(true);
+  }
+});
+
 test("help lists the verbs sorted by name", () => {
   const result = run(["--help"]);
   expect(result.status).toBe(0);
@@ -45,6 +56,8 @@ test("help lists the verbs sorted by name", () => {
     "db migrate",
     "dispatch",
     "drain",
+    "learning add",
+    "learning query",
     "release",
     "retry",
     "run create",

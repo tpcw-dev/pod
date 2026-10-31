@@ -89,6 +89,30 @@ export const evidenceManifest = ledger.table(
   (t) => [foreignKey({ columns: [t.parentId], foreignColumns: [t.id] })],
 );
 
+export const learning = ledger.table(
+  "learning",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    sourceStory: text("source_story").notNull(),
+    evidenceRefs: jsonb("evidence_refs").notNull(),
+    text: text("text").notNull(),
+    adoption: text("adoption").notNull(),
+    area: text("area").notNull(),
+    projectId: text("project_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    check(
+      "learning_adoption_check",
+      sql`${t.adoption} in ('new', 'adopted', 'rejected')`,
+    ),
+    check(
+      "learning_area_check",
+      sql`${t.area} in ('product', 'design', 'impl', 'process')`,
+    ),
+  ],
+);
+
 export const operation = ledger.table(
   "operation",
   {
