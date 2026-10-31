@@ -46,6 +46,7 @@ describeDb("pod check --wait", () => {
       capacity: 1,
       leaseSeconds: launchLeaseSeconds,
       now: () => new Date(clock),
+      decision: null,
       interval: 10,
       timeout: 25,
       sleep: (seconds) => {

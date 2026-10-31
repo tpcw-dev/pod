@@ -241,6 +241,7 @@ export const CheckInput = z
     wait: z.boolean().optional(),
     interval: Seconds.optional(),
     timeout: Seconds.optional(),
+    decision: z.string().min(1).optional(),
     resume: z.boolean().optional(),
   })
   .refine((input) =>
@@ -248,11 +249,14 @@ export const CheckInput = z
       ? (input.run === undefined) !== (input.task === undefined) &&
         input.wait === undefined &&
         input.interval === undefined &&
-        input.timeout === undefined
+        input.timeout === undefined &&
+        input.decision === undefined
       : input.run !== undefined &&
         input.task === undefined &&
         (input.wait === true ||
-          (input.interval === undefined && input.timeout === undefined)),
+          (input.interval === undefined &&
+            input.timeout === undefined &&
+            input.decision === undefined)),
   );
 type CheckInput = z.infer<typeof CheckInput>;
 
@@ -336,6 +340,7 @@ export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
       return input.wait === true
         ? checkWait(db, port, tracker, log, {
             ...pass,
+            decision: input.decision ?? null,
             interval: Number(input.interval ?? "10"),
             timeout: Number(input.timeout ?? "600"),
             sleep: (seconds) =>

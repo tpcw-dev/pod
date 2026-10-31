@@ -1,9 +1,19 @@
 import { z } from "zod";
+import { singleActive } from "../config/active.ts";
+import { decisionLimits } from "../config/limits.ts";
+import {
+  advanceDecision,
+  followDecisions,
+  type FollowUp,
+} from "../decide/advance.ts";
+import { Templates } from "../decide/templates.ts";
 import {
   deliveryFacts,
   deliveryOutcome,
+  readDecisionMessage,
   type DeliveryRow,
 } from "../domain/delivery.ts";
+import { openStates } from "../domain/decision.ts";
 import { HoldPayload, latestDispatch, resumeTarget } from "../domain/hold.ts";
 import { Json } from "../domain/json.ts";
 import type { Dispatch, Run, Task } from "../domain/ledger.ts";
@@ -167,8 +177,20 @@ export async function checkPass(
       tracked.push(...voids.nextSteps);
     }
     result.nextSteps.unshift(...tracked);
-    const read = await readDeliveries(db, orca, log, input, result);
+    const followUps: FollowUp[] = [];
+    const read = await readDeliveries(db, orca, log, input, result, followUps);
     if (read !== null) return read;
+    if (followUps.length > 0)
+      result.nextSteps.push(
+        ...(await followDecisions(db, orca, log, followUps, {
+          run,
+          templates: await activeTemplates(db),
+          generation: input.generation,
+          host: input.host,
+          capacity: input.capacity,
+          now: input.now,
+        })),
+      );
     const rows = await workers();
     if (rows === null)
       result.nextSteps.push("worker-list unreadable; run pod check again");
@@ -196,6 +218,7 @@ async function readDeliveries(
   log: ReceiptLog,
   input: CheckInput,
   result: CheckResult,
+  followUps: FollowUp[],
 ): Promise<Refused | null> {
   log.at({ run_id: input.run, task_id: null, op_key: null });
   let batch = await orca.check({ run: input.run });
@@ -210,7 +233,10 @@ async function readDeliveries(
     await db.transaction(async (tx) => {
       const run = await fence(tx, input.run, input.generation);
       for (const message of messages)
-        await recordMessage(tx, run, deliveryId, message, input, result);
+        await recordMessage(tx, run, deliveryId, message, input, {
+          result,
+          followUps,
+        });
     });
     result.acked.push(deliveryId);
     batch = await orca.check({ run: input.run, ack: deliveryId });
@@ -230,6 +256,8 @@ function errorCode(raw: unknown): string {
 
 async function matchOf(tx: Repo, run: Run, dispatch: Dispatch | null) {
   if (dispatch === null || dispatch.run_id !== run.run_id) return null;
+  if (dispatch.task_id === null)
+    return { settlement: dispatch.settlement, latest: true };
   const siblings = (await tx.listDispatches(run.run_id)).filter(
     (row) => row.task_id === dispatch.task_id,
   );
@@ -247,8 +275,9 @@ async function recordMessage(
   deliveryId: string,
   message: OrcaMessage,
   input: CheckInput,
-  result: CheckResult,
+  sink: { result: CheckResult; followUps: FollowUp[] },
 ): Promise<void> {
+  const { result } = sink;
   if (await tx.messageRecorded(run.run_id, message.id)) return;
   const id = message.payload.dispatchId;
   const dispatch = id === undefined ? null : await tx.getDispatch(id);
@@ -273,16 +302,45 @@ async function recordMessage(
     delivery_id: deliveryId,
     type: message.type,
   };
-  if (row.kind === "ignored") {
+  const ignore = async (reason: string) => {
     await tx.appendEvent({
       ...base,
       type: "ignored",
-      payload: { ...said, reason: row.reason },
+      payload: { ...said, reason },
     });
     result.ignored += 1;
-    return;
-  }
+  };
+  if (row.kind === "ignored") return ignore(row.reason);
   if (known === null) return;
+  let decision: Record<string, Json> = {};
+  if (known.task_id === null) {
+    const read = readDecisionMessage(message);
+    if (read.kind === "malformed") {
+      result.nextSteps.push(`ignored ${read.detail}`);
+      return ignore("malformed_decision");
+    }
+    if (read.kind === "message") {
+      const advanced = await advanceDecision(tx, {
+        run,
+        dispatch: known,
+        message: read.message,
+        bound: await roundBound(tx, run),
+        at,
+        host: input.host,
+      });
+      if (advanced.kind === "ignored") return ignore(advanced.reason);
+      sink.followUps.push(...advanced.followUps);
+      const got = read.message;
+      decision = {
+        decision_id: got.decisionId,
+        round: String(got.round),
+        kind: got.kind,
+        ...(got.kind === "decision_proposal"
+          ? { proposal: got.proposal, citations: got.citations }
+          : { stance: got.stance }),
+      };
+    }
+  }
   await tx.appendEvent({
     ...base,
     type: "delivery",
@@ -290,6 +348,7 @@ async function recordMessage(
       ...said,
       outcome: row.outcome,
       subject: message.subject ?? null,
+      ...decision,
     }),
   });
   result.deliveries.push({
@@ -314,7 +373,15 @@ async function recordMessage(
         },
       });
   }
-  if (known.task_id === null) return;
+  if (known.task_id === null) {
+    if (row.outcome !== "unknown")
+      await tx.settleDispatch(known.dispatch_id, {
+        activity: row.activity,
+        settlement: row.settlement,
+        settled_at: row.settlement === "open" ? null : at,
+      });
+    return;
+  }
   const task = await tx.getTask(known.task_id);
   if (task === null) return;
   if (row.outcome === "unknown") {
@@ -346,6 +413,20 @@ async function recordMessage(
       host: input.host,
       source: base.source,
     });
+}
+
+async function roundBound(tx: Repo, run: Run): Promise<number> {
+  const snapshot = await tx.getSnapshot(run.run_id);
+  const policy =
+    snapshot === null
+      ? null
+      : await tx.getRevision(snapshot.policy_revision_id);
+  return decisionLimits(policy?.value).decision_rounds;
+}
+
+async function activeTemplates(db: Db): Promise<Templates | null> {
+  const revision = await singleActive(db, "decision", "global", "");
+  return Templates.safeParse(revision?.value).data ?? null;
 }
 
 async function recordWorkers(
@@ -512,6 +593,7 @@ async function nextKeys(
 }
 
 export interface WaitInput extends CheckInput {
+  decision: string | null;
   interval: number;
   timeout: number;
   sleep: (seconds: number) => Promise<void>;
@@ -528,14 +610,31 @@ export async function checkWait(
   for (;;) {
     const pass = await checkPass(db, orca, tracker, log, input);
     if (!pass.ok) return pass;
-    if (pass.result.deliveries.length > 0 || pass.result.free_slots >= 1)
+    if (input.decision !== null) {
+      const decision = await db.getDecision(input.decision);
+      if (decision === null)
+        return refuse("task_not_ready", `no Decision ${input.decision}`, [
+          "pod brief",
+        ]);
+      if (!openStates.includes(decision.state)) return pass;
+    } else if (
+      pass.result.deliveries.length > 0 ||
+      pass.result.free_slots >= 1
+    )
       return pass;
     const waited = Math.floor((input.now().getTime() - start) / 1000);
     if (waited >= input.timeout)
       return refuse(
         "failed",
-        `pod check --wait waited ${waited} seconds with no delivery and no free slot`,
-        [...pass.result.nextSteps, "pod check --wait"],
+        input.decision === null
+          ? `pod check --wait waited ${waited} seconds with no delivery and no free slot`
+          : `pod check --wait waited ${waited} seconds and Decision ${input.decision} is still open`,
+        [
+          ...pass.result.nextSteps,
+          input.decision === null
+            ? "pod check --wait"
+            : `pod check --wait --decision ${input.decision}`,
+        ],
       );
     await input.sleep(input.interval);
   }
