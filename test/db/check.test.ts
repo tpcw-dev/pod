@@ -733,7 +733,9 @@ describeDb("pod check and Gate receipts", () => {
         expect.stringContaining(`receipt ${receiptId} on gate pr is voided`),
       ]),
     );
+    const reads = tracker.calls.length;
     await quietCheck();
+    expect(tracker.calls.slice(reads)).toEqual(["readStory"]);
     expect(await syncStates()).toEqual(["voided"]);
     expect((await conn.db.getRun("run_1"))?.state).toBe("hold");
     expect(await taskState(conn, "task_r")).toBe("done");

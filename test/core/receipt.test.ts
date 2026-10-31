@@ -27,6 +27,7 @@ describe("shaMatches", () => {
     expect(shaMatches("012345", candidate)).toBe(false);
     expect(shaMatches("1234567", candidate)).toBe(false);
     expect(shaMatches(`${candidate}0`, candidate)).toBe(false);
+    expect(shaMatches("ABCDEF0", "ABCDEF0123")).toBe(false);
   });
 });
 
