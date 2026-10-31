@@ -1,0 +1,13 @@
+kind: policy
+name: integrated-drill
+schema_version: 1
+value:
+  gates:
+    review: { keeper: reviewer, type: AQA }
+    merge: { keeper: lead, type: AQA }
+    hqa_after_deploy: { keeper: operator, type: HQA }
+  principals:
+    reviewer: { tracker_account: 00000000-0000-4000-8000-000000000018 }
+    lead: { tracker_account: 00000000-0000-4000-8000-000000000019 }
+    operator: { tracker_account: 00000000-0000-4000-8000-000000000020 }
+    relay: { tracker_account: 00000000-0000-4000-8000-999999999999 }

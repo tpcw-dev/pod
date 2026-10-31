@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_bf22d18430d0",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"73e846b7-3605-4002-8bfd-d90802713430\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_bf22d18430d0\",\n    \"deliveryId\": \"delivery_49d378fbd119\",\n    \"messages\": [\n      {\n        \"id\": \"msg_14ac0f0009b0\",\n        \"run_id\": \"run_bf22d18430d0\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_cfeb2f52-d9df-419a-a7a3-e75d4c0d8bca\",\n        \"to_handle\": \"run:run_bf22d18430d0\",\n        \"subject\": \"Task complete\",\n        \"body\": \"Acknowledged task instructions. No files were edited per the requirement. Task is ready for coordinator pickup.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_c2fa513dd753\\\",\\\"dispatchId\\\":\\\"ctx_5778e051f1db\\\",\\\"outcome\\\":\\\"succeeded\\\"}\",\n        \"created_at\": \"2026-10-31T18:07:54Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"9d73a1ac-7ced-4508-b601-f6ef66db1276\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T18:07:54.705Z"
+}

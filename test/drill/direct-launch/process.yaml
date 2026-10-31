@@ -1,0 +1,17 @@
+kind: process
+name: direct-launch
+schema_version: 1
+value:
+  summary: one worker step for the direct-launch drill
+  selector: { stage: impl, size: [xs, s] }
+  roles: [developer]
+  steps:
+    - id: build
+      type: worker
+      role: developer
+      spec: Reply DONE and exit at once. Do not edit any file.
+  edges:
+    - { from: build, on: done, to: done }
+    - { from: build, on: [timeout, cancel, unknown], to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+  escalation: { to: operator }
