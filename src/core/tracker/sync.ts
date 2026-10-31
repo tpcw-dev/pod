@@ -42,7 +42,8 @@ export async function cancelRun(
   }
   for (const task of await tx.listTasks(runId)) {
     const from = TaskState.safeParse(task.state);
-    if (!from.success || !canMove(from.data, "hold")) continue;
+    if (!from.success || from.data === "hold" || !canMove(from.data, "hold"))
+      continue;
     await moveTask(tx, task.task_id, "hold");
     await tx.appendEvent({
       ...base,

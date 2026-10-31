@@ -180,6 +180,42 @@ describeDb("pod check", () => {
     expect((await conn.db.getStory("linear", "S-1"))?.status).toBe("Canceled");
   });
 
+  test("a tracker Canceled leaves a Task already on hold with its earlier hold event", async () => {
+    await conn.db.setTaskState("task_b", "hold");
+    await conn.db.appendEvent({
+      type: "hold",
+      ts: new Date(),
+      host: "local",
+      run_id: "run_1",
+      task_id: "task_b",
+      dispatch_id: null,
+      op_key: null,
+      payload: { reason: "unknown_delivery", from: "dispatched" },
+      source: { kind: "command", verb: "check" },
+    });
+    const tracker = fakeTracker(
+      trackerStory({ status: "Canceled", statusType: "canceled" }),
+    );
+    const { orca, log } = replay(conn, [
+      ok("check", empty(null), run),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_1", workerState: "running" }]),
+        run,
+      ),
+    ]);
+    expect((await checkPass(conn.db, orca, tracker, log, input())).ok).toBe(
+      true,
+    );
+    orca.assertDone();
+    expect(
+      await conn.sql`select payload from ledger.event where type = 'hold' and task_id = 'task_b' order by id`,
+    ).toEqual([
+      { payload: { reason: "unknown_delivery", from: "dispatched" } },
+    ]);
+    expect(await taskState(conn, "task_b")).toBe("hold");
+  });
+
   test("a mismatched dispatchId records ignored and moves nothing", async () => {
     const outcome = await pass([
       ok(
