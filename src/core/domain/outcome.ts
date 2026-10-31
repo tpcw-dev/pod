@@ -20,6 +20,7 @@ export const RefusalCode = z.enum([
   "receipt_stale_sha",
   "receipt_no_deploy",
   "receipt_unverified_source",
+  "config_invalid",
   "failed",
 ]);
 export type RefusalCode = z.infer<typeof RefusalCode>;

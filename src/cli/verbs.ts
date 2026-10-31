@@ -28,6 +28,12 @@ import {
 } from "./gate-verbs.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
 import {
+  DocsReadInput,
+  DocsReadOutput,
+  docsRead,
+  renderSection,
+} from "./docs-verbs.ts";
+import {
   DrainInput,
   drainMeta,
   DrainOutput,
@@ -67,16 +73,20 @@ export interface VerbRow<I, O> {
   cancelBy: readonly ("operator" | "coordinator" | "nobody")[];
   evidenceRequired: readonly string[];
   meta?: (output: O) => Record<string, unknown>;
+  render?: (output: O) => string;
 }
 
 function row<I, O>(verb: VerbRow<I, O>): VerbRow<unknown, unknown> {
-  const { meta, handler, ...rest } = verb;
+  const { meta, render, handler, ...rest } = verb;
   return {
     ...rest,
     handler: (input, ctx) => handler(verb.input.parse(input), ctx),
     ...(meta === undefined
       ? {}
       : { meta: (output: unknown) => meta(verb.output.parse(output)) }),
+    ...(render === undefined
+      ? {}
+      : { render: (output: unknown) => render(verb.output.parse(output)) }),
   };
 }
 
@@ -122,6 +132,16 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     evidenceRequired: [
       "a reachable database and a `db/migrations/` journal that matches the applied-migrations table",
     ],
+  }),
+  row({
+    name: "docs read",
+    input: DocsReadInput,
+    output: DocsReadOutput,
+    handler: docsRead,
+    sideEffect: "none",
+    cancelBy: ["nobody"],
+    evidenceRequired: [],
+    render: renderSection,
   }),
   row({
     name: "run create",

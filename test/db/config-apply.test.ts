@@ -539,4 +539,62 @@ describeDb("pod config apply of a process", () => {
     expect(applied.status).toBe(0);
     expect(applied.json.result).toMatchObject({ ref: "process.impl-small@1" });
   });
+
+  function roadmapPolicy(name: string, roadmap: unknown): string {
+    return file(
+      `${name}.yaml`,
+      stringify({
+        kind: "policy",
+        name,
+        schema_version: 1,
+        value: { steps: [], roadmap },
+      }),
+    );
+  }
+
+  test("a roadmap whose provider is not the host docs kind is config_invalid at roadmap.provider", async () => {
+    const before = await db.sql`select count(*)::int as n from config.revision`;
+    const result = runCli([
+      "config",
+      "apply",
+      roadmapPolicy("map-linear", { provider: "linear", page: "x" }),
+    ]);
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("config_invalid");
+    expect(result.json.error?.message).toMatch(/^roadmap\.provider /);
+    expect(
+      await db.sql`select count(*)::int as n from config.revision`,
+    ).toEqual(before);
+  });
+
+  test("a roadmap with an empty page or no object is config_invalid naming the field", () => {
+    const empty = runCli([
+      "config",
+      "apply",
+      roadmapPolicy("map-empty", { provider: "notion", page: "  " }),
+    ]);
+    expect(empty.status).toBe(3);
+    expect(empty.json.error?.code).toBe("config_invalid");
+    expect(empty.json.error?.message).toMatch(/^roadmap\.page /);
+    const scalar = runCli([
+      "config",
+      "apply",
+      roadmapPolicy("map-scalar", "x"),
+    ]);
+    expect(scalar.json.error?.code).toBe("config_invalid");
+    expect(scalar.json.error?.message).toMatch(/^roadmap /);
+  });
+
+  test("a roadmap on the host docs kind with a page applies", () => {
+    const result = runCli([
+      "config",
+      "apply",
+      roadmapPolicy("map-notion", {
+        provider: "notion",
+        page: "00000000-0000-4000-8000-000000000001",
+      }),
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.json.result).toMatchObject({ ref: "policy.map-notion@1" });
+  });
 });

@@ -38,6 +38,10 @@ const expectedVerbs = [
   { story: "S12", name: "decide", status: "todo" },
 ] as const;
 
+const extraVerbs = [
+  { story: "S11", name: "docs read", sideEffect: "none" },
+] as const;
+
 function trim(value: string): string {
   return value.trim();
 }
@@ -88,9 +92,18 @@ test("each of the 17 verbs is todo until its story registers it", () => {
     }
   }
   for (const name of names) {
+    if (extraVerbs.some((item) => item.name === name)) continue;
     const row = expectedVerbs.find((item) => item.name === name);
     expect(row, name).toBeDefined();
     expect(row?.status).not.toBe("todo");
+  }
+});
+
+test("verbs beyond the 17 are registered with their side effect", () => {
+  for (const extra of extraVerbs) {
+    const verb = verbs.find((item) => item.name === extra.name);
+    expect(verb, extra.name).toBeDefined();
+    expect(verb?.sideEffect).toBe(extra.sideEffect);
   }
 });
 

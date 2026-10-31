@@ -9,6 +9,7 @@ import { Size } from "../core/domain/ledger.ts";
 import type { Refused } from "../core/domain/outcome.ts";
 import { receiptLog, type ReceiptLog } from "../core/ledger/receipts.ts";
 import type { Db } from "../core/ports/db.ts";
+import type { DocsPort } from "../core/ports/docs.ts";
 import type { TrackerPort } from "../core/ports/tracker.ts";
 import {
   OrcaVersionUnsupported,
@@ -17,7 +18,8 @@ import {
   type OrcaPort,
 } from "../core/ports/orca.ts";
 import { runCreate } from "../core/run/create.ts";
-import { exitFor, PodError, usageError } from "./errors.ts";
+import { docsFor } from "./docs.ts";
+import { exitFor, PodError, throwRecordRefusal, usageError } from "./errors.ts";
 import { gitStatus } from "./git.ts";
 import {
   databaseUrl,
@@ -31,6 +33,7 @@ interface Wiring {
   db: Db;
   orca: OrcaPort;
   tracker: TrackerPort | null;
+  docs: DocsPort | null;
   log: ReceiptLog;
   host: HostSettings;
 }
@@ -44,21 +47,20 @@ export async function withOrca<R extends { ok: true }>(
     const log = receiptLog(connection.db, host.hostId);
     const orca = orcaFor(log.sink, host.hostId);
     const tracker = await trackerFor(log.trackerSink, host);
+    const docs = await docsFor(log.docsSink, host);
     const outcome = await work({
       db: connection.db,
       orca: orca.port,
       tracker: tracker?.port ?? null,
+      docs: docs?.port ?? null,
       log,
       host,
     });
-    const [refused] = [
+    throwRecordRefusal([
       ...orca.recordRefusals(),
       ...(tracker?.recordRefusals() ?? []),
-    ];
-    if (refused !== undefined)
-      throw new PodError("failed", 1, refused.message, [
-        "the ledger recorded the call's outcome; add the term to the scrubber inputs and record again",
-      ]);
+      ...(docs?.recordRefusals() ?? []),
+    ]);
     if (!outcome.ok) {
       const { code, message, nextSteps } = outcome.refusal;
       throw new PodError(code, exitFor(code), message, nextSteps);

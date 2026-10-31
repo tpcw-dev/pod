@@ -7,6 +7,7 @@ import {
   revisionRef,
   type ApplyOutcome,
 } from "../core/config/apply.ts";
+import { roadmapRefusal } from "../core/docs/roadmap.ts";
 import {
   Kind,
   RevisionEnvelope,
@@ -156,6 +157,17 @@ export async function configApply(
   const envelope = readEnvelope(file);
   const flags = activationFlags(input, envelope);
   const host = readHostProfile();
+  const refusal =
+    envelope.kind === "policy"
+      ? roadmapRefusal(envelope.value, host.docsKind)
+      : null;
+  if (refusal !== null)
+    throw new PodError(
+      refusal.code,
+      exitFor(refusal.code),
+      refusal.message,
+      refusal.nextSteps,
+    );
   const connection = connect(databaseUrl(host));
   try {
     const outcome = await applyConfig(connection.db, {
