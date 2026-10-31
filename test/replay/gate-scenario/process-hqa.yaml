@@ -1,0 +1,19 @@
+kind: process
+name: gate-hqa
+schema_version: 1
+value:
+  summary: gate-hqa replay scenario
+  selector: { stage: impl, size: [xs, s] }
+  roles: [developer]
+  steps:
+    - id: build
+      type: worker
+      role: developer
+      gate: hqa_after_deploy
+      spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.
+  edges:
+    - { from: build, on: PASS, to: done }
+    - { from: build, on: FAIL, to: hold }
+    - { from: build, on: [timeout, cancel, unknown], to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+  escalation: { to: operator }

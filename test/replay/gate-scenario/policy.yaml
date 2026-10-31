@@ -1,0 +1,10 @@
+kind: policy
+name: gate-scenario
+schema_version: 1
+value:
+  gates:
+    review: { keeper: human, type: HQA }
+    hqa_after_deploy: { keeper: human, type: HQA }
+  principals:
+    human: { tracker_account: 00000000-0000-4000-8000-000000000000 }
+    relay: { tracker_account: 00000000-0000-4000-8000-999999999999 }
