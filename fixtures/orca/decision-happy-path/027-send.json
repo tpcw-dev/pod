@@ -1,0 +1,18 @@
+{
+  "verb": "send",
+  "match": {
+    "argv": [
+      "orchestration",
+      "send",
+      "--to",
+      "dispatch:ctx_f200c558eeca",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"00000000-0000-4000-8000-000000000060\",\n  \"ok\": true,\n  \"result\": {\n    \"message\": {\n      \"id\": \"msg_7051964e1990\",\n      \"run_id\": \"run_5bba472f639a\",\n      \"delivery_contract\": \"current_delivery\",\n      \"from_handle\": \"term_00000000-0000-4000-8000-000000000002\",\n      \"to_handle\": \"dispatch:ctx_f200c558eeca\",\n      \"subject\": \"decision dec_f699f34f430c6aaf9dca55d67b4f1cfdfdd5729da09024a66436ec40e1df8dba round 2 proposal\",\n      \"body\": \"Decision dec_f699f34f430c6aaf9dca55d67b4f1cfdfdd5729da09024a66436ec40e1df8dba round 2. Audit this proposal.\\n\\nQuestion: Which rollout should the plan use? The plan must name a rollback step before it can be agreed. The auditor disagrees with any proposal that does not name a rollback step. The decider proposes the first option in round 1.\\nProposal: Ship in two releases with a rollback step between them: release 1 ships the first slice, then a rollback step (revert release 1 to the prior known-good state if issues surface) gates before release 2 ships the remainder.\\nCitations: story:d080af93fe177dd5a86f09d0285abc4a0d9d12c137551333ac612b437241448a\",\n      \"type\": \"status\",\n      \"priority\": \"normal\",\n      \"thread_id\": null,\n      \"payload\": null,\n      \"created_at\": \"2026-10-31T21:45:44Z\",\n      \"delivered_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"00000000-0000-4000-8000-000000000061\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"00000000-0000-4000-8000-000000000004\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:45:44.783Z"
+}

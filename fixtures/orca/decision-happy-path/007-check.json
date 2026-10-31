@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_5bba472f639a",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"00000000-0000-4000-8000-000000000020\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_5bba472f639a\",\n    \"deliveryId\": \"delivery_09fa5b062ab5\",\n    \"messages\": [\n      {\n        \"id\": \"msg_5ffbea1d4377\",\n        \"run_id\": \"run_5bba472f639a\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_00000000-0000-4000-8000-000000000014\",\n        \"to_handle\": \"run:run_5bba472f639a\",\n        \"subject\": \"Task completed\",\n        \"body\": \"Received instructions to report task completion. Executed worker_done command as directed. Task complete.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_51ebf6638fdf\\\",\\\"dispatchId\\\":\\\"ctx_e26cbdb8d2ba\\\",\\\"outcome\\\":\\\"succeeded\\\"}\",\n        \"created_at\": \"2026-10-31T21:44:19Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"00000000-0000-4000-8000-000000000021\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"00000000-0000-4000-8000-000000000004\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:44:31.359Z"
+}
