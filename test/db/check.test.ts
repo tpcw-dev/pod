@@ -99,6 +99,10 @@ describeDb("pod check", () => {
       settlement: "done",
       settled_at: expect.any(Date),
     });
+    const manifestId = (await conn.db.getDispatch("ctx_1"))?.manifest_id;
+    expect(manifestId).toEqual(expect.any(String));
+    if (manifestId !== null && manifestId !== undefined)
+      expect((await conn.db.getManifest(manifestId))?.tests).toBeNull();
     expect(await taskState(conn, "task_b")).toBe("done");
     expect(await taskState(conn, "task_r")).toBe("ready");
     expect((await events(conn, "delivery")).map((row) => row.payload)).toEqual([
@@ -181,6 +185,42 @@ describeDb("pod check", () => {
       { task_id: "task_b", dispatch_id: "ctx_1", ...deploy },
     ]);
     expect(await events(conn, "push")).toEqual([]);
+  });
+
+  test("a malformed tests entry is dropped and the sibling is stored", async () => {
+    const outcome = await deliver({
+      tests: [
+        {
+          command: "pnpm test",
+          exit_code: 0,
+          seconds: 1.25,
+          timeout_seconds: null,
+          note: "extra",
+        },
+        {
+          command: "timeout 60 pnpm test",
+          exit_code: "1",
+          seconds: 2,
+          timeout_seconds: 60,
+        },
+      ],
+    });
+    const manifestId = (await conn.db.getDispatch("ctx_1"))?.manifest_id;
+    expect(manifestId).toEqual(expect.any(String));
+    if (manifestId === null || manifestId === undefined) return;
+    expect((await conn.db.getManifest(manifestId))?.tests).toEqual([
+      {
+        command: "pnpm test",
+        exit_code: 0,
+        seconds: 1.25,
+        timeout_seconds: null,
+      },
+    ]);
+    expect(outcome.ok && outcome.result.nextSteps).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^ignored tests\[1\] on message msg_1: /),
+      ]),
+    );
   });
 
   test("a malformed head or pr is an ignored line and records no event", async () => {

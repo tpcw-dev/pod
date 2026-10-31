@@ -176,6 +176,93 @@ describeDb("pod brief", () => {
     expect(opsAfter?.n).toBe(opsBefore?.n);
   });
 
+  test("brief lists delivered tests in JSON and as a two-row table", async () => {
+    await conn.db.insertManifest({
+      id: "manifest-tests",
+      run_id: "run-1",
+      task_id: "task-1",
+      decision_id: null,
+      parent_id: null,
+      references: [],
+      tests: [
+        {
+          command: "pnpm test",
+          exit_code: 0,
+          seconds: 1,
+          timeout_seconds: null,
+        },
+        {
+          command: "timeout 60 pnpm test",
+          exit_code: 1,
+          seconds: 2.5,
+          timeout_seconds: 60,
+        },
+      ],
+      created_at: at,
+    });
+    await conn.sql`
+      update ledger.dispatch
+      set manifest_id = 'manifest-tests'
+      where dispatch_id = 'ctx-1'`;
+    const html = join(cwd, "tests.html");
+    const result = runBrief(cwd, ["brief", "story:S-1", "--html", html]);
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.result).toMatchObject({
+      stories: [
+        {
+          counters: {
+            coordinator_operations: 1,
+            recovery_steps: 0,
+            retries: 0,
+            rework_tasks: 0,
+            hand_filled: 0,
+          },
+          runs: [
+            {
+              counters: {
+                coordinator_operations: 1,
+                recovery_steps: 0,
+                retries: 0,
+                rework_tasks: 0,
+                hand_filled: 0,
+              },
+              dispatches: [
+                {
+                  dispatch_id: "ctx-1",
+                  tests: [
+                    {
+                      command: "pnpm test",
+                      exit_code: 0,
+                      seconds: 1,
+                      timeout_seconds: null,
+                    },
+                    {
+                      command: "timeout 60 pnpm test",
+                      exit_code: 1,
+                      seconds: 2.5,
+                      timeout_seconds: 60,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const file = readFileSync(html, "utf8");
+    const pre = file.match(/<pre id="brief-json">([\s\S]*)<\/pre>/);
+    expect(unescapeHtml(pre?.[1] ?? "")).toBe(JSON.stringify(parsed.result));
+    const table = file.match(/<table id="tests-ctx-1">([\s\S]*?)<\/table>/);
+    expect(table?.[1]?.match(/<tr>/g)).toHaveLength(2);
+    expect(table?.[0]).toContain("<td>pnpm test</td><td>0</td><td>1</td><td></td>");
+    expect(table?.[0]).toContain(
+      "<td>timeout 60 pnpm test</td><td>1</td><td>2.5</td><td>60</td>",
+    );
+  });
+
   test("an unknown story is story_not_found", () => {
     const result = runBrief(cwd, ["brief", "story:missing"]);
     expect(result.status).toBe(3);

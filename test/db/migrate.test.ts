@@ -24,7 +24,7 @@ describeDb("pod db migrate", () => {
   test("a run after the reset's migrate applies nothing", () => {
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 8, applied: 0 } },
+      json: { ok: true, result: { journal: 9, applied: 0 } },
     });
   });
 
@@ -35,15 +35,15 @@ describeDb("pod db migrate", () => {
     await db.close();
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 8, applied: 8 },
+      result: { journal: 9, applied: 9 },
     });
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 8, applied: 0 },
+      result: { journal: 9, applied: 0 },
     });
   });
 
-  test("a database at 0003 applies 0004 through 0007", async () => {
+  test("a database at 0003 applies 0004 through 0008", async () => {
     const db = openDb();
     await db.sql`set client_min_messages = warning`;
     await db.sql`drop schema if exists config, ledger, drizzle cascade`;
@@ -55,7 +55,23 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 8, applied: 4 } },
+      json: { ok: true, result: { journal: 9, applied: 5 } },
+    });
+  });
+
+  test("a database at 0007 applies 0008", async () => {
+    const db = openDb();
+    await db.sql`set client_min_messages = warning`;
+    await db.sql`drop schema if exists config, ledger, drizzle cascade`;
+    await db.close();
+    expect(await migrate(dbUrl(), journalThrough("0007_usage_observation"))).toEqual({
+      kind: "ok",
+      journal: 8,
+      applied: 8,
+    });
+    expect(runCli(["db", "migrate"])).toMatchObject({
+      status: 0,
+      json: { ok: true, result: { journal: 9, applied: 1 } },
     });
   });
 

@@ -1,0 +1,3 @@
+ALTER TABLE "ledger"."event" DROP CONSTRAINT "event_type_check";--> statement-breakpoint
+ALTER TABLE "ledger"."evidence_manifest" ADD COLUMN "tests" jsonb;--> statement-breakpoint
+ALTER TABLE "ledger"."event" ADD CONSTRAINT "event_type_check" CHECK ("ledger"."event"."type" in ('start', 'delivery', 'receipt', 'activation', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'retry', 'ignored', 'unknown_launch', 'learning', 'outcome'));

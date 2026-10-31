@@ -1,0 +1,29 @@
+kind: crew
+name: crew.example
+schema_version: 1
+value:
+  seats:
+    # Fill id, runtime, model, and host before this seat is used.
+    - id: developer
+      roles: [developer]
+      runtime: example
+      model: example
+      host: example-host
+    # Fill id, runtime, model, and host before this seat is used.
+    - id: reviewer
+      roles: [reviewer]
+      runtime: example
+      model: example
+      host: example-host
+    # Fill id, runtime, model, and host before this seat is used.
+    - id: coordinator
+      roles: [coordinator]
+      runtime: example
+      model: example
+      host: example-host
+    # Fill id, runtime, model, and host before this seat is used.
+    - id: auditor
+      roles: [auditor]
+      runtime: example
+      model: example
+      host: example-host

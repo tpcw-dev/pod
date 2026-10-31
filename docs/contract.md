@@ -39,6 +39,9 @@ Spec clarification: S10. The learning file is YAML with source_story, evidence_r
 Spec clarification: S10. adoption defaults to new.
 Spec clarification: S10. The op key is learning: plus the sha256 of the canonical JSON of source_story, text, area, and project_id.
 Spec clarification: S10. The learning event has no Run. run_id is null.
+Spec clarification: S8a. pod brief derives counters at read time. coordinator_operations counts ledger.operation rows whose op key is on an event or a dispatch of that Run. recovery_steps counts retry, resume, takeover, and release events. retries counts retry events. rework_tasks counts Tasks whose lineage position is above 1, ordered by created_at then task_id. The Story counters are the sum of its Runs.
+Spec clarification: S8a. hand_filled counts events whose source is an object with kind command and verb in HAND_FILLED_VERBS in src/core/brief/counters.ts: verdict post, hqa record, config apply, takeover, and check --resume. resume() writes check --resume. The reconcile resume stays verb check. config apply writes an activation with run_id null, so that verb is counted on no Run until an apply is recorded on a Run.
+Spec clarification: S8a. A worker_done payload may include tests, a list of command, exit_code, seconds, and timeout_seconds. The list is stored on the evidence manifest and is not part of the manifest id. A malformed entry is dropped with an ignored line. The brief shows the list on each Dispatch.
 
 ## Authority
 

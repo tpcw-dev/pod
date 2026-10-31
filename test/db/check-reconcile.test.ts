@@ -263,6 +263,11 @@ describeDb("pod check reconciles unknown launches", () => {
     expect((await events(conn, "resume")).map((row) => row.payload)).toEqual([
       { reason: "reconciled_no_worker", op_key: opKey, to: "ready" },
     ]);
+    const sources = await conn.sql<{ source: { kind: string; verb: string } }[]>`
+      select source from ledger.event where type = 'resume' order by id`;
+    expect(sources.map((row) => row.source)).toEqual([
+      { kind: "command", verb: "check" },
+    ]);
   });
 
   test("a recorded refusal with an unreadable worker list keeps the operation unknown", async () => {

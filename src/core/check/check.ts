@@ -12,6 +12,7 @@ import { hostFreeSlots, openLaunches } from "../dispatch/quota.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import { moveTask } from "../ledger/move-task.ts";
+import { recordDeliveryTests } from "../manifest/record.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaMessage, OrcaPort, WorkerRow } from "../ports/orca.ts";
@@ -299,6 +300,9 @@ async function recordMessage(
   if (message.type === "worker_done") {
     const { facts, ignored } = deliveryFacts(message);
     result.nextSteps.push(...ignored);
+    result.nextSteps.push(
+      ...(await recordDeliveryTests(tx, known.manifest_id, message)),
+    );
     for (const fact of facts)
       await tx.appendEvent({
         ...base,
@@ -571,7 +575,7 @@ export async function resume(db: Db, input: ResumeInput): Promise<Resumed> {
         dispatch_id: null,
         op_key: null,
         payload: { reason: "operator", to },
-        source: { kind: "command", verb: "check" },
+        source: { kind: "command", verb: "check --resume" },
       });
     const restore = async (held: Task) => {
       const hold = await tx.latestEvent(run.run_id, "hold", {

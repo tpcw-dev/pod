@@ -21,7 +21,13 @@ import {
   type Revision,
   type Snapshot,
 } from "../../core/domain/config.ts";
-import type { BriefRun, BriefTree } from "../../core/domain/brief.ts";
+import {
+  countBriefRun,
+  sumBriefCounters,
+  type BriefDispatch,
+  type BriefRun,
+  type BriefTree,
+} from "../../core/domain/brief.ts";
 import { Json } from "../../core/domain/json.ts";
 import {
   Adoption,
@@ -34,6 +40,7 @@ import {
   Activity,
   Coverage,
   EventType,
+  StoredTests,
   Intent,
   ModelAttribution,
   OperationStatus,
@@ -149,6 +156,7 @@ function toManifest(
     decision_id: row.decisionId,
     parent_id: row.parentId,
     references: json(row.references),
+    tests: row.tests === null ? null : StoredTests.parse(row.tests),
     created_at: row.createdAt,
   };
 }
@@ -841,6 +849,7 @@ function makeRepo(x: Executor): Repo {
           decisionId: row.decision_id,
           parentId: row.parent_id,
           references: row.references,
+          tests: row.tests,
           createdAt: row.created_at,
         })
         .onConflictDoNothing({ target: evidenceManifest.id })
@@ -859,6 +868,15 @@ function makeRepo(x: Executor): Repo {
         .from(evidenceManifest)
         .where(eq(evidenceManifest.id, id));
       return row === undefined ? null : toManifest(row);
+    },
+
+    async setManifestTests(id, tests) {
+      const updated = await x
+        .update(evidenceManifest)
+        .set({ tests: [...tests] })
+        .where(eq(evidenceManifest.id, id))
+        .returning({ id: evidenceManifest.id });
+      if (updated.length === 0) throw new Error(`manifest ${id} is missing`);
     },
 
     async readBrief(externalId) {
@@ -910,6 +928,34 @@ function makeRepo(x: Executor): Repo {
             .from(dispatch)
             .where(eq(dispatch.runId, runRow.runId))
             .orderBy(asc(dispatch.dispatchId));
+          const eventRows = await x
+            .select()
+            .from(event)
+            .where(eq(event.runId, runRow.runId))
+            .orderBy(asc(event.id));
+          const runTasks = taskRows.map(toTask);
+          const runDispatches = dispatchRows.map(toDispatch);
+          const runEvents = eventRows.map(toEvent);
+          const keys = new Set<string>();
+          for (const row of runEvents) {
+            if (row.op_key !== null) keys.add(row.op_key);
+          }
+          for (const row of runDispatches) keys.add(row.op_key);
+          const operationRows =
+            keys.size === 0
+              ? []
+              : await x
+                  .select()
+                  .from(operation)
+                  .where(inArray(operation.opKey, [...keys]));
+          const dispatches: BriefDispatch[] = [];
+          for (const row of runDispatches) {
+            const manifest =
+              row.manifest_id === null
+                ? null
+                : await repo.getManifest(row.manifest_id);
+            dispatches.push({ ...row, tests: manifest?.tests ?? [] });
+          }
           runs.push({
             run: {
               run_id: runRow.runId,
@@ -935,11 +981,22 @@ function makeRepo(x: Executor): Repo {
                     process: await repo.getRevision(snap.process_revision_id),
                     policy: await repo.getRevision(snap.policy_revision_id),
                   },
-            tasks: taskRows.map(toTask),
-            dispatches: dispatchRows.map(toDispatch),
+            tasks: runTasks,
+            dispatches,
+            counters: countBriefRun(
+              { run_id: runRow.runId },
+              runTasks,
+              runDispatches,
+              runEvents,
+              operationRows.map(toOperation),
+            ),
           });
         }
-        stories.push({ story: storyRow, runs });
+        stories.push({
+          story: storyRow,
+          runs,
+          counters: sumBriefCounters(runs.map((row) => row.counters)),
+        });
       }
       return { stories };
     },

@@ -56,6 +56,9 @@ test("git status over the budget stays first", () => {
     }),
   );
   expect(view.text.startsWith(gitStatus)).toBe(true);
+  expect(view.text).toContain(
+    "Tests\nRun `pnpm test`, then run `timeout 60 pnpm test`. Deliver both as tests.",
+  );
   expect(view.text).not.toContain(body);
   expect(view.truncated).toBe(true);
 });

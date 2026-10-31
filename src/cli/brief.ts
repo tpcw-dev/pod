@@ -35,6 +35,21 @@ const DriftJson = z.object({
   path: z.string(),
 });
 
+const CountersJson = z.object({
+  coordinator_operations: z.number(),
+  recovery_steps: z.number(),
+  retries: z.number(),
+  rework_tasks: z.number(),
+  hand_filled: z.number(),
+});
+
+const TestJson = z.object({
+  command: z.string(),
+  exit_code: z.number(),
+  seconds: z.number(),
+  timeout_seconds: z.number().nullable(),
+});
+
 export const BriefOutput = z.object({
   stories: z.array(
     z.object({
@@ -45,6 +60,7 @@ export const BriefOutput = z.object({
       run_id: z.string().nullable(),
       dependencies: Json,
       synced_at: z.string(),
+      counters: CountersJson,
       runs: z.array(
         z.object({
           run_id: z.string(),
@@ -77,8 +93,10 @@ export const BriefOutput = z.object({
               activity: z.string(),
               settlement: z.string(),
               created_at: z.string(),
+              tests: z.array(TestJson),
             }),
           ),
+          counters: CountersJson,
         }),
       ),
       drift: z.array(DriftJson),
@@ -179,6 +197,7 @@ function toBriefResult(tree: BriefTree): BriefResult {
       run_id: item.story.run_id,
       dependencies: item.story.dependencies,
       synced_at: iso(item.story.synced_at),
+      counters: item.counters,
       runs: item.runs.map((run) => ({
         run_id: run.run.run_id,
         state: run.run.state,
@@ -208,7 +227,14 @@ function toBriefResult(tree: BriefTree): BriefResult {
           activity: dispatch.activity,
           settlement: dispatch.settlement,
           created_at: iso(dispatch.created_at),
+          tests: dispatch.tests.map((row) => ({
+            command: row.command,
+            exit_code: row.exit_code,
+            seconds: row.seconds,
+            timeout_seconds: row.timeout_seconds,
+          })),
         })),
+        counters: run.counters,
       })),
       drift:
         drift.get(`${item.story.provider}\n${item.story.external_id}`) ?? [],

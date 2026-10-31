@@ -99,6 +99,7 @@ export const evidenceManifest = ledger.table(
     decisionId: text("decision_id"),
     parentId: text("parent_id"),
     references: jsonb("references").notNull(),
+    tests: jsonb("tests"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   },
   (t) => [foreignKey({ columns: [t.parentId], foreignColumns: [t.id] })],
@@ -212,7 +213,7 @@ export const event = ledger.table(
   (t) => [
     check(
       "event_type_check",
-      sql`${t.type} in ('start', 'delivery', 'receipt', 'activation', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'ignored', 'unknown_launch', 'learning', 'outcome')`,
+      sql`${t.type} in ('start', 'delivery', 'receipt', 'activation', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'retry', 'ignored', 'unknown_launch', 'learning', 'outcome')`,
     ),
     index("event_run_ts").on(t.runId, t.ts),
   ],

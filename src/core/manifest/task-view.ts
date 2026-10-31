@@ -59,9 +59,15 @@ function joinBlocks(blocks: readonly string[]): string {
   return blocks.filter((block) => block !== "").join("\n");
 }
 
+const testInstruction = [
+  "Tests",
+  "Run `pnpm test`, then run `timeout 60 pnpm test`. Deliver both as tests.",
+].join("\n");
+
 export function renderTaskView(input: TaskViewInput): TaskView {
   const prefixParts: string[] = [];
   if (input.gitStatus !== undefined) prefixParts.push(input.gitStatus);
+  prefixParts.push(testInstruction);
   prefixParts.push(section("Policies", input.policies));
   prefixParts.push(section("Reserved categories", input.reserved));
   prefixParts.push(

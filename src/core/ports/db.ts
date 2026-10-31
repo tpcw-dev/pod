@@ -27,6 +27,7 @@ import type {
   GateReceipt,
   NewGateReceipt,
   EvidenceManifest,
+  TestResult,
   NewEvent,
   NewOperation,
   Operation,
@@ -105,6 +106,7 @@ export interface Repo {
     row: EvidenceManifest,
   ): Promise<{ manifest: EvidenceManifest; created: boolean }>;
   getManifest(id: string): Promise<EvidenceManifest | null>;
+  setManifestTests(id: string, tests: readonly TestResult[]): Promise<void>;
   readBrief(externalId: string | null): Promise<BriefTree>;
   insertUsageObservation(row: NewUsageObservation): Promise<UsageObservation>;
   latestUsageObservations(
