@@ -15,6 +15,7 @@ import {
   insertStart,
   requestedLaunch,
   LaunchArgs,
+  type Launched,
 } from "./launch-record.ts";
 import { openLaunches } from "./quota.ts";
 import { readSeats, SeatsInvalid, type Seat } from "./seats.ts";
@@ -55,13 +56,14 @@ export function pickSeat(
   if (role === "decider")
     return decider === undefined ? unfilled("decider") : { seat: decider };
   const auditors = seats.filter((seat) => seat.roles.includes("auditor"));
-  if (auditors.length === 0) return unfilled("auditor");
+  const [first] = auditors;
+  if (first === undefined) return unfilled("auditor");
   const auditor = auditors.find((seat) => seat.id !== decider?.id);
   if (auditor === undefined)
     return {
       refusal: {
         code: "reviewer_not_independent",
-        message: `the auditor Seat ${auditors[0]?.id ?? ""} is also the decider Seat`,
+        message: `the auditor Seat ${first.id} is also the decider Seat`,
         nextSteps: [
           "pod config apply crew.yaml with an auditor Seat apart from the decider",
         ],
@@ -327,7 +329,7 @@ export async function recordSeatStarted(
     opKey: string;
     ref: SeatRef;
     run: Pick<Run, "run_id">;
-    launched: ReturnType<typeof fromReceipt> & object;
+    launched: Launched;
     at: Date;
   },
 ): Promise<string> {

@@ -273,7 +273,7 @@ async function sendRoundOpen(
     return refuse(
       "failed",
       `send of round 1 for Decision ${decision.id} failed`,
-      [`pod decide --task ${decision.task_id ?? ""} --op-key ${input.opKey}`],
+      [`run pod decide again with --op-key ${input.opKey}`],
     );
   const result: DecideResult = {
     decision_id: decision.id,
@@ -357,16 +357,15 @@ async function precondition(tx: Repo, task: Task): Promise<Refusal | null> {
   const { step } = await readProcess(tx, task, "agreed");
   if (step.decision === undefined)
     return notReady(task, `step ${step.id} has no decision`);
-  const open = (await tx.openDecisionsForRun(task.run_id)).filter(
+  const open = (await tx.openDecisionsForRun(task.run_id)).find(
     (row) => row.task_id === task.task_id,
   );
-  if (open.length > 0)
-    return {
-      code: "duplicate_op",
-      message: `Task ${task.task_id} already has open Decision ${open[0]?.id ?? ""}`,
-      nextSteps: [`pod check --wait --decision ${open[0]?.id ?? ""}`],
-    };
-  return null;
+  if (open === undefined) return null;
+  return {
+    code: "duplicate_op",
+    message: `Task ${task.task_id} already has open Decision ${open.id}`,
+    nextSteps: [`pod check --wait --decision ${open.id}`],
+  };
 }
 
 async function policyOf(tx: Repo, run: Run): Promise<unknown> {

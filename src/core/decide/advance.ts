@@ -22,7 +22,7 @@ import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { applyEffect } from "./effects.ts";
 import { optionsText } from "./open.ts";
-import { next, proposalStance, type DecisionEvent } from "./table.ts";
+import { next, proposalStance } from "./table.ts";
 import { renderTemplate, type Templates } from "./templates.ts";
 
 export type FollowUp =
@@ -244,7 +244,7 @@ export async function cancelDecision(
   const decision = await tx.getDecision(input.decision);
   if (decision === null) return { cancelled: false };
   const state = parseDecisionState(decision.state, decision.reason);
-  const step = next(state, "cancel" satisfies DecisionEvent, 3);
+  const step = next(state, "cancel", 3);
   if (step === null) return { cancelled: false };
   await settle(tx, decision, step.to, "cancelled", input);
   return { cancelled: true };
@@ -306,7 +306,7 @@ async function recipient(
 ): Promise<string | { message: string }> {
   if (item.kind === "round_next") return item.to;
   const manifest = await db.getManifest(decision.manifest_id);
-  const fields = await fieldsOf(decision, manifest?.references ?? []);
+  const fields = fieldsOf(decision, manifest?.references ?? []);
   if (context.templates === null)
     return { message: "no active decision Revision to render the auditor" };
   const seat = await openDecisionSeat(db, orca, log, {
@@ -325,7 +325,7 @@ async function recipient(
     : { message: `${seat.refusal.code} ${seat.refusal.message}` };
 }
 
-async function fieldsOf(decision: DecisionRow, references: Json) {
+function fieldsOf(decision: DecisionRow, references: Json) {
   const parsed = z.array(ManifestReference).safeParse(references);
   return {
     decision_id: decision.id,
