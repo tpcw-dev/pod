@@ -277,7 +277,6 @@ export async function followDecisions(
       );
       continue;
     }
-    await db.setDispatchActivity(to, "running");
     log.at({
       run_id: decision.run_id,
       task_id: decision.task_id,
@@ -288,9 +287,10 @@ export async function followDecisions(
       subject: `decision ${decision.id} round ${item.round}${item.kind === "proposal" ? " proposal" : ""}`,
       body: bodyOf(item, decision, context.templates),
     });
-    if (sent.exitCode !== 0)
+    if (sent.exitCode === 0) await db.setDispatchActivity(to, "running");
+    else
       steps.push(
-        `send of Decision ${decision.id} round ${item.round} to ${to} failed; the resend is S13's recovery`,
+        `send of Decision ${decision.id} round ${item.round} to Dispatch ${to} failed; Dispatch ${to} stays waiting`,
       );
   }
   return steps;
