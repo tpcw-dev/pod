@@ -35,3 +35,5 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Adoption**: the state of a learning, one of new, adopted, rejected.
 - **Docs port**: Pod's read-only port to a docs tool. It reads one section of one page and never writes.
 - **Section**: the heading, paragraphs, and tables under one heading_2 of a docs page, up to the next heading.
+- **State view**: the seven sections `pod state` prints for a scope, each stamped with its source revision and read time, kept within a 3k-word budget.
+- **Usage observation**: an append-only ledger row of what a seat provider reported about usage in a window, where a null value means unknown and `no_source` means no reader reported.
