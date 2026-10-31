@@ -22,6 +22,8 @@ import type {
   Dispatch,
   Event,
   EventType,
+  GateReceipt,
+  NewGateReceipt,
   EvidenceManifest,
   NewEvent,
   NewOperation,
@@ -33,6 +35,7 @@ import type {
   OutboxRow,
   Story,
   StorySync,
+  SyncState,
   Task,
 } from "../domain/ledger.ts";
 
@@ -66,6 +69,10 @@ export interface Repo {
   listOutboxPending(): Promise<OutboxRow[]>;
   ackOutbox(id: number, readback: Json): Promise<void>;
   failOutbox(id: number, error: string): Promise<void>;
+  outboxByOpKey(opKey: string): Promise<OutboxRow | null>;
+  insertGateReceipt(row: NewGateReceipt): Promise<GateReceipt>;
+  listGateReceipts(runId: string): Promise<GateReceipt[]>;
+  setGateReceiptSync(id: number, state: SyncState): Promise<void>;
   insertRun(row: Run): Promise<void>;
   getRun(runId: string): Promise<Run | null>;
   lockRun(runId: string): Promise<Run | null>;
@@ -103,6 +110,10 @@ export interface Repo {
   ): Promise<Event | null>;
   dispatchEvent(dispatchId: string, type: EventType): Promise<Event | null>;
   messageRecorded(runId: string, messageId: string): Promise<boolean>;
+  eventWith(
+    type: EventType,
+    payload: Record<string, string>,
+  ): Promise<Event | null>;
   latestEvent(
     runId: string,
     type: EventType,

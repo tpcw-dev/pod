@@ -36,4 +36,34 @@ describeDb("append-only tables", () => {
       }
     });
   }
+
+  test("a gate receipt changes only its sync_state, and no receipt is deleted", async () => {
+    await db.sql`insert into ledger.story (provider, external_id, size, stage, dependencies, synced_at)
+      values ('linear', 'S-1', 's', 'impl', '[]', now())`;
+    await db.sql`insert into ledger.run (run_id, story_provider, story_external_id, host, coordinator, owner_generation, snapshot_hash, state, created_at)
+      values ('run-1', 'linear', 'S-1', 'local', 'c', 1, 'h', 'active', now())`;
+    await db.sql`insert into ledger.task (task_id, run_id, step_id, lineage_id, role, deps, spec_revision_id, state, created_at)
+      values ('task-1', 'run-1', 'build', 'run-1:build', 'developer', '[]', 'r1', 'delivered', now())`;
+    await db.sql`insert into ledger.gate_receipt (gate_id, run_id, task_id, scope, spec_revision_id, candidate_sha, keeper, outcome, source, sync_state, created_at)
+      values ('review', 'run-1', 'task-1', 'task', 'r1', 'abc', 'k', 'PASS', '{}', 'synced', now())`;
+    await db.sql`update ledger.gate_receipt set sync_state = 'voided'`;
+    const [row] = await db.sql<
+      { sync_state: string }[]
+    >`select sync_state from ledger.gate_receipt`;
+    expect(row?.sync_state).toBe("voided");
+    await expect(
+      db.sql`update ledger.gate_receipt set outcome = 'FAIL'`,
+    ).rejects.toMatchObject({
+      code: "P0001",
+      message: expect.stringContaining("may change only sync_state"),
+    });
+    await expect(db.sql`delete from ledger.gate_receipt`).rejects.toMatchObject(
+      {
+        code: "P0001",
+        message: expect.stringContaining(
+          "DELETE on ledger.gate_receipt is not allowed",
+        ),
+      },
+    );
+  });
 });

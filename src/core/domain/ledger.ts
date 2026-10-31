@@ -135,6 +135,31 @@ export interface OutboxRow {
   readback: Json | null;
 }
 
+export const SyncState = z.enum(["pending", "synced", "voided"]);
+export type SyncState = z.infer<typeof SyncState>;
+
+export const ReceiptOutcome = z.enum(["PASS", "FAIL"]);
+export type ReceiptOutcome = z.infer<typeof ReceiptOutcome>;
+
+export interface NewGateReceipt {
+  gate_id: string;
+  run_id: string;
+  task_id: string;
+  scope: string;
+  spec_revision_id: string;
+  candidate_sha: string;
+  deployed_revision: string | null;
+  keeper: string;
+  outcome: ReceiptOutcome;
+  source: Json;
+  sync_state: SyncState;
+  created_at: Date;
+}
+
+export interface GateReceipt extends NewGateReceipt {
+  id: number;
+}
+
 export interface Run {
   run_id: string;
   story_provider: string;
