@@ -431,6 +431,7 @@ describeDb("pod takeover", () => {
         nextSteps: [
           "pod check --run run_1 --generation 2",
           `pod takeover story:S-1 --generation 1 --op-key ${opKey}`,
+          "usage has no source for claude, codex; pod state shows unknown",
         ],
       },
     });
@@ -461,6 +462,7 @@ describeDb("pod takeover", () => {
         nextSteps: [
           `pod check: takeover ${opKey} is still unknown`,
           "pod check --run run_1 --generation 1",
+          "usage has no source for claude, codex; pod state shows unknown",
         ],
       },
     });
@@ -475,6 +477,7 @@ describeDb("pod takeover", () => {
         nextSteps: [
           "pod takeover story:S-1 --generation 1",
           "pod check --run run_1 --generation 1",
+          "usage has no source for claude, codex; pod state shows unknown",
         ],
       },
     });
@@ -526,6 +529,7 @@ describeDb("pod takeover", () => {
         nextSteps: [
           "pod takeover story:S-1 --generation 1",
           "pod check --run run_1 --generation 1",
+          "usage has no source for claude, codex; pod state shows unknown",
         ],
       },
     });
@@ -572,7 +576,11 @@ describeDb("pod takeover", () => {
     ).toMatchObject({
       ok: true,
       result: {
-        nextSteps: ["pod check --run run_1 --generation 2", expect.any(String)],
+        nextSteps: [
+          "pod check --run run_1 --generation 2",
+          expect.any(String),
+          "usage has no source for claude, codex; pod state shows unknown",
+        ],
       },
     });
     expect(await owner()).toEqual({ generation: 2, coordinator: newHandle });

@@ -50,6 +50,13 @@
       "when": 1793664000000,
       "tag": "0006_gate_receipt",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793750400000,
+      "tag": "0007_usage_observation",
+      "breakpoints": true
     }
   ]
 }

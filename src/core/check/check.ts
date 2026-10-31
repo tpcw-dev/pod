@@ -24,6 +24,7 @@ import { syncVerdictReceipts } from "../gate/verdict.ts";
 import { fence, StaleGeneration } from "./fence.ts";
 import { reconcileLaunches, type Reconciled } from "./reconcile.ts";
 import { reconcileTakeovers } from "./takeover-reconcile.ts";
+import { recordNoSource } from "./usage.ts";
 import { memoWorkers } from "./workers.ts";
 
 export interface CheckInput {
@@ -122,7 +123,14 @@ export async function checkPass(
     if (takeover !== null)
       return {
         ok: true,
-        result: { ...result, nextSteps: [...tracked, ...takeover] },
+        result: {
+          ...result,
+          nextSteps: [
+            ...tracked,
+            ...takeover,
+            ...(await recordNoSource(db, run, input.now())),
+          ],
+        },
         orca: version,
       };
     const launches = await reconcileLaunches(db, orca, log, {
@@ -177,6 +185,7 @@ export async function checkPass(
   result.free_slots = await hostFreeSlots(db, input.host, input.capacity);
   if (result.free_slots >= 1)
     result.nextSteps.push(...(await nextKeys(db, run, input.generation)));
+  result.nextSteps.push(...(await recordNoSource(db, run, input.now())));
   return { ok: true, result, orca: version };
 }
 

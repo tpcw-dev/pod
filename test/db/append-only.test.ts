@@ -12,6 +12,8 @@ describeDb("append-only tables", () => {
       values ('r1', 'policy', 'p', 1, 1, 'global', '{}', 'operator', '')`;
     await db.sql`insert into ledger.event (type, ts, host, payload, source)
       values ('receipt', now(), 'local', '{}', '{}')`;
+    await db.sql`insert into ledger.usage_observation (provider, window_start, window_end, coverage, observed_at, source)
+      values ('claude', now(), now(), 'no_source', now(), '{}')`;
   });
   afterAll(() => db.close());
 
@@ -25,6 +27,11 @@ describeDb("append-only tables", () => {
       "ledger.event",
       "update ledger.event set host = 'x'",
       "delete from ledger.event",
+    ],
+    [
+      "ledger.usage_observation",
+      "update ledger.usage_observation set value = 0",
+      "delete from ledger.usage_observation",
     ],
   ] as const) {
     test(`UPDATE and DELETE on ${table} raise`, async () => {

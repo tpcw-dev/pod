@@ -267,7 +267,9 @@ describeDb("pod drain", () => {
     });
     checked.orca.assertDone();
     expect(pass).toMatchObject({ ok: true, result: { free_slots: 2 } });
-    expect(pass.ok && pass.result.nextSteps).toEqual([]);
+    expect(pass.ok && pass.result.nextSteps).toEqual([
+      "usage has no source for claude, codex; pod state shows unknown",
+    ]);
     const released = replay(conn, [
       ok("worker-release", { dispatchId: "ctx_1", state: "released" }, [
         "--dispatch",
