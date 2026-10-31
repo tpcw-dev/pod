@@ -1,0 +1,14 @@
+{
+  "method": "readback",
+  "match": {
+    "operation": "StoryComments",
+    "variables": {
+      "id": "TRK-1",
+      "after": null
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"issue\":{\"comments\":{\"nodes\":[{\"id\":\"00000000-0000-4000-8000-000000000013\",\"body\":\"keeper: groom note\\n\\nGroomed lean at 1 point on 2026-10-31 as the real Story for Pod Dogfood A (TRK-2 S8b). Chosen over a ledger export and an action-timer option because it has the same shape as TRK-4 (two files under `public/` plus happy-dom tests), so the Pod operation counts compare with the Orca-only POC numbers. Driven by Pod on host-a under the TRK-3 exception, not by `/kick-off`; blocked by TRK-5 (S8a) so nothing launches before the brief counters merge. `overlap` ran against project poker-room: no file is shared with a branch or an open ticket. No deploy; the merge gate is keeper's HQA PR review recorded as `merge PASS` on this Story.\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"}}],\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":\"00000000-0000-4000-8000-000000000013\"}}}}}\n",
+  "error": null,
+  "recordedAt": "2026-10-31T21:17:53.484Z"
+}

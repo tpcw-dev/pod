@@ -1,0 +1,26 @@
+kind: crew
+name: dogfood-a
+schema_version: 1
+scope: global
+value:
+  seats:
+    - id: developer
+      roles: [developer]
+      runtime: grok
+      model: grok-4.7
+      effort: medium
+    - id: reviewer
+      roles: [reviewer]
+      runtime: grok
+      model: grok-4.7
+      effort: medium
+    - id: coordinator
+      roles: [coordinator]
+      runtime: grok
+      model: grok-4.7
+      effort: medium
+    - id: auditor
+      roles: [auditor]
+      runtime: grok
+      model: grok-4.7
+      effort: medium

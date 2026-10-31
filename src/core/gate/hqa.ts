@@ -98,10 +98,13 @@ async function waitingTasks(
   const unkept: string[] = [];
   const decisions: Task[] = [];
   for (const task of await db.listTasks(run.run_id)) {
-    if (task.state !== "delivered") continue;
     const { step } = await readProcess(db, task, "PASS");
     if (step.decision !== undefined) decisions.push(task);
     if (step.gate === undefined) continue;
+    const open =
+      task.state === "delivered" ||
+      (task.state === "ready" && step.type === "human_wait");
+    if (!open) continue;
     const keeper = gateOf(policy, step.gate);
     if (keeper === null) unkept.push(step.gate);
     else if (keeper.type === "HQA")
@@ -259,6 +262,8 @@ async function write(
     },
     source: { kind: "command", verb: "hqa record" },
   });
+  if (waiting.task.state === "ready")
+    await moveTask(tx, waiting.task.task_id, "delivered");
   const recorded = await recordOutcome(tx, {
     ...outcomeInput,
     source: { kind: "receipt", receipt_id: receipt.id },

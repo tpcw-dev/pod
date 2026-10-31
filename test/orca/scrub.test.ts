@@ -62,6 +62,38 @@ test("a worktree root outside a home directory becomes /w/<n> with its subpath",
   );
 });
 
+test("a backslash-n before a term is still a whole word", () => {
+  const scrubber = makeScrubber({
+    hosts: [],
+    users: [],
+    roots: [],
+    denylist: ["secretco"],
+    replacements: [{ term: "secretco", replacement: "keeper" }],
+  });
+  const text = String.raw`{"note":"head\nsecretco: PASS"}`;
+  expect(scrubber.hits(text)).toEqual(["secretco"]);
+  expect(scrubber.scrub(text)).toBe(String.raw`{"note":"head\nkeeper: PASS"}`);
+  expect(scrubber.hits(scrubber.scrub(text))).toEqual([]);
+  expect(scrubber.hits(String.raw`\nsecretcoextra`)).toEqual([]);
+});
+
+test("a listed replacement is gone before the denylist check", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pod-scrub-"));
+  const scrubber = makeScrubber({
+    hosts: [],
+    users: [],
+    roots: [],
+    denylist: ["secretco", "otherco"],
+    replacements: [{ term: "secretco", replacement: "keeper" }],
+  });
+  const text = scrubber.scrub("SecretCo keeps the gate, and OtherCo does not");
+  expect(text).toBe("keeper keeps the gate, and OtherCo does not");
+  expect(scrubber.hits(text)).toEqual(["otherco"]);
+  expect(writeFixture(dir, record('{"note":"SecretCo"}'), [], scrubber)).toBe(
+    "001-worker-start.json",
+  );
+});
+
 test("a denylist hit refuses the write and leaves no file", () => {
   const dir = mkdtempSync(join(tmpdir(), "pod-scrub-"));
   const scrubber = makeScrubber({

@@ -18,12 +18,23 @@ import { activeRevision, crewValue, processValue } from "./seed.ts";
 
 const hold = ["timeout", "cancel", "unknown"];
 
-export const gateProcess = (gate: string, shipGate?: string) => ({
+export const gateProcess = (
+  gate: string,
+  shipGate?: string,
+  review: "worker" | "human_wait" = "worker",
+) => ({
   ...processValue,
   steps: [
-    ...processValue.steps.map((step) =>
-      step.id === "review" ? { ...step, gate } : step,
-    ),
+    ...processValue.steps.map((step) => {
+      if (step.id !== "review") return step;
+      if (review === "worker") return { ...step, gate };
+      return {
+        id: step.id,
+        type: "human_wait" as const,
+        needs: step.needs ?? [],
+        gate,
+      };
+    }),
     {
       id: "ship",
       type: "worker",
@@ -99,6 +110,7 @@ export interface GatedRun {
   builder?: string;
   gate?: string;
   shipGate?: string;
+  review?: "worker" | "human_wait";
   reviewFields?: Record<string, unknown>;
 }
 
@@ -110,6 +122,7 @@ export async function gatedRun(
     builder = "dev-1",
     gate = "pr",
     shipGate,
+    review = "worker",
     reviewFields = {},
   }: GatedRun,
 ): Promise<void> {
@@ -119,7 +132,12 @@ export async function gatedRun(
     ...(principals === undefined ? {} : { principals }),
   });
   await activeRevision(conn.db, "crew", "default", crewValue);
-  await activeRevision(conn.db, "process", "impl", gateProcess(gate, shipGate));
+  await activeRevision(
+    conn.db,
+    "process",
+    "impl",
+    gateProcess(gate, shipGate, review),
+  );
   const { orca, log } = replay(conn, [
     ok("run-create", { run: { id: "run_1" } }),
     ok("task-create", { task: { id: "task_b", status: "ready" } }),
@@ -140,6 +158,7 @@ export async function gatedRun(
   if (!created.ok) throw new Error(created.refusal.message);
   await dispatched(conn, "ctx_1", { seat: builder });
   await deliver(conn, "ctx_1", "task_b", { head: headSha });
+  if (review === "human_wait") return;
   await dispatched(conn, "ctx_2", { task: "task_r", seat: "rev-1" });
   await deliver(conn, "ctx_2", "task_r", reviewFields);
 }

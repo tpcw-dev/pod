@@ -1,0 +1,14 @@
+{
+  "method": "readback",
+  "match": {
+    "operation": "StoryComments",
+    "variables": {
+      "id": "TRK-1",
+      "after": null
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"issue\":{\"comments\":{\"nodes\":[{\"id\":\"00000000-0000-4000-8000-000000000013\",\"body\":\"reviewer (crew): PR review PASS\\nHead: 3be3115f623a06e7e17c5e063a050d34e535e33e\\nAcceptance: PASS\\nCorrectness: PASS\\n\\nReposted by keeper in the lean form from the Pod reviewer seat's verdict (comment 4385361b, `reviewer: review PASS` on this head, recorded by `pod verdict post` on Run run_0e13621dc8ea) so the lean merge rule can read it. No new judgment is added here.\\n\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"}},{\"id\":\"00000000-0000-4000-8000-000000000015\",\"body\":\"merge PASS\\n\\nHead: 3be3115f623a06e7e17c5e063a050d34e535e33e\\n\\nkeeper: HQA PR review PASS on poker-room PR 41. Read the full diff: `public/create.html` adds the `#stack-help` line, `public/js/create.js` adds `stackProblem` beside `blindsProblem`, drops the `|| 1000` fallback in `readCreateForm`, paints the preview from the typed value or an em dash, and disables submit on either problem; `src/client/__tests__/createStack.test.ts` covers the four messages, the disabled cases 0, 2.5, blank, and 150 with blinds 10/20, the enabled case 200, and the preview for 750 and blank. The server keeps its fallback as the ticket requires. The reviewer seat's PASS is on this head and the PR is mergeable. Merging now.\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"}},{\"id\":\"00000000-0000-4000-8000-000000000016\",\"body\":\"reviewer: review PASS\\nHead: 3be3115f623a06e7e17c5e063a050d34e535e33e\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000017\"}},{\"id\":\"00000000-0000-4000-8000-000000000018\",\"body\":\"keeper: groom note\\n\\nGroomed lean at 1 point on 2026-10-31 as the real Story for Pod Dogfood A (TRK-2 S8b). Chosen over a ledger export and an action-timer option because it has the same shape as TRK-4 (two files under `public/` plus happy-dom tests), so the Pod operation counts compare with the Orca-only POC numbers. Driven by Pod on host-a under the TRK-3 exception, not by `/kick-off`; blocked by TRK-5 (S8a) so nothing launches before the brief counters merge. `overlap` ran against project poker-room: no file is shared with a branch or an open ticket. No deploy; the merge gate is keeper's HQA PR review recorded as `merge PASS` on this Story.\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"}}],\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":\"00000000-0000-4000-8000-000000000018\"}}}}}\n",
+  "error": null,
+  "recordedAt": "2026-10-31T21:59:04.151Z"
+}

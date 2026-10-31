@@ -1,0 +1,16 @@
+{
+  "verb": "run-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "run-create",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"faca53ef-197c-4cb1-a583-691c8e30bb09\",\n  \"ok\": true,\n  \"result\": {\n    \"run\": {\n      \"id\": \"run_0e13621dc8ea\",\n      \"objective\": \"Pod Run for story:TPC-1324\",\n      \"coordinator_handle\": \"term_f9f9edb6-2871-4e17-8f4a-b5c4d3b798fa\",\n      \"consumer_generation\": 1,\n      \"legacy\": 0,\n      \"created_at\": \"2026-10-31T21:04:02Z\",\n      \"updated_at\": \"2026-10-31T21:04:02Z\"\n    },\n    \"mutation\": {\n      \"requestId\": \"6b896e93-2432-4c8a-a6e0-318d4f0d7954\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:04:02.155Z"
+}

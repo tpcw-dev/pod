@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_0e13621dc8ea",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"8bd843b6-f0d9-4cf0-8852-9c109f957cb5\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_0e13621dc8ea\",\n    \"deliveryId\": \"delivery_dc402c6d6bc7\",\n    \"messages\": [\n      {\n        \"id\": \"msg_3bf63738cf4b\",\n        \"run_id\": \"run_0e13621dc8ea\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_9b801b1d-003e-4832-8f0a-b980ba0870ba\",\n        \"to_handle\": \"run:run_0e13621dc8ea\",\n        \"subject\": \"alive\",\n        \"body\": \"\",\n        \"type\": \"heartbeat\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_95df91592025\\\",\\\"dispatchId\\\":\\\"ctx_a1bcc83a8e9a\\\",\\\"phase\\\":\\\"investigating\\\"}\",\n        \"created_at\": \"2026-10-31T21:18:01Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"e9327988-8bc0-4cb5-a7bc-05e145224141\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:18:10.473Z"
+}

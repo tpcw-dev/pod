@@ -1,0 +1,24 @@
+{
+  "verb": "worker-start",
+  "match": {
+    "argv": [
+      "orchestration",
+      "worker-start",
+      "--task",
+      "task_1a1b6d3d9a78",
+      "--run",
+      "run_0e13621dc8ea",
+      "--agent",
+      "grok",
+      "--worktree",
+      "current",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"9e52ad72-47e5-46c4-96e0-055fa093a75f\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_0e13621dc8ea\",\n    \"taskId\": \"task_1a1b6d3d9a78\",\n    \"dispatchId\": \"ctx_ce2c0ae152e2\",\n    \"state\": \"ready\",\n    \"stage\": \"input_accepted\",\n    \"turnStart\": \"unsupported\",\n    \"setup\": {\n      \"requested\": \"not_applicable\",\n      \"effective\": \"not_applicable\",\n      \"source\": \"existing_worktree\",\n      \"hookFound\": false,\n      \"startupPolicy\": \"start-immediately\",\n      \"state\": \"not_applicable\"\n    },\n    \"launch\": {\n      \"requested\": {\n        \"agent\": \"grok\",\n        \"model\": null,\n        \"effort\": null\n      },\n      \"effective\": {\n        \"agent\": \"grok\",\n        \"model\": null,\n        \"effort\": null\n      }\n    },\n    \"mode\": {\n      \"mode\": \"terminal\",\n      \"preferred\": \"terminal\",\n      \"reason\": \"user_default\",\n      \"detail\": \"Started a terminal agent worker, the default for new agent tabs in your settings.\"\n    },\n    \"timeoutMs\": 60000,\n    \"effects\": [\n      {\n        \"kind\": \"worktree\",\n        \"action\": \"reused\",\n        \"id\": \"b782e59d-003e-4a7e-9555-5ef7fdd32b5e::/w/1\"\n      },\n      {\n        \"kind\": \"setup\",\n        \"action\": \"not_applicable\",\n        \"state\": \"not_applicable\"\n      },\n      {\n        \"kind\": \"terminal\",\n        \"role\": \"agent\",\n        \"action\": \"created\",\n        \"id\": \"term_8475d20e-c587-494a-a5b1-d977c7c48c56\",\n        \"surface\": \"background\",\n        \"warning\": \"Terminal term_8475d20e-c587-494a-a5b1-d977c7c48c56 is running, but Orca could not make it discoverable. Run `orca terminal focus --terminal term_8475d20e-c587-494a-a5b1-d977c7c48c56` to reveal and focus it.\"\n      },\n      {\n        \"kind\": \"dispatch_input\",\n        \"role\": \"agent\",\n        \"id\": \"term_8475d20e-c587-494a-a5b1-d977c7c48c56\",\n        \"state\": \"accepted\"\n      }\n    ],\n    \"prompt\": {\n      \"requestId\": \"7ac58789-a83e-494d-8084-c494655f3a4f\",\n      \"stages\": [\n        \"input_accepted\"\n      ],\n      \"provider\": \"unsupported\",\n      \"observation\": \"unsupported\",\n      \"processIncarnation\": \"7693bf58-5b0d-4b35-8171-4d2fb46c3862\",\n      \"generation\": 6102,\n      \"baselineWorkingSequence\": 0,\n      \"baselineExplicitWorkingStartedAt\": null,\n      \"baselinePermissionSequence\": 0\n    },\n    \"residualResources\": [],\n    \"warning\": \"Terminal term_8475d20e-c587-494a-a5b1-d977c7c48c56 is running, but Orca could not make it discoverable. Run `orca terminal focus --terminal term_8475d20e-c587-494a-a5b1-d977c7c48c56` to reveal and focus it.\",\n    \"mutation\": {\n      \"requestId\": \"7ac58789-a83e-494d-8084-c494655f3a4f\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-10-31T21:11:52.641Z"
+}

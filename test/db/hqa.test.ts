@@ -109,6 +109,17 @@ describeDb("pod hqa record", () => {
     expect(await taskState(conn, "task_r")).toBe("delivered");
   });
 
+  test("a ready human_wait gate accepts the keeper comment", async () => {
+    await setup({ review: "human_wait" });
+    expect(await taskState(conn, "task_r")).toBe("ready");
+    say("pr PASS");
+    expect(await record()).toMatchObject({
+      ok: true,
+      result: { gate: "pr", outcome: { state: "done" } },
+    });
+    expect(await taskState(conn, "task_r")).toBe("done");
+  });
+
   test("the keeper's comment is accepted, synced, and passes the gate", async () => {
     await setup();
     say("jerry: pr PASS");
