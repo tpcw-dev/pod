@@ -1,13 +1,9 @@
 import type { Run } from "../domain/ledger.ts";
-import { readSeats, SeatsInvalid } from "../dispatch/seats.ts";
+import { seatProviders, SeatsInvalid } from "../dispatch/seats.ts";
 import { pinnedConfig } from "../gate/receipt.ts";
 import type { Repo } from "../ports/db.ts";
 
 const hourMs = 3_600_000;
-
-export function seatProviders(crew: unknown): string[] {
-  return [...new Set(readSeats(crew).map((seat) => seat.runtime))].sort();
-}
 
 export async function recordNoSource(
   repo: Repo,

@@ -31,3 +31,7 @@ export function readSeats(value: unknown): Seat[] {
     `${["seats", ...(first?.path ?? []).map(String)].join(".")}: ${first?.message ?? "invalid"}`,
   );
 }
+
+export function seatProviders(crew: unknown): string[] {
+  return [...new Set(readSeats(crew).map((seat) => seat.runtime))].sort();
+}

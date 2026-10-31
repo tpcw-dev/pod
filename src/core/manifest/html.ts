@@ -10,7 +10,7 @@ export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (ch) => escapes[ch] ?? ch);
 }
 
-function page(title: string, id: string, text: string): string {
+function page(title: string, blocks: readonly [string, string][]): string {
   return [
     "<!DOCTYPE html>",
     '<html lang="en">',
@@ -20,7 +20,7 @@ function page(title: string, id: string, text: string): string {
     "<style>body{font:16px/1.4 sans-serif}pre{white-space:pre-wrap}</style>",
     "</head>",
     "<body>",
-    `<pre id="${id}">${escapeHtml(text)}</pre>`,
+    ...blocks.map(([id, text]) => `<pre id="${id}">${escapeHtml(text)}</pre>`),
     "</body>",
     "</html>",
     "",
@@ -28,9 +28,16 @@ function page(title: string, id: string, text: string): string {
 }
 
 export function renderBriefHtml(resultJson: string): string {
-  return page("Brief", "brief-json", resultJson);
+  return page("Brief", [["brief-json", resultJson]]);
 }
 
 export function renderRestoreHtml(viewText: string): string {
-  return page("Restore view", "restore-view", viewText);
+  return page("Restore view", [["restore-view", viewText]]);
+}
+
+export function renderStateHtml(viewText: string, resultJson: string): string {
+  return page("State", [
+    ["state-view", viewText],
+    ["state-json", resultJson],
+  ]);
 }

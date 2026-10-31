@@ -6,9 +6,8 @@ import { revisionId } from "../core/config/canonical-json.ts";
 import type { BriefTree } from "../core/domain/brief.ts";
 import { RevisionEnvelope, type Revision } from "../core/domain/config.ts";
 import { Json } from "../core/domain/json.ts";
-import type { Task } from "../core/domain/ledger.ts";
 import { renderBriefHtml } from "../core/manifest/html.ts";
-import { ProcessValue } from "../core/process/schema.ts";
+import { waitingOn } from "../core/process/waiting.ts";
 import { PodError } from "./errors.ts";
 import { databaseUrl, readHostProfile } from "./host-profile.ts";
 import { parseYaml } from "./yaml-file.ts";
@@ -101,23 +100,6 @@ function revisionJson(revision: Revision | null) {
     rev: revision.rev,
     created_at: iso(revision.created_at),
   };
-}
-
-const settled = new Set(["passed", "failed", "done", "superseded"]);
-
-export function waitingOn(
-  process: Pick<Revision, "value"> | null,
-  task: Pick<Task, "step_id" | "state">,
-): string | null {
-  if (process === null || settled.has(task.state)) return null;
-  const parsed = ProcessValue.safeParse(process.value);
-  if (!parsed.success) return null;
-  const step = parsed.data.steps.find((other) => other.id === task.step_id);
-  if (step === undefined) return null;
-  if (step.decision !== undefined && step.gate !== undefined) return null;
-  if (step.decision !== undefined) return `decision ${step.decision}`;
-  if (step.gate !== undefined) return `gate ${step.gate}`;
-  return null;
 }
 
 function specPath(kind: string, name: string): string | null {

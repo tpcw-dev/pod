@@ -34,7 +34,7 @@ const expectedVerbs = [
   { story: "S6", name: "hqa record", status: "done" },
   { story: "S10", name: "learning add", status: "done" },
   { story: "S10", name: "learning query", status: "done" },
-  { story: "S11", name: "state", status: "todo" },
+  { story: "S11", name: "state", status: "done" },
   { story: "S12", name: "decide", status: "todo" },
 ] as const;
 

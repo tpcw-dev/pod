@@ -9,7 +9,7 @@ import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { snapshotHash } from "../../src/core/config/canonical-json.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import type { Run, Story } from "../../src/core/domain/ledger.ts";
-import { waitingOn } from "../../src/cli/brief.ts";
+import { waitingOn } from "../../src/core/process/waiting.ts";
 import { envelope, storeRevision } from "../db/fixtures.ts";
 import { dbUrl, describeDb, openDb, podHome, resetDb } from "../db/helpers.ts";
 
