@@ -1,0 +1,66 @@
+- id: mixed-1
+  name: correct-proposal
+  question: Which format should the export command write by default?
+  options: [JSON lines, CSV]
+  proposal:
+    text: Write JSON lines by default, because the Story's acceptance criteria name a line-per-record format for the importer.
+    citations: ["story:acceptance-criteria"]
+  truth: accept
+  audit:
+    stance: disagree
+    reasons:
+      [CSV is more familiar to spreadsheet users, so it should be the default.]
+  expected: false_refusal
+- id: mixed-2
+  name: wrong-citation
+  question: Which retry limit should the sync step use?
+  options: [3 attempts, 10 attempts]
+  proposal:
+    text: Use 10 attempts, as the reliability section of the tech spec requires.
+    citations: ["tech-spec:reliability"]
+  truth: reject
+  audit:
+    stance: disagree
+    reasons:
+      [The cited reliability section sets the limit at 3 attempts, not 10.]
+  expected: hit
+- id: mixed-3
+  name: stale-roadmap
+  question: Should the plan build the offline mode in this Story?
+  options: [build it in this Story, leave it for the later Story]
+  proposal:
+    text: Build the offline mode in this Story, because the roadmap lists it for this milestone.
+    citations: ["roadmap:milestone-2@rev3"]
+  truth: reject
+  audit:
+    stance: disagree
+    reasons:
+      [
+        Roadmap revision 5 moved the offline mode to milestone 3; the cited revision 3 is stale.,
+      ]
+  expected: hit
+- id: mixed-4
+  name: out-of-scope
+  question: How should the plan handle the settings page?
+  options: [fix the label typo only, redesign the settings page]
+  proposal:
+    text: Redesign the settings page while fixing the label typo.
+    citations: ["story:description"]
+  truth: reject
+  audit:
+    stance: disagree
+    reasons:
+      [The Story asks for the label fix only; a redesign is beyond its scope.]
+  expected: hit
+- id: mixed-5
+  name: true-citation-wrong-inference
+  question: Can the plan skip the migration step?
+  options: [skip it, keep it]
+  proposal:
+    text: Skip the migration step, because the tech spec says the new column is nullable.
+    citations: ["tech-spec:schema"]
+  truth: reject
+  audit:
+    stance: agree
+    reasons: [The tech spec does mark the new column nullable.]
+  expected: miss

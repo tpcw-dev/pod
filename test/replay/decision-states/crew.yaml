@@ -1,0 +1,17 @@
+kind: crew
+name: decision-states
+schema_version: 1
+value:
+  seats:
+    - { id: plan-1, roles: [planner], runtime: claude, model: m-1 }
+    - { id: dev-1, roles: [developer], runtime: claude, model: m-1 }
+    - id: dec-1
+      roles: [decider]
+      runtime: claude
+      model: m-2
+      fallback: dec-2
+    - { id: dec-2, roles: [decider-fallback], runtime: claude, model: m-2 }
+    - id: aud-1
+      roles: [auditor]
+      runtime: codex
+      independent_of: [dec-1, dec-2]

@@ -1,0 +1,21 @@
+kind: policy
+name: decision-states
+schema_version: 1
+value:
+  gates:
+    hqa_after_deploy: { keeper: human, type: HQA }
+  principals:
+    human: { tracker_account: keeper-1 }
+  reserved:
+    deny:
+      - { name: archive_shred, match: [shred the archive] }
+    needs_human:
+      - { name: vendor_call, match: [call the vendor] }
+    needs_existing_authorization:
+      - { name: mirror_open, match: [open a mirror], requires: story_spec }
+  authorizations:
+    TRK-3: { authorizes: [mirror_open] }
+  limits:
+    decision_rounds: 3
+    decision_budget:
+      { wall_clock: 2h, relaunches: 1, tool_calls: 1, context_tokens: 60k }
