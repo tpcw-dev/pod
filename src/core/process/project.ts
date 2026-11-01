@@ -119,8 +119,13 @@ export async function createReplacement(
   const { db, orca, log } = ctx;
   const { opKey } = plan;
   const failed = `task-create for the replacement under ${opKey} failed; run pod check again`;
-  const existing = await db.getOperation(opKey);
-  if (existing !== null) {
+  const { operation: existing, created } = await db.insertOperation({
+    op_key: opKey,
+    intent: "project",
+    owner_generation: 1,
+    at: ctx.now(),
+  });
+  if (!created) {
     if (existing.status === "done" || existing.status === "refused") {
       const task = TaskRef.safeParse(existing.result_ref);
       return task.success
@@ -150,12 +155,6 @@ export async function createReplacement(
       };
     return { kind: "wait", message: waiting };
   }
-  await db.insertOperation({
-    op_key: opKey,
-    intent: "project",
-    owner_generation: 1,
-    at: ctx.now(),
-  });
   const { receipt, outcome } = await callTaskCreate(ctx, plan);
   const at = ctx.now();
   if (outcome.kind === "ok" && receipt.result !== null) {

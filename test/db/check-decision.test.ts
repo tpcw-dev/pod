@@ -3,10 +3,14 @@ import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass, checkWait } from "../../src/core/check/check.ts";
 import { cancelDecision } from "../../src/core/decide/advance.ts";
 import type { Json } from "../../src/core/domain/json.ts";
+import type { Db } from "../../src/core/ports/db.ts";
 import { openDecision } from "../../src/core/decide/open.ts";
 import { dispatch } from "../../src/core/dispatch/dispatch.ts";
 import { supersededWorktree } from "../../src/core/dispatch/retry.ts";
-import { supersedeOpKey } from "../../src/core/process/project.ts";
+import {
+  replacementOpKey,
+  supersedeOpKey,
+} from "../../src/core/process/project.ts";
 import {
   lost,
   ok,
@@ -646,6 +650,40 @@ describeDb("pod check applies a change_spec Decision", () => {
       create_attempt: 1,
     });
     expect((await conn.db.getTask(planTask))?.state).toBe("dispatched");
+  });
+
+  test("a replacement project op another pass already holds makes no second task-create", async () => {
+    await dispatchedPlan(conn);
+    const id = await openChangeSpec();
+    await proposed(id);
+    const superseded = await conn.db.getTask(planTask);
+    if (superseded === null) throw new Error("no plan Task");
+    const held = replacementOpKey(superseded, 1);
+    await conn.db.insertOperation({
+      op_key: held,
+      intent: "project",
+      owner_generation: 1,
+      at: new Date(),
+    });
+    const racing: Db = {
+      ...conn.db,
+      getOperation: (key) =>
+        key === held ? Promise.resolve(null) : conn.db.getOperation(key),
+    };
+    const { orca, log } = replay(conn, [
+      ...agreeBatch(id),
+      plannerRunning,
+      stopsPlanner,
+    ]);
+    const outcome = await checkPass(racing, orca, null, log, checkInput());
+    orca.assertDone();
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    const result = outcome.result;
+    expect(result.nextSteps.join("\n")).toContain(
+      "task-create for the replacement",
+    );
+    expect((await conn.db.getTask(planTask))?.state).toBe("dispatched");
+    expect((await supersedeOp(id))?.status).toBe("pending");
   });
 
   test("a second change_spec on the same lineage activates its own Revision over the first", async () => {
