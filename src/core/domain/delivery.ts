@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Stance } from "./decision.ts";
 import { TestResult } from "./ledger.ts";
+import { manifestSources } from "../manifest/references.ts";
 import type { OrcaMessage } from "../ports/orca.ts";
 
 const Settling = z.literal("worker_done");
@@ -134,7 +135,11 @@ export function deliveryTests(message: OrcaMessage): {
   return { tests, ignored };
 }
 
-const DecisionKind = z.enum(["decision_proposal", "decision_audit"]);
+const DecisionKind = z.enum([
+  "decision_proposal",
+  "decision_audit",
+  "decision_evidence",
+]);
 const Round = z.int().min(1).max(3);
 
 const DecisionProposal = z.looseObject({
@@ -156,9 +161,31 @@ const DecisionAudit = z.looseObject({
   points_of_disagreement: z.array(z.string()),
 });
 
+const EvidenceReference = z.looseObject({
+  source: z.enum(manifestSources),
+  revision: Text,
+  excerpt: Text,
+});
+
+const DecisionEvidence = z.looseObject({
+  kind: z.literal("decision_evidence"),
+  dispatchId: Text,
+  decisionId: Text,
+  round: Round,
+  references: z.array(EvidenceReference),
+});
+
 export type DecisionProposal = z.infer<typeof DecisionProposal>;
 export type DecisionAudit = z.infer<typeof DecisionAudit>;
-export type DecisionMessage = DecisionProposal | DecisionAudit;
+export type DecisionEvidence = z.infer<typeof DecisionEvidence>;
+export type DecisionMessage =
+  DecisionProposal | DecisionAudit | DecisionEvidence;
+
+const decisionSchemas = {
+  decision_proposal: DecisionProposal,
+  decision_audit: DecisionAudit,
+  decision_evidence: DecisionEvidence,
+} as const;
 
 export type DecisionRead =
   | { kind: "none" }
@@ -170,9 +197,7 @@ export function readDecisionMessage(message: OrcaMessage): DecisionRead {
   const payload: Record<string, unknown> = message.payload;
   const kind = DecisionKind.safeParse(payload["kind"]);
   if (!kind.success) return { kind: "none" };
-  const parsed = (
-    kind.data === "decision_proposal" ? DecisionProposal : DecisionAudit
-  ).safeParse(payload);
+  const parsed = decisionSchemas[kind.data].safeParse(payload);
   if (!parsed.success)
     return {
       kind: "malformed",

@@ -122,6 +122,7 @@ export interface Repo {
   getDecision(id: string): Promise<DecisionRow | null>;
   updateDecisionState(id: string, change: DecisionChange): Promise<boolean>;
   setDecisionSpent(id: string, spent: Json): Promise<void>;
+  setDecisionManifest(id: string, from: string, to: string): Promise<boolean>;
   liveRunsPinningPolicyScope(scope: Scope, scopeRef: string): Promise<string[]>;
   insertDecisionRound(row: DecisionRound): Promise<void>;
   listDecisionRounds(decisionId: string): Promise<DecisionRound[]>;
@@ -138,7 +139,7 @@ export interface Repo {
   messageRecorded(runId: string, messageId: string): Promise<boolean>;
   eventWith(
     type: EventType,
-    payload: Record<string, string>,
+    payload: Record<string, Json>,
   ): Promise<Event | null>;
   latestEvent(
     runId: string,

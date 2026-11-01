@@ -13,6 +13,7 @@ const sideEffectVerbs = [
   "verdict post",
   "hqa record",
   "decide",
+  "decide cancel",
   "takeover",
   "drain",
   "learning add",
@@ -44,6 +45,8 @@ const expectedVerbs: readonly {
 
 const extraVerbs = [
   { story: "S11", name: "docs read", sideEffect: "none" },
+  { story: "S13", name: "decide ruling", sideEffect: "none" },
+  { story: "S13", name: "decide cancel", sideEffect: "ledger" },
 ] as const;
 
 function trim(value: string): string {

@@ -30,6 +30,7 @@ test("each state's text and reason read back to the same state", () => {
 test("superseded reads by from the outcome and throws without it", () => {
   const state: DecisionState = { kind: "superseded", by: "dec_2" };
   expect(stateText(state)).toBe("superseded");
+  expect(reasonOf(state)).toBe("superseded");
   expect(parseDecisionState("superseded", null, { by: "dec_2" })).toEqual(
     state,
   );

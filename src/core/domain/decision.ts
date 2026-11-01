@@ -65,7 +65,12 @@ export function stateText(state: DecisionState): string {
 export function reasonOf(state: DecisionState): DecisionReason | null {
   if (state.kind === "needs_human") return state.reason;
   if (state.kind === "reserved_denied") return "denied";
-  if (state.kind === "agreed" || state.kind === "cancelled") return state.kind;
+  if (
+    state.kind === "agreed" ||
+    state.kind === "cancelled" ||
+    state.kind === "superseded"
+  )
+    return state.kind;
   return null;
 }
 

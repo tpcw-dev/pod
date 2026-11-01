@@ -26,7 +26,18 @@ import {
   VerdictPostOutput,
   verdictPostVerb,
 } from "./gate-verbs.ts";
-import { DecideInput, DecideOutput, decideVerb } from "./decide-verbs.ts";
+import {
+  DecideCancelInput,
+  DecideCancelOutput,
+  decideCancelVerb,
+  DecideInput,
+  DecideOutput,
+  DecideRulingInput,
+  DecideRulingOutput,
+  decideRulingVerb,
+  decideVerb,
+  renderRuling,
+} from "./decide-verbs.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
 import {
   DocsReadInput,
@@ -193,6 +204,28 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
       'the Reserved check passed, an Evidence manifest is pinned, and the `effect` fits the Task as "Decision effects" requires',
     ],
     meta: (output) => ({ opKey: output.op_key, orca: output.orca }),
+  }),
+  row({
+    name: "decide ruling",
+    input: DecideRulingInput,
+    output: DecideRulingOutput,
+    handler: decideRulingVerb,
+    sideEffect: "none",
+    cancelBy: ["nobody"],
+    evidenceRequired: [],
+    render: renderRuling,
+  }),
+  row({
+    name: "decide cancel",
+    input: DecideCancelInput,
+    output: DecideCancelOutput,
+    handler: decideCancelVerb,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "an open Decision and an owner generation that matches its Run",
+    ],
+    meta: (output) => ({ ownerGeneration: output.owner_generation }),
   }),
   row({
     name: "check",

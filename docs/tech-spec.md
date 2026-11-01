@@ -399,9 +399,9 @@ create table ledger.decision_round (
 
 `ledger.evidence_manifest` holds the fixed list of sources a Dispatch or Decision may cite.
 
-A manifest never changes. When the auditor asks for evidence, Pod records a child manifest whose references are the parent's plus the new ones, with `parent_id` set. `ledger.decision.manifest_id` stays the round 1 pin, and each `ledger.decision_round` row cites the manifest that round used.
+A manifest never changes. When the auditor asks for evidence, Pod records a child manifest whose references are the parent's plus the new ones, with `parent_id` set. `ledger.decision.manifest_id` moves to each child, and each `ledger.decision_round` row cites the manifest that round used.
 
-A round may have several evidence exchanges. Each one records a `decision` event carrying the child manifest id. Pod writes the `decision_round` row once, when the auditor records a stance other than `needs_evidence`, with `manifest_id` set to the last child. On recovery inside a round, Pod reads the latest child manifest from those events, so no round is spent.
+A round may have several evidence exchanges. Each one records a `decision` event carrying the child manifest id. Pod writes the `decision_round` row once, when the auditor records a stance other than `needs_evidence`, with `manifest_id` set to the last child. On recovery inside a round, Pod reads the current manifest from `ledger.decision.manifest_id`, so no round is spent. Spec clarification: S13b.
 
 ```sql
 create table ledger.evidence_manifest (
@@ -464,7 +464,7 @@ The table below states who writes each table, what never changes, what a reader 
 | `ledger.evidence_manifest` | S4 | `pod dispatch`, `pod decide` | every row, new evidence makes a child manifest | the same sources give the same id |
 | `ledger.learning` | S10 | `pod learning add` | `text`, `evidence_refs`, `source_story`, `area`, `project_id` | never mirrored to the docs tool |
 | `ledger.usage_observation` | S11 | `pod check` only | every row | a null `value` means unknown |
-| `ledger.decision` | S12 | `pod decide`, and `pod check` for `adoption` | id, category, `effect`, question, `manifest_id`, `binding` | `spent` only increases, `binding` is always `run`, `adoption` moves along `pending` to `adopted`, `adopted` to `reworked` or `reversed`, and `reworked` to `reversed`, every change appends to `adoption_evidence` and records a `decision` event with the new state and its evidence, and the full history is the ordered `decision` events |
+| `ledger.decision` | S12 | `pod decide`, and `pod check` for `adoption` | id, category, `effect`, question, `binding` | `manifest_id` moves only to a child manifest through an evidence exchange, `spent` only increases, `binding` is always `run`, `adoption` moves along `pending` to `adopted`, `adopted` to `reworked` or `reversed`, and `reworked` to `reversed`, every change appends to `adoption_evidence` and records a `decision` event with the new state and its evidence, and the full history is the ordered `decision` events |
 | `ledger.decision_round` | S12 | `pod decide` | every row | at most three rounds per Decision |
 
 ### CLI framework, verb list, and error shape
@@ -1028,6 +1028,8 @@ type DecisionState =
 | `agreed` | a later Decision cites this id | `superseded`, with `by` that Decision |
 
 The human ruling authorizes recovery from a Seat failure, and Pod never relaunches a Decision Seat on its own. A resume ruling reopens the failed Seat's Dispatch with a summary of earlier positions, and the relaunch counts against `relaunches`. The only exits from `needs_human` are a human ruling that resumes, decides, or cancels.
+
+Spec clarification: S13b. A human ruling is a comment on the Run's Story whose first line is `decision <id> resume`, `decision <id> agreed`, or `decision <id> cancelled`, with an optional note on the following lines, by a keeper of any HQA Gate in the pinned policy, verified as an HQA verdict is. `pod decide ruling <id> <verb> [--note TEXT]` prints that text and posts nothing, because the keeper's own account authors it. Each `pod check` pass reads the rulings of the Run's `needs_human` Decisions, newest comment first, and applies the first verified one once; two verified rulings for one id that disagree apply neither. `pod decide cancel <id>` cancels an open Decision for the escalating actor. The auditor's `escalate` counts as a disagree. A dependency's source Revision is a pinned crew, process, or policy Revision against the Run snapshot, and the Task's `spec_revision_id` pinned in the manifest's `task` reference against the Task's current one. The coordinator or the lead reads the audit and runs `pod decide --effect change_spec --supersedes <id>`; v1 has no automatic detection of a plan change. Each owed Decision send is a pending `decide` operation written with the state move, and every `pod check` pass sends the Run's pending ones once and marks each done after Orca accepts it.
 
 #### Budgets
 

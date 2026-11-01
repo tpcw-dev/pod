@@ -1,7 +1,10 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass, checkWait } from "../../src/core/check/check.ts";
-import { cancelDecision } from "../../src/core/decide/advance.ts";
+import { cancelDecision, failDecision } from "../../src/core/decide/advance.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import type { Db } from "../../src/core/ports/db.ts";
 import { openDecision } from "../../src/core/decide/open.ts";
@@ -26,6 +29,7 @@ import {
   decider,
   deliveredPlan,
   dispatchedPlan,
+  evidence,
   implementTask,
   opened,
   planTask,
@@ -38,6 +42,7 @@ import {
   sent,
   taskSpec,
 } from "./decision-fixture.ts";
+import { fakeTracker, trackerStory, type FakeTracker } from "./fake-tracker.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
 import {
   batch,
@@ -176,30 +181,72 @@ describeDb("pod check advances a Decision", () => {
     expect((await conn.db.getDispatch(auditor))?.activity).toBe("waiting");
   });
 
-  test("escalate goes to needs_human with context-missing, and a later audit is ignored as settled_decision", async () => {
+  test("escalate below the bound records the round and sends the decider round_next", async () => {
     const id = await start();
     await pass(delivery(1, [proposal("p1", id, 1)], opensAuditor));
-    await pass(delivery(2, [audit("a1", id, 1, "escalate")]));
-    expect(await conn.db.getDecision(id)).toMatchObject({
-      state: "needs_human",
-      reason: "context-missing",
-    });
+    await pass(delivery(2, [audit("a1", id, 1, "escalate")], [sent(decider)]));
+    expect((await conn.db.getDecision(id))?.state).toBe("round:2");
     expect(await rounds(conn, id)).toMatchObject([{ stance: "escalate" }]);
-    const result = await pass(delivery(3, [audit("a2", id, 1, "agree")]));
-    expect(result.ignored).toBe(1);
-    const [ignored] = await events(conn, "ignored");
-    expect(ignored?.payload).toMatchObject({ reason: "settled_decision" });
+    expect((await conn.db.getDispatch(decider))?.activity).toBe("running");
   });
 
-  test("needs_evidence goes to needs_human with context-missing and writes no round row", async () => {
+  test("needs_evidence waits for evidence, which joins a child manifest the next audit cites", async () => {
     const id = await start();
     await pass(delivery(1, [proposal("p1", id, 1)], opensAuditor));
-    await pass(delivery(2, [audit("a1", id, 1, "needs_evidence")]));
+    const pinned = (await conn.db.getDecision(id))?.manifest_id;
+    await pass(
+      delivery(2, [audit("a1", id, 1, "needs_evidence")], [sent(decider)]),
+    );
     expect(await conn.db.getDecision(id)).toMatchObject({
-      state: "needs_human",
-      reason: "context-missing",
+      state: "awaiting_evidence:1",
+      spent: expect.objectContaining({ tool_calls: 1 }),
     });
     expect(await rounds(conn, id)).toEqual([]);
+    const empty = await pass(delivery(3, [evidence("e0", id, 1, [])]));
+    expect(empty.nextSteps).toContainEqual(
+      expect.stringMatching(/^ignored decision_evidence for Decision/),
+    );
+    expect((await conn.db.getDecision(id))?.state).toBe("awaiting_evidence:1");
+    await pass(delivery(4, [evidence("e1", id, 1)], [sent(auditor)]));
+    const decision = await conn.db.getDecision(id);
+    expect(decision?.state).toBe("round:1");
+    expect(decision?.manifest_id).not.toBe(pinned);
+    const child = await conn.db.getManifest(decision?.manifest_id ?? "");
+    expect(child?.parent_id).toBe(pinned);
+    expect(child?.references).toContainEqual(
+      expect.objectContaining({ source: "git_status", revision: "abc123" }),
+    );
+    await pass(delivery(5, [audit("a2", id, 1, "agree")]));
+    expect((await conn.db.getDecision(id))?.state).toBe("agreed");
+    const [row] = await conn.sql<{ manifest_id: string }[]>`
+      select manifest_id from ledger.decision_round where decision_id = ${id}`;
+    expect(row?.manifest_id).toBe(decision?.manifest_id);
+  });
+
+  test("a round_next send that fails stays owed, and the next pass with no delivery sends it once", async () => {
+    const id = await start();
+    await pass(delivery(1, [proposal("p1", id, 1)], opensAuditor));
+    const failed = await pass(
+      delivery(
+        2,
+        [audit("a1", id, 1, "disagree")],
+        [refusedReply("send", "failed", ["--to", `dispatch:${decider}`])],
+      ),
+    );
+    expect(failed.nextSteps).toContainEqual(
+      expect.stringContaining(`stays waiting`),
+    );
+    expect((await conn.db.getDecision(id))?.state).toBe("round:2");
+    await pass([
+      ok("check", empty("delivery_quiet"), run),
+      sent(decider),
+      ok("worker-list", workers([]), run),
+    ]);
+    expect((await conn.db.getDispatch(decider))?.activity).toBe("running");
+    await pass([
+      ok("check", empty("delivery_quiet_2"), run),
+      ok("worker-list", workers([]), run),
+    ]);
   });
 
   test("a proposal with no citation is an automatic disagree whatever the auditor says", async () => {
@@ -519,6 +566,34 @@ describeDb("pod check applies a change_spec Decision", () => {
         excerpt: "## main\n M plan.md",
       }),
     );
+  });
+
+  test("an agreed round after the Task's spec Revision changed ends needs_human context-missing with no supersede op", async () => {
+    await dispatchedPlan(conn);
+    const id = await openChangeSpec();
+    await proposed(id);
+    const {
+      revision: { id: other },
+    } = await conn.db.insertRevision(
+      taskSpec(
+        { lineage_id: lineage, run_id: "run_1" },
+        "Another spec landed meanwhile.",
+      ),
+    );
+    await conn.sql`update ledger.task set spec_revision_id = ${other}
+      where task_id = ${planTask}`;
+    await pass([...agreeBatch(id), ok("worker-list", workers([]), run)]);
+    expect(await conn.db.getDecision(id)).toMatchObject({
+      state: "needs_human",
+      reason: "context-missing",
+    });
+    expect(await supersedeOp(id)).toBeNull();
+    const decided = await events(conn, "decision");
+    expect(decided.at(-1)?.payload).toMatchObject({
+      outcome: "needs_human",
+      reason: "context-missing",
+      changed: expect.stringMatching(/^task:/),
+    });
   });
 
   test("a failed worker-stop leaves the Task, the activation, and the op as they were, and the next pass finishes", async () => {
@@ -864,5 +939,251 @@ describeDb("pod check spends a Decision's wall clock", () => {
     orca.assertDone();
     expect(outcome).toMatchObject({ ok: true });
     expect((await conn.db.getDecision(id))?.reason).toBe("runtime-failure");
+  });
+});
+
+describeDb("pod check reads a human ruling on a needs_human Decision", () => {
+  let conn: Connection;
+  let tracker: FakeTracker;
+  let bypassPath: string;
+  const relaunched = "ctx_decider_2";
+  const policy = {
+    gates: { hqa_after_deploy: { keeper: "human", type: "HQA" } },
+    principals: { human: { tracker_account: "keeper-1" } },
+  };
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  async function start(limits: Json = {}): Promise<string> {
+    const id = await opened(
+      conn,
+      await deliveredPlan(conn, { ...policy, limits }),
+    );
+    tracker = fakeTracker(
+      trackerStory({ ref: { provider: "linear", external_id: "S-9" } }),
+    );
+    bypassPath = join(
+      mkdtempSync(join(tmpdir(), "pod-ruling-")),
+      "bypass.jsonl",
+    );
+    writeFileSync(
+      bypassPath,
+      `${JSON.stringify({ host: "h1", result: "pass", at: "2026-10-31T00:00:00.000Z" })}\n`,
+    );
+    return id;
+  }
+
+  function say(body: string, authorId = "keeper-1") {
+    tracker.comments.unshift({
+      ref: {
+        provider: "linear",
+        external_id: "S-9",
+        comment_id: `c-${tracker.comments.length + 1}`,
+      },
+      authorId,
+      body,
+      editedAt: null,
+    });
+  }
+
+  async function pass(entries: TempEntry[], withTracker = true) {
+    const { orca, log } = replay(conn, entries);
+    const outcome = await checkPass(
+      conn.db,
+      orca,
+      withTracker ? tracker : null,
+      log,
+      checkInput({ hostName: "h1", bypassPath }),
+    );
+    orca.assertDone();
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    return outcome.result;
+  }
+
+  function delivery(n: number, messages: unknown[], after: TempEntry[] = []) {
+    const id = `delivery_r${n}`;
+    return [
+      ok("check", batch(id, messages), run),
+      ok("check", empty(id), ack(id)),
+      ...after,
+      ok("worker-list", workers([]), run),
+    ];
+  }
+
+  const quiet = (n: number, after: TempEntry[] = []) => [
+    ok("check", empty(`delivery_q${n}`), run),
+    ...after,
+    ok("worker-list", workers([]), run),
+  ];
+
+  const opensAuditor = [
+    seatTask("auditor"),
+    ok("worker-start", seatStarted(auditor, "m-3"), ["--task", "orca_auditor"]),
+    sent(auditor),
+  ];
+
+  async function failedInRound2(): Promise<string> {
+    const id = await start();
+    await pass(delivery(1, [proposal("p1", id, 1)], opensAuditor), false);
+    await pass(
+      delivery(2, [audit("a1", id, 1, "disagree")], [sent(decider)]),
+      false,
+    );
+    await conn.db.settleDispatch(decider, {
+      activity: "waiting",
+      settlement: "failed",
+      settled_at: new Date(),
+    });
+    await conn.db.transaction((tx) =>
+      failDecision(tx, { decision: id, at: new Date(), host: "local" }),
+    );
+    expect(await conn.db.getDecision(id)).toMatchObject({
+      state: "needs_human",
+      reason: "runtime-failure",
+      outcome: expect.objectContaining({ round: 2 }),
+    });
+    return id;
+  }
+
+  async function sentBodies(to: string): Promise<string[]> {
+    const rows = await conn.sql<{ payload: Record<string, unknown> }[]>`
+      select payload from ledger.event
+      where type = 'receipt' and payload->>'verb' = 'send' order by id`;
+    return rows
+      .map((row) => JSON.stringify(row.payload))
+      .filter((text) => text.includes(`dispatch:${to}`));
+  }
+
+  test("a verified resume returns to the interrupted round with the same id and manifest, and reopens the failed Seat with the summary", async () => {
+    const id = await failedInRound2();
+    const before = await conn.db.getDecision(id);
+    say(`decision ${id} resume`);
+    await pass(
+      quiet(1, [
+        seatTask("decider"),
+        ok("worker-start", seatStarted(relaunched), ["--task", "orca_decider"]),
+        sent(relaunched),
+      ]),
+    );
+    const after = await conn.db.getDecision(id);
+    expect(after).toMatchObject({
+      id,
+      state: "round:2",
+      manifest_id: before?.manifest_id,
+      closed_at: null,
+      spent: expect.objectContaining({ relaunches: 1 }),
+    });
+    expect(await conn.db.getDispatch(relaunched)).toMatchObject({
+      decision_id: id,
+      role: "decider",
+      settlement: "open",
+    });
+    const [body] = await sentBodies(relaunched);
+    expect(body).toContain("round 1: disagree; proposal: round 1 proposal");
+    const decided = await events(conn, "decision");
+    expect(decided.at(-1)?.payload).toMatchObject({
+      decision_id: id,
+      resumed_round: 2,
+      ruling: { comment_id: "c-1", author: "keeper-1", verb: "resume" },
+    });
+    await pass(quiet(2));
+    expect((await conn.db.getDecision(id))?.state).toBe("round:2");
+  });
+
+  test("a resume with the relaunch budget spent is refused with decision_budget_exhausted and leaves the Decision unchanged", async () => {
+    const id = await failedInRound2();
+    const before = await conn.db.getDecision(id);
+    await conn.db.setDecisionSpent(id, {
+      ...(before?.spent as Record<string, Json>),
+      relaunches: 2,
+    });
+    say(`decision ${id} resume`);
+    const result = await pass(quiet(1));
+    expect(result.nextSteps).toContainEqual(
+      expect.stringMatching(/^decision_budget_exhausted: Decision /),
+    );
+    expect(await conn.db.getDecision(id)).toMatchObject({
+      state: "needs_human",
+      reason: "runtime-failure",
+      manifest_id: before?.manifest_id,
+    });
+    const decided = await events(conn, "decision");
+    expect(decided.at(-1)?.payload).toMatchObject({
+      refused: "decision_budget_exhausted",
+      outcome: "needs_human",
+    });
+    const again = await pass(quiet(2));
+    expect(again.nextSteps).not.toContainEqual(
+      expect.stringMatching(/^decision_budget_exhausted/),
+    );
+  });
+
+  test("a ruling by the worker token's author is ignored as an unverified source", async () => {
+    const id = await failedInRound2();
+    say(`decision ${id} resume`, "bot");
+    const result = await pass(quiet(1));
+    expect(result.nextSteps).toContainEqual(
+      expect.stringMatching(
+        new RegExp(
+          `^receipt_unverified_source: Decision ${id} ruling comment c-1 by bot`,
+        ),
+      ),
+    );
+    expect((await conn.db.getDecision(id))?.state).toBe("needs_human");
+  });
+
+  test("a resume on a disagreement Decision changes nothing and says why", async () => {
+    const id = await start({ decision_rounds: 1 });
+    await pass(delivery(1, [proposal("p1", id, 1)], opensAuditor), false);
+    await pass(delivery(2, [audit("a1", id, 1, "disagree")]), false);
+    say(`decision ${id} resume`);
+    const result = await pass(quiet(1));
+    expect(result.nextSteps).toContain(
+      `Decision ${id} is needs_human: disagreement; a resume ruling applies only to runtime-failure`,
+    );
+    expect((await conn.db.getDecision(id))?.reason).toBe("disagreement");
+  });
+
+  test("an agreed ruling on a disagreement Decision applies accept_plan with the note", async () => {
+    const id = await start({ decision_rounds: 1 });
+    await pass(delivery(1, [proposal("p1", id, 1)], opensAuditor), false);
+    await pass(delivery(2, [audit("a1", id, 1, "disagree")]), false);
+    say(`decision ${id} agreed\nship the two-release plan`);
+    await pass(quiet(1));
+    expect(await conn.db.getDecision(id)).toMatchObject({
+      state: "agreed",
+      outcome: { result: "agreed", text: "ship the two-release plan" },
+    });
+    expect((await conn.db.getTask(planTask))?.state).toBe("done");
+    expect((await conn.db.getTask(implementTask))?.state).toBe("ready");
+  });
+
+  test("a cancelled ruling holds the Task", async () => {
+    const id = await failedInRound2();
+    say(`decision ${id} cancelled`);
+    await pass(quiet(1));
+    expect((await conn.db.getDecision(id))?.state).toBe("cancelled");
+    expect((await conn.db.getTask(planTask))?.state).toBe("hold");
+  });
+
+  test("two verified rulings that disagree apply neither", async () => {
+    const id = await failedInRound2();
+    say(`decision ${id} cancelled`);
+    say(`decision ${id} resume`);
+    const result = await pass(quiet(1));
+    expect(result.nextSteps).toContain(
+      `Decision ${id} has conflicting rulings c-2 and c-1; post one new ruling`,
+    );
+    expect((await conn.db.getDecision(id))?.state).toBe("needs_human");
+  });
+
+  test("no needs_human Decision makes no tracker readback", async () => {
+    const id = await start();
+    await pass(delivery(1, [proposal("p1", id, 1)], opensAuditor));
+    expect(tracker.calls).not.toContain("readback");
   });
 });

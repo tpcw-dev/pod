@@ -1,3 +1,5 @@
+import { hostname } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
 import { checkPass, checkWait, resume } from "../core/check/check.ts";
@@ -27,6 +29,7 @@ import { exitFor, PodError, throwRecordRefusal, usageError } from "./errors.ts";
 import { gitStatus } from "./git.ts";
 import {
   databaseUrl,
+  podHome,
   readHostProfile,
   type HostSettings,
 } from "./host-profile.ts";
@@ -343,6 +346,8 @@ export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
         capacity: host.capacity,
         now,
         leaseSeconds: lease,
+        hostName: hostname(),
+        bypassPath: join(podHome(), "bypass.jsonl"),
       };
       return input.wait === true
         ? checkWait(db, port, tracker, log, {

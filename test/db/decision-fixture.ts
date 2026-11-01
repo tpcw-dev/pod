@@ -323,3 +323,20 @@ export function audit(
     points_of_disagreement: stance === "agree" ? [] : [`point ${round}`],
   });
 }
+
+export function evidence(
+  id: string,
+  decisionId: string,
+  round: number,
+  references: unknown[] = [
+    { source: "git_status", revision: "abc123", excerpt: "clean tree" },
+  ],
+): unknown {
+  return message(id, "decision_gate", {
+    kind: "decision_evidence",
+    dispatchId: decider,
+    decisionId,
+    round,
+    references,
+  });
+}

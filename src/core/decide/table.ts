@@ -1,4 +1,8 @@
-import type { DecisionState, Round } from "../domain/decision.ts";
+import type {
+  DecisionEffect,
+  DecisionState,
+  Round,
+} from "../domain/decision.ts";
 
 export type DecisionEvent =
   | "open"
@@ -13,10 +17,22 @@ export type DecisionEvent =
   | "authorized"
   | "unauthorized"
   | "policy_required"
-  | "budget_exhausted";
+  | "budget_exhausted"
+  | "evidence"
+  | "dependency_changed"
+  | "ruling_resume"
+  | "ruling_agreed"
+  | "ruling_cancelled"
+  | "supersede";
 
 export type Effect =
-  "send_round_open" | "send_round_next" | "record_outcome" | "hold_task";
+  | "send_round_open"
+  | "send_round_next"
+  | "send_evidence_request"
+  | "send_round_evidence"
+  | "send_resume"
+  | "record_outcome"
+  | "hold_task";
 
 type From =
   | "requested"
@@ -24,9 +40,20 @@ type From =
   | "round"
   | "round_below_bound"
   | "round_at_bound"
-  | "open";
+  | "awaiting_evidence"
+  | "needs_human"
+  | "needs_human_runtime"
+  | "open"
+  | "open_accept_plan"
+  | "agreed";
 
-type To = DecisionState | "next_round";
+type To =
+  | DecisionState
+  | "next_round"
+  | "awaiting_round"
+  | "same_round"
+  | "interrupted_round"
+  | "superseded";
 
 interface Row {
   from: From;
@@ -71,15 +98,69 @@ export const transitions: readonly Row[] = [
     effect: "record_outcome",
   },
   {
-    from: "round",
+    from: "round_below_bound",
     event: "escalate",
-    to: contextMissing,
+    to: "next_round",
+    effect: "send_round_next",
+  },
+  {
+    from: "round_at_bound",
+    event: "escalate",
+    to: { kind: "needs_human", reason: "disagreement" },
     effect: "record_outcome",
   },
   {
     from: "round",
     event: "needs_evidence",
+    to: "awaiting_round",
+    effect: "send_evidence_request",
+  },
+  {
+    from: "awaiting_evidence",
+    event: "evidence",
+    to: "same_round",
+    effect: "send_round_evidence",
+  },
+  {
+    from: "round",
+    event: "dependency_changed",
     to: contextMissing,
+    effect: "record_outcome",
+  },
+  {
+    from: "needs_human",
+    event: "dependency_changed",
+    to: contextMissing,
+    effect: "record_outcome",
+  },
+  {
+    from: "needs_human_runtime",
+    event: "ruling_resume",
+    to: "interrupted_round",
+    effect: "send_resume",
+  },
+  {
+    from: "needs_human",
+    event: "ruling_agreed",
+    to: { kind: "agreed" },
+    effect: "record_outcome",
+  },
+  {
+    from: "needs_human",
+    event: "ruling_cancelled",
+    to: { kind: "cancelled" },
+    effect: "hold_task",
+  },
+  {
+    from: "open_accept_plan",
+    event: "supersede",
+    to: "superseded",
+    effect: "record_outcome",
+  },
+  {
+    from: "agreed",
+    event: "supersede",
+    to: "superseded",
     effect: "record_outcome",
   },
   {
@@ -132,24 +213,76 @@ export const transitions: readonly Row[] = [
   },
 ];
 
-function matches(from: From, state: DecisionState, bound: number): boolean {
+export interface StepContext {
+  effect?: DecisionEffect;
+  round?: Round;
+  by?: string;
+}
+
+const openKinds: readonly DecisionState["kind"][] = [
+  "requested",
+  "round",
+  "awaiting_evidence",
+];
+
+function matches(
+  from: From,
+  state: DecisionState,
+  bound: number,
+  context: StepContext,
+): boolean {
   switch (from) {
     case "requested":
       return state.kind === "requested";
     case "reserved_needs_human":
       return state.kind === "reserved_needs_human";
     case "open":
-      return (
-        state.kind === "requested" ||
-        state.kind === "round" ||
-        state.kind === "awaiting_evidence"
-      );
+      return openKinds.includes(state.kind);
+    case "open_accept_plan":
+      return openKinds.includes(state.kind) && context.effect === "accept_plan";
     case "round":
       return state.kind === "round" && state.n <= bound;
     case "round_below_bound":
       return state.kind === "round" && state.n < bound;
     case "round_at_bound":
       return state.kind === "round" && state.n === bound;
+    case "awaiting_evidence":
+      return state.kind === "awaiting_evidence";
+    case "needs_human":
+      return state.kind === "needs_human";
+    case "needs_human_runtime":
+      return state.kind === "needs_human" && state.reason === "runtime-failure";
+    case "agreed":
+      return state.kind === "agreed";
+  }
+}
+
+function target(
+  to: To,
+  state: DecisionState,
+  context: StepContext,
+): DecisionState | null {
+  switch (to) {
+    case "next_round":
+      return state.kind === "round"
+        ? { kind: "round", n: (state.n + 1) as Round }
+        : null;
+    case "awaiting_round":
+      return state.kind === "round"
+        ? { kind: "awaiting_evidence", n: state.n }
+        : null;
+    case "same_round":
+      return state.kind === "awaiting_evidence"
+        ? { kind: "round", n: state.n }
+        : null;
+    case "interrupted_round":
+      return { kind: "round", n: context.round ?? 1 };
+    case "superseded":
+      return context.by === undefined
+        ? null
+        : { kind: "superseded", by: context.by };
+    default:
+      return to;
   }
 }
 
@@ -157,17 +290,14 @@ export function next(
   state: DecisionState,
   event: DecisionEvent,
   bound: number,
+  context: StepContext = {},
 ): { to: DecisionState; effect: Effect } | null {
   const row = transitions.find(
-    (item) => item.event === event && matches(item.from, state, bound),
+    (item) => item.event === event && matches(item.from, state, bound, context),
   );
   if (row === undefined) return null;
-  if (row.to !== "next_round") return { to: row.to, effect: row.effect };
-  if (state.kind !== "round") return null;
-  return {
-    to: { kind: "round", n: (state.n + 1) as Round },
-    effect: row.effect,
-  };
+  const to = target(row.to, state, context);
+  return to === null ? null : { to, effect: row.effect };
 }
 
 export function proposalStance(

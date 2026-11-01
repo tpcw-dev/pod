@@ -27,6 +27,7 @@ export type ErrorCode =
   | "config_invalid"
   | "decision_not_gate"
   | "decision_denied"
+  | "decision_budget_exhausted"
   | "gate_lift_refused"
   | "failed";
 
