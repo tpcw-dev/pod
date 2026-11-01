@@ -9,6 +9,7 @@ import type {
   WorkerStartRequest,
   WorkerStartResult,
 } from "../ports/orca.ts";
+import { handoffOf, returnSlot } from "./handoff.ts";
 
 export type LaunchArgs = Omit<WorkerStartRequest, "task" | "spec" | "run">;
 
@@ -113,6 +114,7 @@ export async function recordStarted(
   input: StartedInput,
 ): Promise<DispatchResult> {
   const done = dispatchResult(input);
+  const held = handoffOf((await tx.getOperation(input.opKey))?.result_ref);
   await tx.moveOperation(
     input.opKey,
     "done",
@@ -121,6 +123,7 @@ export async function recordStarted(
       launch: input.launch,
       manifest_id: input.manifestId,
       result: done,
+      ...held,
     }),
     input.at,
   );
@@ -264,6 +267,7 @@ export async function recordUnknown(
   tx: Repo,
   input: UnknownInput,
 ): Promise<void> {
+  const held = handoffOf((await tx.getOperation(input.opKey))?.result_ref);
   await tx.moveOperation(
     input.opKey,
     "unknown",
@@ -272,6 +276,7 @@ export async function recordUnknown(
       launch: input.launch,
       requestId: input.requestId,
       manifest_id: input.manifestId,
+      ...held,
     }),
     input.at,
   );
@@ -316,7 +321,8 @@ export async function recordReceipt(
       : null;
   return db.transaction(async (tx): Promise<Recorded> => {
     await tx.lockQuota(input.request.host);
-    const pending = (await tx.getOperation(input.opKey))?.status === "pending";
+    const operation = await tx.getOperation(input.opKey);
+    const pending = operation?.status === "pending";
     if (launched !== null) {
       const started = { ...rest, launched };
       return {
@@ -327,6 +333,7 @@ export async function recordReceipt(
       };
     }
     if (outcome.kind === "failed") {
+      if (pending) await returnSlot(tx, operation.result_ref);
       if (pending)
         await tx.moveOperation(
           input.opKey,

@@ -9,6 +9,7 @@ import {
   type Launched,
 } from "../dispatch/launch-record.ts";
 import { recordSeatStarted, SeatRef } from "../dispatch/decision-seats.ts";
+import { returnSlot } from "../dispatch/handoff.ts";
 import { launchOutcome } from "../ledger/launch.ts";
 import { moveTask } from "../ledger/move-task.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
@@ -240,6 +241,7 @@ async function reconcileOne(
   const at = input.now();
   const closed = await db.transaction(async (tx) => {
     if (!(await claim(tx, input, operation, ref))) return null;
+    await returnSlot(tx, operation.result_ref);
     await tx.moveOperation(
       operation.op_key,
       "done",
