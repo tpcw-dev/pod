@@ -543,6 +543,60 @@ describeDb("pod decide runs the Reserved check before any Seat", () => {
     expect(found.seats).toBe(0);
   });
 
+  const twoMembers =
+    "Create a repository for the docs and ssh into the vps to deploy it";
+
+  test("two needs_existing_authorization members with only the first authorized end needs_human naming the second", async () => {
+    const templates = await deliveredPlan(conn, {
+      gates: [],
+      authorizations: { "S-9": { authorizes: ["repo_create"] } },
+    });
+    const outcome = await quiet({ question: twoMembers })(templates);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        state: "needs_human",
+        reserved: { class: "needs_existing_authorization", member: "vps_ssh" },
+      },
+    });
+    if (!outcome.ok) throw new Error("expected ok");
+    const found = await rows(outcome.result.decision_id);
+    expect(found.decision).toMatchObject({ reason: "policy-required" });
+    expect(found.events.map((row) => [row.outcome, row.member])).toEqual([
+      ["reserved_needs_human", "vps_ssh"],
+      ["needs_human", "vps_ssh"],
+    ]);
+    expect(found.seats).toBe(0);
+  });
+
+  test("two needs_existing_authorization members both authorized reach round 1", async () => {
+    const templates = await deliveredPlan(conn, {
+      gates: [],
+      authorizations: {
+        "S-9": {
+          authorizes: ["repo_create", "vps_ssh"],
+          story_kind: "infrastructure",
+        },
+      },
+    });
+    const { orca, log } = replay(conn, [
+      seatTask("decider"),
+      ok("worker-start", seatStarted(decider), ["--task", "orca_decider"]),
+      sent(decider),
+    ]);
+    const outcome = await openDecision(
+      conn.db,
+      orca,
+      log,
+      decideInput(templates, { question: twoMembers }),
+    );
+    orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { state: "round:1", decider_dispatch_id: decider },
+    });
+  });
+
   test("a needs_human row does not block a later request on the same Task", async () => {
     const templates = await deliveredPlan(conn);
     const first = await quiet({ category: "tradeoff", question: "Buy a build cache?" })(templates);

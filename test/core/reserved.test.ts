@@ -1,11 +1,15 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { authorized, reservedCheck } from "../../src/core/decide/reserved.ts";
+import {
+  authorized,
+  firstUnauthorized,
+  reservedCheck,
+} from "../../src/core/decide/reserved.ts";
 import { reservedOf } from "../../src/core/domain/policy.ts";
 
 const reserved = reservedOf({});
 
-const ask = (
+const askAll = (
   question: string,
   over: Partial<Parameters<typeof reservedCheck>[1]> = {},
 ) =>
@@ -16,6 +20,11 @@ const ask = (
     spec: null,
     ...over,
   });
+
+const ask = (
+  question: string,
+  over: Partial<Parameters<typeof reservedCheck>[1]> = {},
+) => askAll(question, over)[0] ?? null;
 
 test.each([
   ["Should the plan purchase a hosted cache?", "needs_human", "spend"],
@@ -86,6 +95,24 @@ test("authorization follows the entry and, for vps_ssh, the infrastructure kind"
   expect(
     authorized(ssh, { authorizes: ["vps_ssh"], story_kind: "infrastructure" }),
   ).toBe(true);
+});
+
+test("a deny or needs_human class returns its first hit; needs_existing_authorization returns every hit", () => {
+  expect(askAll("Buy a subscription and rotate the password?")).toHaveLength(1);
+  const both = askAll(
+    "Create a repository for the docs and ssh into the vps to deploy it",
+  );
+  expect(both.map((hit) => hit.member)).toEqual(["repo_create", "vps_ssh"]);
+  expect(
+    firstUnauthorized(both, { authorizes: ["repo_create"], story_kind: null })
+      ?.member,
+  ).toBe("vps_ssh");
+  expect(
+    firstUnauthorized(both, {
+      authorizes: ["repo_create", "vps_ssh"],
+      story_kind: "infrastructure",
+    }),
+  ).toBeNull();
 });
 
 const requestFiles = [

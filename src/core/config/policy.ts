@@ -108,7 +108,47 @@ function profileProblem(profiles: unknown, gates: unknown): Problem {
   return null;
 }
 
+function isMap(value: unknown): boolean {
+  return Fields.safeParse(value).success && !Array.isArray(value);
+}
+
+function sectionProblem(reserved: unknown): Problem {
+  if (reserved === undefined) return null;
+  if (!isMap(reserved))
+    return {
+      path: "reserved",
+      message:
+        "reserved: must be a map of deny, needs_human, and needs_existing_authorization",
+    };
+  const listed = fields(reserved);
+  for (const kind of reservedClasses) {
+    const section = listed[kind];
+    const path = `reserved.${kind}`;
+    if (section === undefined) continue;
+    if (!Array.isArray(section) && !isMap(section))
+      return { path, message: `${path}: must be a list of members or a map` };
+    const items = Array.isArray(section)
+      ? section
+      : Object.values(fields(section));
+    const bad = items.findIndex(
+      (item) => typeof item !== "string" && !isMap(item),
+    );
+    if (bad !== -1) {
+      const key = Array.isArray(section)
+        ? String(bad)
+        : Object.keys(fields(section))[bad];
+      return {
+        path: `${path}.${key}`,
+        message: `${path}.${key}: a member is a name or an object`,
+      };
+    }
+  }
+  return null;
+}
+
 function reservedProblem(reserved: unknown): Problem {
+  const shape = sectionProblem(reserved);
+  if (shape !== null) return shape;
   const listed = fields(reserved);
   for (const kind of reservedClasses)
     for (const item of listedMembers(listed[kind], `reserved.${kind}`)) {

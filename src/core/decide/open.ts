@@ -35,7 +35,11 @@ import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { readProcess } from "../process/project.ts";
 import { appendDecisionEvent } from "./event.ts";
-import { authorized, reservedCheck, type ReservedHit } from "./reserved.ts";
+import {
+  firstUnauthorized,
+  reservedCheck,
+  type ReservedHit,
+} from "./reserved.ts";
 import { next, type DecisionEvent } from "./table.ts";
 import { failDecision } from "./advance.ts";
 import { changeSpecStates } from "./effects.ts";
@@ -181,7 +185,7 @@ export async function openDecision(
     });
     const policy = await policyOf(tx, run);
     const limits = input.limits(policy);
-    const hit = reservedCheck(reservedOf(policy), {
+    const hits = reservedCheck(reservedOf(policy), {
       category: input.category,
       question: input.question,
       options: input.options,
@@ -217,22 +221,17 @@ export async function openDecision(
       closed_at: null,
     };
     await tx.insertDecision(row);
-    if (hit !== null) {
-      const routed = routeOf(
-        hit,
-        authorizationOf(policy, run.story_external_id),
-      );
-      if (routed !== "authorized")
-        return settleReserved(tx, row, routed, hit, {
-          opKey,
-          request,
-          at: now,
-          host: input.host,
-        });
-    }
+    const route = routeOf(hits, authorizationOf(policy, run.story_external_id));
+    if (route !== null && route.routed !== "authorized")
+      return settleReserved(tx, row, route.routed, route.hit, {
+        opKey,
+        request,
+        at: now,
+        host: input.host,
+      });
     const step = next(
       { kind: "requested" },
-      hit === null ? "open" : "authorized",
+      route === null ? "open" : "authorized",
       limits.decision_rounds,
     );
     if (step === null) throw new Error("the decision table has no open row");
@@ -354,12 +353,18 @@ type Routed =
   "authorized" | "reserved_deny" | "reserved_needs_human" | "unauthorized";
 
 function routeOf(
-  hit: ReservedHit,
+  hits: readonly ReservedHit[],
   authorization: ReturnType<typeof authorizationOf>,
-): Routed {
-  if (hit.class === "deny") return "reserved_deny";
-  if (hit.class === "needs_human") return "reserved_needs_human";
-  return authorized(hit, authorization) ? "authorized" : "unauthorized";
+): { routed: Routed; hit: ReservedHit } | null {
+  const [first] = hits;
+  if (first === undefined) return null;
+  if (first.class === "deny") return { routed: "reserved_deny", hit: first };
+  if (first.class === "needs_human")
+    return { routed: "reserved_needs_human", hit: first };
+  const missing = firstUnauthorized(hits, authorization);
+  return missing === null
+    ? { routed: "authorized", hit: first }
+    : { routed: "unauthorized", hit: missing };
 }
 
 async function moveReserved(

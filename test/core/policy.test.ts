@@ -180,6 +180,15 @@ test.each([
     "profiles.p.replaces.prd_review",
   ],
   [{ escalate_when: "everything" }, "escalate_when"],
+  [{ reserved: ["spend"] }, "reserved"],
+  [{ reserved: "spend" }, "reserved"],
+  [{ reserved: { deny: "x" } }, "reserved.deny"],
+  [{ reserved: { needs_human: 5 } }, "reserved.needs_human"],
+  [{ reserved: { deny: [7] } }, "reserved.deny.0"],
+  [
+    { reserved: { needs_existing_authorization: { repo_create: 5 } } },
+    "reserved.needs_existing_authorization.repo_create",
+  ],
 ])("validatePolicy refuses %j at %s", (value, path) => {
   expect(validatePolicy(value, null)?.code).toBe("schema_invalid");
   expect(refused(value)).toBe(path);

@@ -877,6 +877,7 @@ describeDb("pod config apply of a policy", () => {
       "limits.decision_budget.wall_clock",
     ],
     ["a member name that is not snake_case", { gates: [], reserved: { deny: ["Bad-Name"] } }, "reserved.deny.0"],
+    ["a reserved class that is a scalar", { gates: [], reserved: { deny: "x" } }, "reserved.deny"],
     [
       "an authorization outside needs_existing_authorization",
       { gates: [], authorizations: { "S-1": { authorizes: ["spend"] } } },

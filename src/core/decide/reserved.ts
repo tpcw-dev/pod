@@ -52,23 +52,32 @@ function hits(texts: readonly string[], terms: readonly string[]): boolean {
 export function reservedCheck(
   reserved: Reserved,
   request: ReservedRequest,
-): ReservedHit | null {
+): ReservedHit[] {
   const texts = [
     request.category,
     [request.question, ...request.options].join("\n"),
     ...leaves(request.spec),
   ];
-  for (const kind of reservedClasses)
-    for (const member of reserved[kind]) {
-      const terms = [
-        member.name,
-        member.name.replaceAll("_", " "),
-        ...member.match,
-      ];
-      if (hits(texts, terms))
-        return { class: kind, member: member.name, requires: member.requires };
-    }
-  return null;
+  for (const kind of reservedClasses) {
+    const found = reserved[kind]
+      .filter((member) =>
+        hits(texts, [
+          member.name,
+          member.name.replaceAll("_", " "),
+          ...member.match,
+        ]),
+      )
+      .map((member) => ({
+        class: kind,
+        member: member.name,
+        requires: member.requires,
+      }));
+    if (found.length > 0)
+      return kind === "needs_existing_authorization"
+        ? found
+        : found.slice(0, 1);
+  }
+  return [];
 }
 
 export function authorized(
@@ -81,4 +90,11 @@ export function authorized(
     hit.requires !== "infrastructure_story" ||
     authorization.story_kind === "infrastructure"
   );
+}
+
+export function firstUnauthorized(
+  hits: readonly ReservedHit[],
+  authorization: Authorization | null,
+): ReservedHit | null {
+  return hits.find((hit) => !authorized(hit, authorization)) ?? null;
 }
