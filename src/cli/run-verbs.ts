@@ -4,6 +4,7 @@ import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
 import { checkPass, checkWait, resume } from "../core/check/check.ts";
 import { launchLeaseSeconds } from "../core/check/reconcile.ts";
+import { singleActive } from "../core/config/active.ts";
 import { dispatch } from "../core/dispatch/dispatch.ts";
 import { release } from "../core/dispatch/release.ts";
 import {
@@ -105,6 +106,17 @@ export const RunCreateOutput = z.object({
   process: z.string(),
   snapshot_hash: z.string(),
   owner_generation: z.int(),
+  state: z.string(),
+  coordinator_dispatch_id: z.string().nullable(),
+  auditor_dispatch_id: z.string().nullable(),
+  seat_refusal: z
+    .object({
+      role: z.string(),
+      code: z.string(),
+      message: z.string(),
+      nextSteps: z.array(z.string()),
+    })
+    .optional(),
   tasks: z.array(
     z.object({
       task_id: z.string(),
@@ -150,7 +162,7 @@ export async function runCreateVerb(
     .map(quote)
     .join(" ");
   const { result, opKey, orca } = await withOrca(
-    ({ db, orca: port, tracker, log, host }) =>
+    async ({ db, orca: port, tracker, log, host }) =>
       runCreate(db, port, tracker, log, {
         story: story.slice("story:".length),
         process: ref,
@@ -160,6 +172,10 @@ export async function runCreateVerb(
         host: host.hostId,
         provider: host.trackerKind,
         command,
+        seats: {
+          templates: await singleActive(db, "decision", "global", ""),
+          capacity: host.capacity,
+        },
         now: () => new Date(),
       }),
   );
