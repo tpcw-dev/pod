@@ -13,6 +13,7 @@ import type { ReceiptLog } from "../ledger/receipts.ts";
 import { runBlocked } from "../ledger/run-blocked.ts";
 import { recordManifest } from "../manifest/record.ts";
 import {
+  gitStatusReference,
   revisionReference,
   runReference,
   storyReference,
@@ -37,6 +38,7 @@ export interface DispatchInput {
   host: string;
   capacity: number;
   command: (opKey: string) => string;
+  gitStatus?: string;
   now: () => Date;
 }
 
@@ -250,6 +252,9 @@ export async function dispatch(
         revisionReference(crew),
         revisionReference(process),
         revisionReference(policy),
+        ...(input.gitStatus === undefined
+          ? []
+          : [gitStatusReference(input.gitStatus, now)]),
       ],
     });
     await tx.insertOperation({

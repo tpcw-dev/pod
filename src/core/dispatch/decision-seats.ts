@@ -36,11 +36,17 @@ export function decisionIdOf(opKey: string): string {
   return `dec_${opKey.slice(opKey.indexOf(":") + 1)}`;
 }
 
-export function seatOpKey(runId: string, role: SeatRole, decisionId: string) {
+export function seatOpKey(
+  runId: string,
+  role: SeatRole,
+  decisionId: string,
+  fallbackOf: string | null = null,
+) {
   return derivedOpKey("decide_seat", {
     run_id: runId,
     role,
     decision_id: decisionId,
+    ...(fallbackOf === null ? {} : { fallback_of: fallbackOf }),
   });
 }
 
@@ -51,6 +57,7 @@ const IndependentOf = z.looseObject({
 export function pickSeat(
   seats: readonly Seat[],
   role: SeatRole,
+  deciderSeat: string | null = null,
 ): { seat: Seat } | { refusal: Refusal } {
   const decider = seats.find((seat) => seat.roles.includes("decider"));
   if (role === "decider")
@@ -58,7 +65,8 @@ export function pickSeat(
   const auditors = seats.filter((seat) => seat.roles.includes("auditor"));
   const [first] = auditors;
   if (first === undefined) return unfilled("auditor");
-  const auditor = auditors.find((seat) => seat.id !== decider?.id);
+  const against = deciderSeat ?? decider?.id ?? null;
+  const auditor = auditors.find((seat) => seat.id !== against);
   if (auditor === undefined)
     return {
       refusal: {
@@ -69,22 +77,27 @@ export function pickSeat(
         ],
       },
     };
-  const named = IndependentOf.safeParse(auditor).data?.independent_of;
-  if (
-    named !== undefined &&
-    decider !== undefined &&
-    !named.includes(decider.id)
-  )
+  const refusal = independence(auditor, against);
+  return refusal === null ? { seat: auditor } : { refusal };
+}
+
+function independence(auditor: Seat, decider: string | null): Refusal | null {
+  if (decider === null) return null;
+  if (auditor.id === decider)
     return {
-      refusal: {
-        code: "reviewer_not_independent",
-        message: `auditor Seat ${auditor.id} is not independent_of decider Seat ${decider.id}`,
-        nextSteps: [
-          `add ${decider.id} to independent_of of Seat ${auditor.id}`,
-        ],
-      },
+      code: "reviewer_not_independent",
+      message: `the auditor Seat ${auditor.id} is also the decider Seat`,
+      nextSteps: [
+        "pod config apply crew.yaml with an auditor Seat apart from the decider",
+      ],
     };
-  return { seat: auditor };
+  const named = IndependentOf.safeParse(auditor).data?.independent_of;
+  if (named === undefined || named.includes(decider)) return null;
+  return {
+    code: "reviewer_not_independent",
+    message: `auditor Seat ${auditor.id} is not independent_of decider Seat ${decider}`,
+    nextSteps: [`add ${decider} to independent_of of Seat ${auditor.id}`],
+  };
 }
 
 function unfilled(role: SeatRole): { refusal: Refusal } {
@@ -114,14 +127,22 @@ export interface SeatInput {
 
 export type SeatOutcome =
   | { ok: true; dispatch: Dispatch; reused: boolean }
-  | { ok: false; refusal: Refusal };
+  | { ok: false; refusal: Refusal; runtimeFailure?: boolean };
 
 const SeatRequest = z.looseObject({
   decision_id: z.string(),
   role: z.enum(["decider", "auditor"]),
   seat: z.string(),
   host: z.string(),
+  fallback_of: z.string().optional(),
 });
+
+interface Fallback {
+  of: string;
+  refusal: Refusal;
+}
+
+const fallsBack: readonly string[] = ["failed", "quota_exhausted"];
 
 export const SeatRef = z.looseObject({
   request: SeatRequest,
@@ -172,16 +193,76 @@ export async function openDecisionSeat(
     if (!(error instanceof SeatsInvalid)) throw error;
     return refuse("schema_invalid", error.message, [error.path]);
   }
-  const picked = pickSeat(seats, input.role);
+  const deciderSeat =
+    input.role === "auditor"
+      ? ((await db.listDispatches(run.run_id)).find(
+          (row) =>
+            row.decision_id === input.decisionId && row.role === "decider",
+        )?.seat ?? null)
+      : null;
+  const picked = pickSeat(seats, input.role, deciderSeat);
   if ("refusal" in picked) return { ok: false, refusal: picked.refusal };
-  const { seat } = picked;
-  const opKey = seatOpKey(run.run_id, input.role, input.decisionId);
+  let seat = picked.seat;
+  let outcome = await launchSeat(db, orca, log, input, seat, null);
+  const visited = new Set([seat.id]);
+  for (;;) {
+    if (outcome.ok || outcome.refusal.code !== "failed") break;
+    const fallbackId = seat.fallback;
+    if (fallbackId === undefined || visited.has(fallbackId)) break;
+    const index = seats.findIndex((item) => item.id === fallbackId);
+    const fallback = seats[index];
+    if (fallback === undefined)
+      return refuse(
+        "schema_invalid",
+        `Seat ${seat.id} names undefined fallback ${fallbackId}`,
+        [`seats.${seats.findIndex((item) => item.id === seat.id)}.fallback`],
+      );
+    if (input.role === "auditor") {
+      const refusal = independence(fallback, deciderSeat);
+      if (refusal !== null) return { ok: false, refusal, runtimeFailure: true };
+    }
+    visited.add(fallback.id);
+    outcome = await launchSeat(db, orca, log, input, fallback, {
+      of: seat.id,
+      refusal: outcome.refusal,
+    });
+    seat = fallback;
+  }
+  if (!outcome.ok && fallsBack.includes(outcome.refusal.code))
+    return { ...outcome, runtimeFailure: true };
+  return outcome;
+}
+
+async function launchSeat(
+  db: Db,
+  orca: OrcaPort,
+  log: ReceiptLog,
+  input: SeatInput,
+  seat: Seat,
+  fallback: Fallback | null,
+): Promise<SeatOutcome> {
+  const { run } = input;
+  const opKey = seatOpKey(
+    run.run_id,
+    input.role,
+    input.decisionId,
+    fallback?.of ?? null,
+  );
   const launch: LaunchArgs = seatLaunch(seat);
   const request = {
     decision_id: input.decisionId,
     role: input.role,
     seat: seat.id,
     host: input.host,
+    ...(fallback === null
+      ? {}
+      : {
+          fallback_of: fallback.of,
+          primary_refusal: {
+            code: fallback.refusal.code,
+            message: fallback.refusal.message,
+          },
+        }),
   };
   const now = input.now();
   const context = { run_id: run.run_id, task_id: null, op_key: opKey };
@@ -266,15 +347,18 @@ export async function openDecisionSeat(
       ? (created.result?.task.id ?? null)
       : null;
   if (orcaTask === null) {
+    const found: Refusal = {
+      code: "failed",
+      message: `task-create for the ${input.role} Seat ${seat.id} failed`,
+      nextSteps: ["pod check"],
+    };
     await db.moveOperation(
       opKey,
-      "done",
-      Json.parse({ request, outcome: "failed", raw: created.raw ?? null }),
+      "refused",
+      Json.parse({ request, ...found, raw: created.raw ?? null }),
       input.now(),
     );
-    return refuse("failed", `task-create for the ${input.role} Seat failed`, [
-      "pod check",
-    ]);
+    return { ok: false, refusal: found };
   }
   const receipt = await orca.workerStart({
     task: orcaTask,
@@ -304,16 +388,23 @@ export async function openDecisionSeat(
     return { ok: true, dispatch: row, reused: false };
   }
   if (outcome.kind === "failed") {
+    const found: Refusal = {
+      code: "failed",
+      message: `worker-start for the ${input.role} Seat ${seat.id} failed`,
+      nextSteps: [
+        ...(receipt.result?.lastError == null
+          ? []
+          : [receipt.result.lastError]),
+        "pod check",
+      ],
+    };
     await db.moveOperation(
       opKey,
-      "done",
-      Json.parse({ request, outcome: "failed", raw: receipt.raw ?? null }),
+      "refused",
+      Json.parse({ request, ...found, raw: receipt.raw ?? null }),
       at,
     );
-    return refuse("failed", `worker-start for the ${input.role} Seat failed`, [
-      ...(receipt.result?.lastError == null ? [] : [receipt.result.lastError]),
-      "pod check",
-    ]);
+    return { ok: false, refusal: found };
   }
   await recordSeatUnknown(
     db,
@@ -381,6 +472,7 @@ export async function recordSeatStarted(
     requested_launch: requestedLaunch(launched, launch),
     model_attribution: attribution(launched),
     retry_of: null,
+    fallback_of: ref.request.fallback_of ?? null,
     op_key: input.opKey,
     manifest_id: ref.manifest_id,
     verb: "decide",

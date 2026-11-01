@@ -379,4 +379,42 @@ describeDb("pod retry", () => {
     });
     expect(String(done.json.result?.["task_view"])).toMatch(/^## /);
   });
+
+  test("a Dispatch whose Task is superseded is task_not_ready naming the replacement", async () => {
+    await conn.sql`update ledger.task set state = 'superseded' where task_id = 'task_b'`;
+    await conn.sql`
+      insert into ledger.task (task_id, run_id, step_id, lineage_id, role, deps, spec_revision_id, state, rework_of, created_at)
+      select 'task_b2', run_id, step_id, lineage_id, role, deps, spec_revision_id, 'ready', 'task_b', now()
+      from ledger.task where task_id = 'task_b'`;
+    const { log } = replay(conn, []);
+    const outcome = await retry(conn.db, noCalls(), log, input());
+    expect(outcome).toEqual({
+      ok: false,
+      refusal: {
+        code: "task_not_ready",
+        message: "Task task_b is superseded",
+        nextSteps: ["pod dispatch --task task_b2"],
+      },
+    });
+    const here = `repo-1::${process.cwd()}`;
+    await conn.sql`
+      update ledger.dispatch set requested_launch = ${JSON.stringify({ worktree: `id:${here}` })}::jsonb
+      where dispatch_id = 'ctx_1'`;
+    const cli = runCli(["retry", "--dispatch", "ctx_1", "--generation", "1"], {
+      POD_ORCA_FIXTURES: fixtures([]),
+    });
+    expect(cli.status).toBe(3);
+    expect(cli.json.error?.code).toBe("task_not_ready");
+    expect(cli.json.error?.nextSteps).toEqual(["pod dispatch --task task_b2"]);
+    await conn.sql`
+      update ledger.dispatch set requested_launch = '{}'::jsonb
+      where dispatch_id = 'ctx_1'`;
+    expect(await retryPlan(conn.db, "ctx_1", "elsewhere")).toMatchObject({
+      ok: false,
+      refusal: {
+        message: "Task task_b is superseded",
+        nextSteps: ["pod dispatch --task task_b2"],
+      },
+    });
+  });
 });

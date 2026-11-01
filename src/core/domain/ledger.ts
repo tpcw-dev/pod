@@ -59,7 +59,7 @@ export type OperationStatus = z.infer<typeof OperationStatus>;
 export const operationMoves: Readonly<
   Record<OperationStatus, readonly OperationStatus[]>
 > = {
-  pending: ["unknown", "done", "refused"],
+  pending: ["pending", "unknown", "done", "refused"],
   unknown: ["done", "refused"],
   done: [],
   refused: [],

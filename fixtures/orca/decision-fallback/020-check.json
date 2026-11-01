@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_093c4a1c027d",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"b6264532-8f4d-4c01-a504-dcc6fd91cc01\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_093c4a1c027d\",\n    \"deliveryId\": \"delivery_290fecb226f2\",\n    \"messages\": [\n      {\n        \"id\": \"msg_467c38309744\",\n        \"run_id\": \"run_093c4a1c027d\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_836603f0-e849-4885-86de-032c13962b3f\",\n        \"to_handle\": \"run:run_093c4a1c027d\",\n        \"subject\": \"decision dec_66dcdd0314b829f0355fc9d852ec00b950a63de8cff564b1219631273c7e7472 round 1 proposal\",\n        \"body\": \"\",\n        \"type\": \"decision_gate\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"kind\\\":\\\"decision_proposal\\\",\\\"dispatchId\\\":\\\"ctx_3218fe687626\\\",\\\"decisionId\\\":\\\"dec_66dcdd0314b829f0355fc9d852ec00b950a63de8cff564b1219631273c7e7472\\\",\\\"round\\\":1,\\\"proposal\\\":\\\"Ship in two releases with a rollback step between them: release 1 ships the spec-effect change behind verification, then a rollback checkpoint confirms health before release 2 proceeds; if release 1 fails verification, roll back to the prior release before attempting release 2.\\\",\\\"citations\\\":[\\\"process:dc1ba28ae9af3268b19c906fb8a46fe151cd344e08857cc2485695a064de4625\\\"]}\",\n        \"created_at\": \"2026-11-01T00:55:47Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"16873d8a-064a-4493-bbb1-7e99f5a84643\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-11-01T00:55:57.124Z"
+}

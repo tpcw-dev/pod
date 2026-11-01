@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Json } from "../domain/json.ts";
-import type { Dispatch, Operation } from "../domain/ledger.ts";
+import type { Dispatch, Operation, Task } from "../domain/ledger.ts";
 import {
   refuse,
   type Outcome,
@@ -62,6 +62,19 @@ export async function retryPlan(
   const dispatch = await db.getDispatch(dispatchId);
   if (dispatch === null)
     return refuse("task_not_ready", `no Dispatch ${dispatchId}`, ["pod brief"]);
+  const task =
+    dispatch.task_id === null ? null : await db.getTask(dispatch.task_id);
+  const superseded = task === null ? null : await supersededRefusal(db, task);
+  if (superseded !== null) return superseded;
+  return recordedWorktree(db, dispatch, host);
+}
+
+async function recordedWorktree(
+  db: Repo,
+  dispatch: Dispatch,
+  host: string,
+): Promise<{ worktreePath: string } | Refused> {
+  const dispatchId = dispatch.dispatch_id;
   const worktree = Placement.catch({}).parse(
     dispatch.requested_launch,
   ).worktree;
@@ -81,6 +94,38 @@ export async function retryPlan(
       ["run pod retry on the host that started the Dispatch"],
     );
   return { worktreePath: id.slice(split + 2) };
+}
+
+async function supersededRefusal(
+  db: Repo,
+  task: Task,
+): Promise<Refused | null> {
+  if (task.state !== "superseded") return null;
+  const replacement = (await db.listTasks(task.run_id)).find(
+    (row) => row.rework_of === task.task_id,
+  );
+  return refuse("task_not_ready", `Task ${task.task_id} is superseded`, [
+    replacement === undefined
+      ? "pod brief"
+      : `pod dispatch --task ${replacement.task_id}`,
+  ]);
+}
+
+export async function supersededWorktree(
+  db: Repo,
+  taskId: string,
+  host: string,
+): Promise<string | null> {
+  const task = await db.getTask(taskId);
+  const previous =
+    task?.rework_of == null ? null : await db.getTask(task.rework_of);
+  if (previous?.state !== "superseded") return null;
+  const last = (await db.listDispatches(previous.run_id))
+    .filter((row) => row.task_id === previous.task_id)
+    .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())[0];
+  if (last === undefined) return null;
+  const plan = await recordedWorktree(db, last, host);
+  return "ok" in plan ? null : plan.worktreePath;
 }
 
 function launchFor(
@@ -150,6 +195,8 @@ export async function retry(
       `Dispatch ${input.dispatch} lost its Task or crew`,
       ["pod brief"],
     );
+  const superseded = await supersededRefusal(db, task);
+  if (superseded !== null) return superseded;
   let seats: Seat[];
   try {
     seats = readSeats(crew.value);

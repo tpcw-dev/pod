@@ -13,6 +13,7 @@ export const manifestSources = [
   "decision",
   "delivery",
   "git_status",
+  "revision",
 ] as const;
 
 export const ManifestReference = z.object({
@@ -105,6 +106,23 @@ export function revisionReference(revision: Revision): ManifestReference {
     observed_at: observedAt,
     coverage: "full",
     excerpt: canonical,
+  };
+}
+
+export function taskSpecReference(revision: Revision): ManifestReference {
+  const observedAt = iso(revision.created_at);
+  return {
+    source: "revision",
+    revision: revision.id,
+    observed_at: observedAt,
+    coverage: "full",
+    excerpt: canonicalJson({
+      id: revision.id,
+      kind: revision.kind,
+      name: revision.name,
+      rev: revision.rev,
+      value: revision.value,
+    }),
   };
 }
 

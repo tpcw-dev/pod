@@ -1,4 +1,4 @@
-import { countRun, sumCounters } from "../brief/counters.ts";
+import { countRun, fallbackOf, sumCounters } from "../brief/counters.ts";
 import type { Revision } from "./config.ts";
 import type { DecisionRow } from "./decision.ts";
 import type {
@@ -15,6 +15,8 @@ export interface BriefCounters {
   retries: number;
   rework_tasks: number;
   hand_filled: number;
+  fallback_launches: number;
+  model_mismatches: number;
 }
 
 export interface BriefSnapshot {
@@ -30,6 +32,7 @@ export interface BriefSnapshot {
 
 export interface BriefDispatch extends Dispatch {
   tests: readonly TestResult[];
+  fallback_of: string | null;
 }
 
 export interface BriefRun {
@@ -61,4 +64,10 @@ export function sumBriefCounters(
   rows: readonly BriefCounters[],
 ): BriefCounters {
   return sumCounters(rows);
+}
+
+export function startFallbackOf(
+  ...args: Parameters<typeof fallbackOf>
+): string | null {
+  return fallbackOf(...args);
 }

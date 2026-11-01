@@ -1,8 +1,12 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { stringify } from "yaml";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { openDecision } from "../../src/core/decide/open.ts";
 import type { Revision } from "../../src/core/domain/config.ts";
-import { noCalls, ok, unknownReply } from "../orca/temp-fixtures.ts";
+import { fixtures, noCalls, ok, unknownReply } from "../orca/temp-fixtures.ts";
 import {
   decideInput,
   decider,
@@ -220,20 +224,164 @@ describeDb("pod decide", () => {
     expect(starts).toHaveLength(1);
   });
 
-  test("the CLI refuses --effect change_spec as a usage error naming S12b", () => {
-    const result = runCli([
-      "decide",
-      "--task",
-      planTask,
-      "--category",
-      "architecture_choice",
-      "--effect",
-      "change_spec",
-      "question.yaml",
-      "--generation",
-      "1",
-    ]);
+  function questionFile(body: object): string {
+    const dir = mkdtempSync(join(tmpdir(), "pod-question-"));
+    const path = join(dir, "question.yaml");
+    writeFileSync(path, stringify(body));
+    return path;
+  }
+
+  function decideCli(
+    effect: string,
+    file: string,
+    task = implementTask,
+    env: Record<string, string> = {},
+  ) {
+    return runCli(
+      [
+        "decide",
+        "--task",
+        task,
+        "--category",
+        "architecture_choice",
+        "--effect",
+        effect,
+        file,
+        "--generation",
+        "1",
+      ],
+      env,
+    );
+  }
+
+  const question = {
+    question: "Replace the build spec?",
+    options: ["replace it", "keep it"],
+  };
+  const taskSpec = {
+    kind: "task",
+    schema_version: 1,
+    spec: "Build it with the agreed error envelope.",
+  };
+
+  async function activations() {
+    return conn.sql<{ revision_id: string }[]>`
+      select revision_id from config.activation
+      where kind = 'task' and name = ${"run_1:implement"}`;
+  }
+
+  test("a change_spec FILE with no spec is a usage error naming spec", () => {
+    const result = decideCli("change_spec", questionFile(question));
+    expect(result.status).toBe(2);
     expect(result.json.error?.code).toBe("usage");
-    expect(result.json.error?.message).toContain("S12b");
+    expect(result.json.error?.nextSteps).toEqual(["spec"]);
+    expect(result.json.error?.message).toContain("no spec");
+  });
+
+  test("an accept_plan FILE with a spec is a usage error naming spec", () => {
+    const result = decideCli(
+      "accept_plan",
+      questionFile({ ...question, spec: taskSpec }),
+      planTask,
+    );
+    expect(result.status).toBe(2);
+    expect(result.json.error?.code).toBe("usage");
+    expect(result.json.error?.nextSteps).toEqual(["spec"]);
+  });
+
+  test("a spec that fails the Task spec schema is schema_invalid at its path", () => {
+    const result = decideCli(
+      "change_spec",
+      questionFile({ ...question, spec: { ...taskSpec, kind: "crew" } }),
+    );
+    expect(result.status).toBe(2);
+    expect(result.json.error?.code).toBe("schema_invalid");
+    expect(JSON.stringify(result.json.error?.nextSteps)).toContain("spec.kind");
+  });
+
+  test("an unknown effect is a usage error naming both effects", () => {
+    const result = decideCli("rewrite", questionFile(question));
+    expect(result.status).toBe(2);
+    expect(result.json.error?.message).toContain("accept_plan or change_spec");
+  });
+
+  test("a change_spec open on a ready worker Task inserts the Task spec Revision inactive and pins it in the manifest", async () => {
+    await conn.db.setTaskState(implementTask, "ready");
+    const result = decideCli(
+      "change_spec",
+      questionFile({ ...question, spec: taskSpec }),
+      implementTask,
+      {
+        POD_ORCA_FIXTURES: fixtures([
+          seatTask("decider"),
+          ok("worker-start", seatStarted(decider), ["--task", "orca_decider"]),
+          sent(decider),
+        ]),
+      },
+    );
+    expect(result.status).toBe(0);
+    const revisions = await conn.sql<
+      { id: string; scope: string; scope_ref: string; value: unknown }[]
+    >`select id, scope, scope_ref, value from config.revision
+      where kind = 'task' and name = ${"run_1:implement"}`;
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0]).toMatchObject({
+      scope: "run",
+      scope_ref: "run_1",
+      value: { spec: taskSpec.spec },
+    });
+    expect(await activations()).toEqual([]);
+    const decision = await conn.db.getDecision(
+      result.json.result?.["decision_id"] as string,
+    );
+    expect(decision).toMatchObject({
+      effect: "change_spec",
+      task_id: implementTask,
+      state: "round:1",
+    });
+    const manifest = await conn.db.getManifest(decision?.manifest_id ?? "");
+    const references = manifest?.references as {
+      source: string;
+      revision: string;
+    }[];
+    expect(references.map((row) => row.source)).toEqual([
+      "story",
+      "run",
+      "task",
+      "crew",
+      "process",
+      "policy",
+      "revision",
+    ]);
+    expect(references.at(-1)?.revision).toBe(revisions[0]?.id);
+  });
+
+  test.each(["done", "superseded", "passed"] as const)(
+    "change_spec on a %s Task is task_not_ready",
+    async (state) => {
+      await conn.db.setTaskState(implementTask, state);
+      const outcome = await decide([], {
+        task: implementTask,
+        effect: "change_spec",
+        spec: null,
+      });
+      expect(outcome).toMatchObject({
+        ok: false,
+        refusal: { code: "task_not_ready" },
+      });
+      if (!outcome.ok) expect(outcome.refusal.message).toContain(`is ${state}`);
+    },
+  );
+
+  test("change_spec on the delivered plan Task opens without needing a decision step", async () => {
+    const outcome = await decide(
+      [
+        seatTask("decider"),
+        ok("worker-start", seatStarted(decider), ["--task", "orca_decider"]),
+        sent(decider),
+      ],
+      { effect: "change_spec", spec: null },
+    );
+    expect(outcome).toMatchObject({ ok: true, result: { state: "round:1" } });
   });
 });

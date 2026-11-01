@@ -24,7 +24,7 @@ export const Stance = z.enum([
 ]);
 export type Stance = z.infer<typeof Stance>;
 
-export const DecisionEffect = z.enum(["accept_plan"]);
+export const DecisionEffect = z.enum(["accept_plan", "change_spec"]);
 export type DecisionEffect = z.infer<typeof DecisionEffect>;
 
 export type Round = 1 | 2 | 3;

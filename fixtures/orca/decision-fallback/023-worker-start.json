@@ -1,0 +1,28 @@
+{
+  "verb": "worker-start",
+  "match": {
+    "argv": [
+      "orchestration",
+      "worker-start",
+      "--task",
+      "task_50c18e217dc9",
+      "--run",
+      "run_093c4a1c027d",
+      "--agent",
+      "claude",
+      "--model",
+      "claude-haiku-4-5-20251001",
+      "--effort",
+      "low",
+      "--worktree",
+      "current",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"3870ae97-c66e-41ac-98a4-b1d5947fc4c1\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_093c4a1c027d\",\n    \"taskId\": \"task_50c18e217dc9\",\n    \"dispatchId\": \"ctx_40d0f24cd2a1\",\n    \"state\": \"ready\",\n    \"stage\": \"input_accepted\",\n    \"turnStart\": \"observed\",\n    \"setup\": {\n      \"requested\": \"not_applicable\",\n      \"effective\": \"not_applicable\",\n      \"source\": \"existing_worktree\",\n      \"hookFound\": false,\n      \"startupPolicy\": \"start-immediately\",\n      \"state\": \"not_applicable\"\n    },\n    \"launch\": {\n      \"requested\": {\n        \"agent\": \"claude\",\n        \"model\": \"claude-haiku-4-5-20251001\",\n        \"effort\": \"low\"\n      },\n      \"effective\": {\n        \"agent\": \"claude\",\n        \"model\": \"claude-haiku-4-5-20251001\",\n        \"effort\": \"low\"\n      }\n    },\n    \"mode\": {\n      \"mode\": \"terminal\",\n      \"preferred\": \"terminal\",\n      \"reason\": \"user_default\",\n      \"detail\": \"Started a terminal agent worker, the default for new agent tabs in your settings.\"\n    },\n    \"timeoutMs\": 60000,\n    \"effects\": [\n      {\n        \"kind\": \"worktree\",\n        \"action\": \"reused\",\n        \"id\": \"902f0fc5-edba-4879-a032-58e853f081bb::/w/1\"\n      },\n      {\n        \"kind\": \"setup\",\n        \"action\": \"not_applicable\",\n        \"state\": \"not_applicable\"\n      },\n      {\n        \"kind\": \"terminal\",\n        \"role\": \"agent\",\n        \"action\": \"created\",\n        \"id\": \"term_3b30891c-15f6-4a5f-8a6f-cd8cc2991449\",\n        \"surface\": \"background\",\n        \"warning\": \"Terminal term_3b30891c-15f6-4a5f-8a6f-cd8cc2991449 is running, but Orca could not make it discoverable. Run `orca terminal focus --terminal term_3b30891c-15f6-4a5f-8a6f-cd8cc2991449` to reveal and focus it.\"\n      },\n      {\n        \"kind\": \"dispatch_input\",\n        \"role\": \"agent\",\n        \"id\": \"term_3b30891c-15f6-4a5f-8a6f-cd8cc2991449\",\n        \"state\": \"accepted\"\n      }\n    ],\n    \"prompt\": {\n      \"requestId\": \"b3566dfd-aad8-4440-ab38-2985ac23dcc8\",\n      \"stages\": [\n        \"input_accepted\",\n        \"turn_started\"\n      ],\n      \"provider\": \"claude\",\n      \"observation\": \"supported\",\n      \"processIncarnation\": \"20646d08-82ac-48af-ab12-b82f02164727\",\n      \"generation\": 6142,\n      \"baselineWorkingSequence\": 0,\n      \"baselineExplicitWorkingStartedAt\": null,\n      \"baselinePermissionSequence\": 0\n    },\n    \"residualResources\": [],\n    \"warning\": \"Terminal term_3b30891c-15f6-4a5f-8a6f-cd8cc2991449 is running, but Orca could not make it discoverable. Run `orca terminal focus --terminal term_3b30891c-15f6-4a5f-8a6f-cd8cc2991449` to reveal and focus it.\",\n    \"mutation\": {\n      \"requestId\": \"b3566dfd-aad8-4440-ab38-2985ac23dcc8\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-11-01T00:56:02.300Z"
+}

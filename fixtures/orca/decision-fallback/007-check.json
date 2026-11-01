@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_093c4a1c027d",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"a2023586-2b3a-4b1c-b14f-8a16c3ef156d\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_093c4a1c027d\",\n    \"deliveryId\": \"delivery_8d9baa7f791a\",\n    \"messages\": [\n      {\n        \"id\": \"msg_253c1d182eb1\",\n        \"run_id\": \"run_093c4a1c027d\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_0e1b7050-b65d-4d5b-9bb6-8dffb1142682\",\n        \"to_handle\": \"run:run_093c4a1c027d\",\n        \"subject\": \"Spec effect implementation complete\",\n        \"body\": \"Completed spec effect changes across decision, dispatch, and brief systems. Modified 20+ source files and test files to implement effect handling in decision seats and process dispatch logic. All changes are staged and the branch is ready for integration.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_77b356a418d1\\\",\\\"dispatchId\\\":\\\"ctx_cb9a18220e82\\\",\\\"outcome\\\":\\\"succeeded\\\"}\",\n        \"created_at\": \"2026-11-01T00:54:55Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"f1669002-e852-4415-8fef-4100fd79b6d7\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-11-01T00:55:08.183Z"
+}

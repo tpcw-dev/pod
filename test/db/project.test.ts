@@ -7,6 +7,7 @@ import {
   test,
 } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
+import { revisionId } from "../../src/core/config/canonical-json.ts";
 import { TaskTransitionInvalid } from "../../src/core/domain/task-state.ts";
 import { applyOutcome, recordOutcome } from "../../src/core/process/project.ts";
 import type { Outcome } from "../../src/core/process/schema.ts";
@@ -256,6 +257,69 @@ describeDb("applyOutcome", () => {
         outcome: "FAIL",
         edge: { to: "implement", new_task: true, then: "review" },
       });
+    });
+
+    test("replacements of superseded Tasks do not count against rework_per_lineage", async () => {
+      const copy = (id: string, state: string, reworkOf: string | null) =>
+        conn.sql`
+          insert into ledger.task (task_id, run_id, step_id, lineage_id, role, deps, spec_revision_id, state, rework_of, created_at)
+          select ${id}, run_id, step_id, lineage_id, role, deps, spec_revision_id, ${state}, ${reworkOf}, created_at
+          from ledger.task where task_id = 'task_i1'`;
+      await copy("task_s0", "superseded", null);
+      await copy("task_s1", "superseded", "task_s0");
+      await copy("task_s2", "done", "task_s1");
+      const result = await apply(reworkCreates, "task_r1", "FAIL");
+      expect(result).toMatchObject({
+        ok: true,
+        result: { state: "failed", created: ["task_i2", "task_r2"] },
+      });
+    });
+
+    test("a rework after a change_spec replacement keeps the agreed Task spec Revision", async () => {
+      const envelope = {
+        kind: "task" as const,
+        name: "run_1:implement",
+        schema_version: 1,
+        scope: "run" as const,
+        scope_ref: "run_1",
+        parent: null,
+        value: { spec: "Implement it with the agreed error envelope." },
+      };
+      const { revision } = await conn.db.insertRevision({
+        ...envelope,
+        id: revisionId(envelope),
+        actor: "pod decide",
+        reason: "pod decide --effect change_spec",
+      });
+      await setState("task_i1", "superseded");
+      await conn.sql`
+        insert into ledger.task (task_id, run_id, step_id, lineage_id, role, deps, spec_revision_id, state, rework_of, created_at)
+        select 'task_i1b', run_id, step_id, lineage_id, role, deps, ${revision.id}, 'done', 'task_i1', created_at
+        from ledger.task where task_id = 'task_i1'`;
+      const result = await apply(
+        [
+          ok("task-create", { task: { id: "task_i2", status: "ready" } }, [
+            "--spec",
+            "Implement it with the agreed error envelope.",
+            "--task-title",
+            "implement",
+          ]),
+          reworkCreates[1] as TempEntry,
+        ],
+        "task_r1",
+        "FAIL",
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        result: { created: ["task_i2", "task_r2"] },
+      });
+      expect(await conn.db.getTask("task_i2")).toMatchObject({
+        rework_of: "task_i1b",
+        spec_revision_id: revision.id,
+      });
+      expect((await conn.db.getTask("task_r2"))?.spec_revision_id).not.toBe(
+        revision.id,
+      );
     });
 
     test("a replayed FAIL creates nothing twice", async () => {

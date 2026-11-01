@@ -1,0 +1,18 @@
+{
+  "verb": "send",
+  "match": {
+    "argv": [
+      "orchestration",
+      "send",
+      "--to",
+      "dispatch:ctx_40d0f24cd2a1",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"c1e5924d-420e-4ae0-8506-8c64bba0eede\",\n  \"ok\": true,\n  \"result\": {\n    \"message\": {\n      \"id\": \"msg_b855e8e7abab\",\n      \"run_id\": \"run_093c4a1c027d\",\n      \"delivery_contract\": \"current_delivery\",\n      \"from_handle\": \"term_7e1abebc-49e7-4524-b771-ff1c8ff230d0\",\n      \"to_handle\": \"dispatch:ctx_40d0f24cd2a1\",\n      \"subject\": \"decision dec_66dcdd0314b829f0355fc9d852ec00b950a63de8cff564b1219631273c7e7472 round 1 proposal\",\n      \"body\": \"Decision dec_66dcdd0314b829f0355fc9d852ec00b950a63de8cff564b1219631273c7e7472 round 1. Audit this proposal.\\n\\nQuestion: Which rollout should the plan use? The plan must name a rollback step before it can be agreed. The decider proposes the option that names a rollback step, and the auditor agrees with a proposal that names one.\\nProposal: Ship in two releases with a rollback step between them: release 1 ships the spec-effect change behind verification, then a rollback checkpoint confirms health before release 2 proceeds; if release 1 fails verification, roll back to the prior release before attempting release 2.\\nCitations: process:dc1ba28ae9af3268b19c906fb8a46fe151cd344e08857cc2485695a064de4625\",\n      \"type\": \"status\",\n      \"priority\": \"normal\",\n      \"thread_id\": null,\n      \"payload\": null,\n      \"created_at\": \"2026-11-01T00:56:02Z\",\n      \"delivered_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"f1c68ec1-18dd-421e-a412-bd6c38e0d232\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-11-01T00:56:02.701Z"
+}

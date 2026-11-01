@@ -1,7 +1,13 @@
 import type { DecisionState, Round } from "../domain/decision.ts";
 
 export type DecisionEvent =
-  "open" | "agree" | "disagree" | "escalate" | "needs_evidence" | "cancel";
+  | "open"
+  | "agree"
+  | "disagree"
+  | "escalate"
+  | "needs_evidence"
+  | "cancel"
+  | "runtime_failure";
 
 export type Effect =
   "send_round_open" | "send_round_next" | "record_outcome" | "hold_task";
@@ -58,6 +64,12 @@ export const transitions: readonly Row[] = [
     from: "round",
     event: "needs_evidence",
     to: contextMissing,
+    effect: "record_outcome",
+  },
+  {
+    from: "open",
+    event: "runtime_failure",
+    to: { kind: "needs_human", reason: "runtime-failure" },
     effect: "record_outcome",
   },
   {

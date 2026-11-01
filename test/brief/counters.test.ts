@@ -14,6 +14,8 @@ const zeros = {
   retries: 0,
   rework_tasks: 0,
   hand_filled: 0,
+  fallback_launches: 0,
+  model_mismatches: 0,
 };
 
 test("an empty Run counts zeros", () => {
@@ -37,6 +39,55 @@ test("an event from another Run is ignored", () => {
       [{ op_key: "op-retry" }],
     ),
   ).toEqual(zeros);
+});
+
+test("a start carrying fallback_of counts a fallback launch", () => {
+  const start = (payload: Record<string, string>) => ({
+    run_id: "run-a",
+    type: "start" as const,
+    op_key: null,
+    source: { kind: "command", verb: "decide" },
+    payload,
+  });
+  expect(
+    countRun(
+      { run_id: "run-a" },
+      [],
+      [],
+      [
+        start({ seat: "dec-fb", fallback_of: "dec-1" }),
+        start({ seat: "aud-1" }),
+      ],
+      [],
+    ).fallback_launches,
+  ).toBe(1);
+});
+
+test("a receipt-attributed Dispatch whose effective model differs from the requested one counts a mismatch", () => {
+  const row = (
+    requested: string,
+    effective: string,
+    attribution: "receipt" | "unknown",
+  ) => ({
+    run_id: "run-a",
+    op_key: `op-${requested}-${effective}-${attribution}`,
+    requested_launch: { agent: "claude", model: requested },
+    effective_launch: { agent: "claude", model: effective },
+    model_attribution: attribution,
+  });
+  expect(
+    countRun(
+      { run_id: "run-a" },
+      [],
+      [
+        row("m-1", "m-2", "receipt"),
+        row("m-1", "m-1", "receipt"),
+        row("m-1", "m-2", "unknown"),
+      ],
+      [],
+      [],
+    ).model_mismatches,
+  ).toBe(1);
 });
 
 test("a hand-filled source that is not a command does not count", () => {

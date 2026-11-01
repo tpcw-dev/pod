@@ -6,6 +6,7 @@ import {
   followDecisions,
   type FollowUp,
 } from "../decide/advance.ts";
+import { followSupersedes } from "../decide/supersede.ts";
 import { Templates } from "../decide/templates.ts";
 import {
   deliveryFacts,
@@ -191,6 +192,14 @@ export async function checkPass(
           now: input.now,
         })),
       );
+    result.nextSteps.push(
+      ...(await followSupersedes(db, orca, log, {
+        run,
+        workers,
+        host: input.host,
+        now: input.now,
+      })),
+    );
     const rows = await workers();
     if (rows === null)
       result.nextSteps.push("worker-list unreadable; run pod check again");

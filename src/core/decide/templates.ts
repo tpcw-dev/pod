@@ -69,3 +69,7 @@ export function validateDecisionTemplates(
   }
   return null;
 }
+
+export function optionsText(options: readonly string[]): string {
+  return options.map((option) => `- ${option}`).join("\n");
+}

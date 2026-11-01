@@ -258,6 +258,53 @@ describeDb("pod config apply and export", () => {
     expect(result.json.error?.nextSteps[0]).toMatch(/^parent: /);
   });
 
+  test.each([
+    [
+      "an undefined seat",
+      [{ id: "dec", roles: ["decider"], runtime: "claude", fallback: "gone" }],
+      "seats.0.fallback: names undefined seat gone",
+    ],
+    [
+      "the seat itself",
+      [{ id: "dec", roles: ["decider"], runtime: "claude", fallback: "dec" }],
+      "seats.0.fallback: names the seat itself",
+    ],
+    [
+      "a cycle",
+      [
+        { id: "a", roles: ["decider"], runtime: "claude", fallback: "b" },
+        {
+          id: "b",
+          roles: ["decider-fallback"],
+          runtime: "claude",
+          fallback: "a",
+        },
+      ],
+      "seats.0.fallback: forms a cycle a -> b -> a",
+    ],
+  ])(
+    "a crew fallback naming %s is schema_invalid at the field",
+    async (_, seats, message) => {
+      const path = file(
+        `fallback-${seats.length}-${String(seats[0]?.fallback)}.yaml`,
+        stringify({
+          kind: "crew",
+          name: "fallback",
+          schema_version: 1,
+          value: { seats },
+        }),
+      );
+      const result = runCli(["config", "apply", path]);
+      expect(result.status).toBe(2);
+      expect(result.json.error?.code).toBe("schema_invalid");
+      expect(result.json.error?.message).toBe(message);
+      expect(result.json.error?.nextSteps).toEqual([message.split(":")[0]]);
+      expect(
+        await db.sql`select 1 from config.revision where kind = 'crew' and name = 'fallback'`,
+      ).toHaveLength(0);
+    },
+  );
+
   test("a duplicate key is schema_invalid", () => {
     const path = file(
       "dup.yaml",
@@ -688,7 +735,7 @@ describe("crew example file", () => {
       text.match(
         /^    # Fill id, runtime, model, and host before this seat is used\.$/gm,
       ),
-    ).toHaveLength(5);
+    ).toHaveLength(7);
     expect(text).toContain("runtime: example");
     expect(text).toContain("model: example");
     expect(text).toContain("host: example-host");

@@ -25,6 +25,7 @@ import {
 } from "../../core/domain/config.ts";
 import {
   countBriefRun,
+  startFallbackOf,
   sumBriefCounters,
   type BriefDispatch,
   type BriefRun,
@@ -1130,7 +1131,16 @@ function makeRepo(x: Executor): Repo {
               row.manifest_id === null
                 ? null
                 : await repo.getManifest(row.manifest_id);
-            dispatches.push({ ...row, tests: manifest?.tests ?? [] });
+            const start = runEvents.find(
+              (item) =>
+                item.type === "start" && item.dispatch_id === row.dispatch_id,
+            );
+            dispatches.push({
+              ...row,
+              tests: manifest?.tests ?? [],
+              fallback_of:
+                start === undefined ? null : startFallbackOf(start.payload),
+            });
           }
           runs.push({
             run: {

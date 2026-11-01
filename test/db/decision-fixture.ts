@@ -5,7 +5,8 @@ import { checkPass, type CheckInput } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { decisionLimits } from "../../src/core/config/limits.ts";
 import { openDecision, type DecideInput } from "../../src/core/decide/open.ts";
-import type { Revision } from "../../src/core/domain/config.ts";
+import { revisionId } from "../../src/core/config/canonical-json.ts";
+import type { NewRevision, Revision } from "../../src/core/domain/config.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import { runCreate } from "../../src/core/run/create.ts";
 import { ok, type TempEntry } from "../orca/temp-fixtures.ts";
@@ -86,10 +87,11 @@ export function defaultTemplates(): Json {
 export async function seedDecision(
   conn: Connection,
   policy: Json = { gates: [] },
+  crew: Json = decisionCrew,
 ): Promise<Revision> {
   await clearDb(conn);
   await activeRevision(conn.db, "policy", "default", policy);
-  await activeRevision(conn.db, "crew", "default", decisionCrew);
+  await activeRevision(conn.db, "crew", "default", crew);
   await activeRevision(conn.db, "process", "plan", planProcess);
   return activeRevision(conn.db, "decision", "default", defaultTemplates());
 }
@@ -106,11 +108,75 @@ export function checkInput(over: Partial<CheckInput> = {}): CheckInput {
   };
 }
 
-export async function deliveredPlan(
+export async function dispatchedPlan(
   conn: Connection,
   policy: Json = { gates: [] },
 ): Promise<Revision> {
   const templates = await seedDecision(conn, policy);
+  const created = replay(conn, [
+    ok("run-create", { run: { id: "run_1" } }),
+    ok("task-create", { task: { id: planTask, status: "ready" } }),
+    ok("task-create", { task: { id: implementTask, status: "pending" } }),
+  ]);
+  const made = await runCreate(conn.db, created.orca, null, created.log, {
+    story: "S-9",
+    process: { name: "plan", rev: 1 },
+    size: "xl",
+    stage: "impl",
+    coordinator: "session-1",
+    host: "local",
+    provider: "linear",
+    command: "pod run create story:S-9",
+    now: () => new Date(),
+  });
+  if (!made.ok) throw new Error(made.refusal.message);
+  await dispatched(conn, planner, { task: planTask, seat: "plan-1" });
+  return templates;
+}
+
+export function taskSpec(
+  task: { lineage_id: string; run_id: string },
+  spec = "Plan it with the agreed error envelope.",
+): NewRevision {
+  const envelope = {
+    kind: "task" as const,
+    name: task.lineage_id,
+    schema_version: 1,
+    scope: "run" as const,
+    scope_ref: task.run_id,
+    parent: null,
+    value: { spec },
+  };
+  return {
+    ...envelope,
+    id: revisionId(envelope),
+    actor: "pod decide",
+    reason: "pod decide --effect change_spec",
+  };
+}
+
+export function refusedReply(
+  verb: string,
+  code: string,
+  argv: string[] = [],
+): TempEntry {
+  return {
+    verb,
+    argv,
+    exitCode: 1,
+    stdout: JSON.stringify({
+      ok: false,
+      error: { code, message: `${verb} refused`, data: {} },
+    }),
+  };
+}
+
+export async function deliveredPlan(
+  conn: Connection,
+  policy: Json = { gates: [] },
+  crew: Json = decisionCrew,
+): Promise<Revision> {
+  const templates = await seedDecision(conn, policy, crew);
   const created = replay(conn, [
     ok("run-create", { run: { id: "run_1" } }),
     ok("task-create", { task: { id: planTask, status: "ready" } }),
