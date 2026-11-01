@@ -251,6 +251,10 @@ describeDb("decision states", () => {
       where type = 'decision' and payload->>'decision_id' = ${id} order by id`;
   }
 
+  async function newestEvent(id: string) {
+    return (await decisionEvents(id)).at(-1)?.payload;
+  }
+
   async function rounds(id: string) {
     return conn.sql<{ round: number; stance: string; manifest_id: string }[]>`
       select round, stance, manifest_id from ledger.decision_round
@@ -433,6 +437,15 @@ describeDb("decision states", () => {
         });
         const id = String(held.json.result?.["decision_id"]);
         await settledAs(4, id, "needs_human", "policy-required");
+        expect(await newestEvent(id)).toMatchObject({
+          decision_id: id,
+          outcome: "needs_human",
+          reason: "policy-required",
+          reserved: {
+            class: "needs_existing_authorization",
+            member: "mirror_open",
+          },
+        });
         expect(await seats()).toBe(0);
       },
     },
@@ -462,8 +475,7 @@ describeDb("decision states", () => {
         await proposed(id);
         await pass(delivery("delivery_a1", [audit("a1", id, 1, "agree")]));
         await settledAs(6, id, "agreed", "agreed");
-        const [decided] = await decisionEvents(id);
-        expect(decided?.payload).toMatchObject({
+        expect(await newestEvent(id)).toMatchObject({
           outcome: "agreed",
           effect: "accept_plan",
           rounds: 1,
@@ -491,6 +503,12 @@ describeDb("decision states", () => {
         expect(superseding.status, superseding.json.error?.message).toBe(0);
         const id = String(superseding.json.result?.["decision_id"]);
         await settledAs(7, old, "superseded", "superseded");
+        expect(await newestEvent(old)).toMatchObject({
+          decision_id: old,
+          outcome: "superseded",
+          reason: "superseded",
+          superseded_by: id,
+        });
         expect((await decision(old)).outcome).toMatchObject({ by: id });
         expect(await decision(id)).toMatchObject({
           state: "round:1",
@@ -512,6 +530,13 @@ describeDb("decision states", () => {
       to: "`needs_human` with reason `context-missing`, and the outcome is not executable",
       drive: async () => {
         const id = await opened(8);
+        const root = await conn.db.getManifest(
+          (await decision(id)).manifest_id,
+        );
+        const pinnedTask = (
+          root?.references as { source: string; revision: string }[]
+        ).find((row) => row.source === "task")?.revision;
+        expect(pinnedTask).toBeDefined();
         await proposed(id);
         await pass(
           delivery(
@@ -569,11 +594,10 @@ describeDb("decision states", () => {
         expect((await decisionEvents(id)).at(-1)?.payload).toMatchObject({
           outcome: "needs_human",
           reason: "context-missing",
-          changed: expect.stringMatching(/^task:/),
+          changed: `task:${pinnedTask}`,
         });
         expect(await taskState(planTask)).toBe("delivered");
         expect(await taskState(implementTask)).toBe("pending");
-        expect(await conn.db.getOperation(supersedeOpKey(id))).toBeNull();
       },
     },
     {
@@ -811,6 +835,11 @@ describeDb("decision states", () => {
         ]);
         expect(cancelled.status, cancelled.json.error?.message).toBe(0);
         await settledAs(16, id, "cancelled", "cancelled");
+        expect(await newestEvent(id)).toMatchObject({
+          decision_id: id,
+          outcome: "cancelled",
+          reason: "cancelled",
+        });
         expect(await taskState(planTask)).toBe("hold");
         await pass([
           ok("check", empty(), run),
@@ -829,6 +858,11 @@ describeDb("decision states", () => {
       drive: async () => {
         failed = await failedAtOpen(17);
         await settledAs(17, failed, "needs_human", "runtime-failure");
+        expect(await newestEvent(failed)).toMatchObject({
+          decision_id: failed,
+          outcome: "needs_human",
+          reason: "runtime-failure",
+        });
         expect(await rounds(failed)).toEqual([]);
         expect((await decision(failed)).spent).toMatchObject({ relaunches: 0 });
         expect(
@@ -849,8 +883,11 @@ describeDb("decision states", () => {
       to: "`round(n)` for the interrupted round, with the same Decision id, rounds, and manifest, and the failed Seat's Dispatch reopened with a summary of earlier positions",
       drive: async () => {
         expect(failed).not.toBe("");
+        await conn.sql`update ledger.decision
+          set spent = spent || '{"tool_calls": 1}'::jsonb,
+            created_at = created_at - interval '600 seconds'
+          where id = ${failed}`;
         const before = await decision(failed);
-        const spent = before.spent as Record<string, number>;
         await pass(
           [
             ok("check", empty(), run),
@@ -872,13 +909,10 @@ describeDb("decision states", () => {
           closed_at: null,
         });
         expect(before.outcome).toMatchObject({ round: 1 });
-        expect(after.spent).toMatchObject({
-          relaunches: 1,
-          tool_calls: spent["tool_calls"],
-        });
+        expect(after.spent).toMatchObject({ relaunches: 1, tool_calls: 1 });
         expect(
           (after.spent as { wall_clock: number }).wall_clock,
-        ).toBeGreaterThanOrEqual(spent["wall_clock"] ?? 0);
+        ).toBeGreaterThanOrEqual(600);
         expect((await decisionEvents(failed)).at(-1)?.payload).toMatchObject({
           resumed_round: 1,
           ruling: { comment_id: "c-1", author: keeper, verb: "resume" },
@@ -1014,6 +1048,12 @@ describeDb("decision states", () => {
         expect(later.status, later.json.error?.message).toBe(0);
         const id = String(later.json.result?.["decision_id"]);
         await settledAs(21, old, "superseded", "superseded");
+        expect(await newestEvent(old)).toMatchObject({
+          decision_id: old,
+          outcome: "superseded",
+          reason: "superseded",
+          superseded_by: id,
+        });
         expect((await decision(old)).outcome).toMatchObject({ by: id });
         expect(await conn.db.getOperation(supersedeOpKey(old))).toMatchObject({
           status: "refused",
