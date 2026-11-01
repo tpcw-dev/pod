@@ -13,7 +13,7 @@ import {
   replacementOpKey,
   supersedeOpKey,
 } from "../process/project.ts";
-import { SupersedeRef } from "./effects.ts";
+import { changeSpecStates, SupersedeRef } from "./effects.ts";
 import { appendDecisionEvent } from "./event.ts";
 
 export interface SupersedeContext {
@@ -22,14 +22,6 @@ export interface SupersedeContext {
   host: string;
   now: () => Date;
 }
-
-const supersedable: readonly string[] = [
-  "pending",
-  "ready",
-  "hold",
-  "dispatched",
-  "delivered",
-];
 
 const TaskSpecValue = z.looseObject({ spec: z.string() });
 
@@ -61,8 +53,10 @@ async function followOne(
   const task = await db.getTask(ref.task_id);
   if (decision === null || task === null)
     throw new Error(`supersede ${opKey} lost its Decision or Task`);
-  if (!supersedable.includes(task.state))
-    return db.transaction((tx) => refuseEffect(tx, opKey, ref, decision, task, context));
+  if (!changeSpecStates.includes(task.state))
+    return db.transaction((tx) =>
+      refuseEffect(tx, opKey, ref, decision, task, context),
+    );
   const save = (next: Partial<SupersedeRef>) =>
     db.moveOperation(
       opKey,
@@ -128,7 +122,7 @@ async function followOne(
     if ((await tx.getOperation(opKey))?.status !== "pending") return null;
     const current = await tx.getTask(task.task_id);
     if (current === null) throw new Error(`Task ${task.task_id} vanished`);
-    if (!supersedable.includes(current.state))
+    if (!changeSpecStates.includes(current.state))
       return refuseEffect(tx, opKey, ref, decision, current, context);
     const at = context.now();
     await activate(tx, current, ref.revision_id, decision.id, context.host, at);
@@ -138,10 +132,16 @@ async function followOne(
       revisionId: ref.revision_id,
       at,
     });
-    await appendDecisionEvent(tx, decision, agreed(decision), { at, host: context.host }, {
-      revision_id: ref.revision_id,
-      replacement_task_id: made.taskId,
-    });
+    await appendDecisionEvent(
+      tx,
+      decision,
+      stateOf(decision),
+      { at, host: context.host },
+      {
+        revision_id: ref.revision_id,
+        replacement_task_id: made.taskId,
+      },
+    );
     await tx.moveOperation(
       opKey,
       "done",
@@ -152,7 +152,7 @@ async function followOne(
   });
 }
 
-function agreed(decision: DecisionRow) {
+function stateOf(decision: DecisionRow) {
   return parseDecisionState(decision.state, decision.reason);
 }
 
@@ -223,10 +223,16 @@ async function refuseEffect(
     }),
     at,
   );
-  await appendDecisionEvent(tx, decision, agreed(decision), { at, host: context.host }, {
-    revision_id: ref.revision_id,
-    replacement_task_id: null,
-    applied: false,
-  });
+  await appendDecisionEvent(
+    tx,
+    decision,
+    stateOf(decision),
+    { at, host: context.host },
+    {
+      revision_id: ref.revision_id,
+      replacement_task_id: null,
+      applied: false,
+    },
+  );
   return message;
 }

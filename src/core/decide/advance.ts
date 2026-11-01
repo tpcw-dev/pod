@@ -233,7 +233,13 @@ export async function failDecision(
   const state = parseDecisionState(decision.state, decision.reason);
   const step = next(state, "runtime_failure", 3);
   if (step === null) return false;
-  await settle(tx, decision, step.to, `${stateText(step.to)}: runtime-failure`, input);
+  await settle(
+    tx,
+    decision,
+    step.to,
+    `${stateText(step.to)}: runtime-failure`,
+    input,
+  );
   return true;
 }
 

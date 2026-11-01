@@ -214,7 +214,9 @@ export async function insertStart(tx: Repo, start: StartRow): Promise<void> {
           ? {}
           : { decision_id: owner.decision_id }),
         ...(start.retry_of === null ? {} : { retry_of: start.retry_of }),
-        ...(start.fallback_of == null ? {} : { fallback_of: start.fallback_of }),
+        ...(start.fallback_of == null
+          ? {}
+          : { fallback_of: start.fallback_of }),
         ...(start.late ? { late: true } : {}),
       },
       source: { kind: "command", verb: start.verb },

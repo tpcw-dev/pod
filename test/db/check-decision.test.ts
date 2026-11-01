@@ -400,13 +400,16 @@ describeDb("pod check applies a change_spec Decision", () => {
 
   const plannerRunning = ok(
     "worker-list",
-    workers([{ dispatchId: planner, taskId: planTask, workerState: "running" }]),
+    workers([
+      { dispatchId: planner, taskId: planTask, workerState: "running" },
+    ]),
     run,
   );
-  const stopsPlanner = ok("worker-stop", { dispatchId: planner, state: "stopped" }, [
-    "--dispatch",
-    planner,
-  ]);
+  const stopsPlanner = ok(
+    "worker-stop",
+    { dispatchId: planner, state: "stopped" },
+    ["--dispatch", planner],
+  );
   const createsReplacement = ok(
     "task-create",
     { task: { id: replacement, status: "ready" } },
@@ -429,8 +432,10 @@ describeDb("pod check applies a change_spec Decision", () => {
     expect((await conn.db.getDispatch(planner))?.activity).toBe("waiting");
     const decision = await conn.db.getDecision(id);
     const revision = (
-      (await conn.db.getManifest(decision?.manifest_id ?? ""))
-        ?.references as { source: string; revision: string }[]
+      (await conn.db.getManifest(decision?.manifest_id ?? ""))?.references as {
+        source: string;
+        revision: string;
+      }[]
     ).find((row) => row.source === "revision")?.revision;
     expect(revision).toBeDefined();
     await proposed(id);
@@ -505,7 +510,10 @@ describeDb("pod check applies a change_spec Decision", () => {
     if (!launched.ok) throw new Error(launched.refusal.message);
     const view = await conn.db.getManifest(launched.result.manifest_id);
     expect(view?.references).toContainEqual(
-      expect.objectContaining({ source: "git_status", excerpt: "## main\n M plan.md" }),
+      expect.objectContaining({
+        source: "git_status",
+        excerpt: "## main\n M plan.md",
+      }),
     );
   });
 
@@ -598,7 +606,9 @@ describeDb("pod check applies a change_spec Decision", () => {
       stopsPlanner,
       refusedReply("task-create", "invalid_argument", ["--run", "run_1"]),
     ]);
-    expect(first.nextSteps.join("\n")).toContain("task-create for the replacement");
+    expect(first.nextSteps.join("\n")).toContain(
+      "task-create for the replacement",
+    );
     expect((await conn.db.getTask(planTask))?.state).toBe("dispatched");
     expect((await conn.db.getRun("run_1"))?.state).toBe("active");
     expect((await supersedeOp(id))?.result_ref).toMatchObject({
@@ -670,8 +680,10 @@ describeDb("pod check applies a change_spec Decision", () => {
     ]);
     const decision = await conn.db.getDecision(second);
     const revision = (
-      (await conn.db.getManifest(decision?.manifest_id ?? ""))
-        ?.references as { source: string; revision: string }[]
+      (await conn.db.getManifest(decision?.manifest_id ?? ""))?.references as {
+        source: string;
+        revision: string;
+      }[]
     ).find((row) => row.source === "revision")?.revision;
     expect(await activation()).toEqual([{ revision_id: revision }]);
     expect(await conn.db.getTask(replacement)).toMatchObject({

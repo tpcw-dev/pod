@@ -29,7 +29,12 @@ const fallbackCrew = {
       model: "m-2",
       fallback: "dec-fb",
     },
-    { id: "dec-fb", roles: ["decider-fallback"], runtime: "claude", model: "m-4" },
+    {
+      id: "dec-fb",
+      roles: ["decider-fallback"],
+      runtime: "claude",
+      model: "m-4",
+    },
     {
       id: "aud-1",
       roles: ["auditor"],
@@ -127,15 +132,16 @@ describeDb("decision Seats fall back", () => {
     const [start] = (await events(conn, "start")).filter(
       (row) => row.dispatch_id === "ctx_fb",
     );
-    expect(start?.payload).toMatchObject({ seat: "dec-fb", fallback_of: "dec-1" });
+    expect(start?.payload).toMatchObject({
+      seat: "dec-fb",
+      fallback_of: "dec-1",
+    });
     const ops = await seatOps();
     expect(ops).toHaveLength(2);
     expect(ops.find((row) => row.request["seat"] === "dec-1")?.status).toBe(
       "refused",
     );
-    expect(
-      ops.find((row) => row.request["seat"] === "dec-fb"),
-    ).toMatchObject({
+    expect(ops.find((row) => row.request["seat"] === "dec-fb")).toMatchObject({
       status: "done",
       request: {
         fallback_of: "dec-1",
@@ -191,7 +197,9 @@ describeDb("decision Seats fall back", () => {
       state: "needs_human",
       reason: "runtime-failure",
     });
-    expect(await conn.sql`select 1 from ledger.dispatch where decision_id is not null`).toHaveLength(0);
+    expect(
+      await conn.sql`select 1 from ledger.dispatch where decision_id is not null`,
+    ).toHaveLength(0);
     expect((await events(conn, "decision"))[0]?.payload).toMatchObject({
       outcome: "needs_human",
       reason: "runtime-failure",
@@ -211,8 +219,9 @@ describeDb("decision Seats fall back", () => {
     const ops = await seatOps();
     expect(ops.map((row) => row.status)).toEqual(["unknown"]);
     expect(
-      (await conn.sql<{ state: string }[]>`select state from ledger.decision`)[0]
-        ?.state,
+      (
+        await conn.sql<{ state: string }[]>`select state from ledger.decision`
+      )[0]?.state,
     ).toBe("round:1");
   });
 

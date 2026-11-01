@@ -46,7 +46,10 @@ const Question = z.strictObject({
   spec: TaskSpecFile.optional(),
 });
 
-function specRevision(task: Task | null, file: TaskSpecFile): NewRevision | null {
+function specRevision(
+  task: Task | null,
+  file: TaskSpecFile,
+): NewRevision | null {
   if (task === null) return null;
   const envelope = {
     kind: "task" as const,

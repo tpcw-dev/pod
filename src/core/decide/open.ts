@@ -31,6 +31,7 @@ import type { OrcaPort } from "../ports/orca.ts";
 import { readProcess } from "../process/project.ts";
 import { next } from "./table.ts";
 import { failDecision } from "./advance.ts";
+import { changeSpecStates } from "./effects.ts";
 import { optionsText, renderTemplate, Templates } from "./templates.ts";
 
 export interface Limits {
@@ -263,7 +264,10 @@ async function sendRoundOpen(
   });
   if (!seat.ok) {
     if (seat.runtimeFailure === true)
-      return { ok: false, refusal: await needsHuman(db, decision.id, seat.refusal, input) };
+      return {
+        ok: false,
+        refusal: await needsHuman(db, decision.id, seat.refusal, input),
+      };
     return seat;
   }
   log.at({
@@ -359,14 +363,6 @@ function notReady(task: Task, why: string): Refusal {
   };
 }
 
-const specStates: readonly string[] = [
-  "pending",
-  "ready",
-  "hold",
-  "dispatched",
-  "delivered",
-];
-
 async function precondition(
   tx: Repo,
   task: Task,
@@ -374,7 +370,7 @@ async function precondition(
 ): Promise<Refusal | null> {
   if (effect === "accept_plan" && task.state !== "delivered")
     return notReady(task, "is not delivered");
-  if (effect === "change_spec" && !specStates.includes(task.state))
+  if (effect === "change_spec" && !changeSpecStates.includes(task.state))
     return notReady(task, `is ${task.state}`);
   const { step } = await readProcess(tx, task, "agreed");
   if (effect === "accept_plan" && step.decision === undefined)

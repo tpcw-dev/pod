@@ -9,6 +9,14 @@ import {
   type Recorded,
 } from "../process/project.ts";
 
+export const changeSpecStates: readonly string[] = [
+  "pending",
+  "ready",
+  "hold",
+  "dispatched",
+  "delivered",
+];
+
 export const SupersedeRef = z.looseObject({
   kind: z.literal("supersede"),
   run_id: z.string(),
