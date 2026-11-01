@@ -20,10 +20,10 @@ import {
 import { ManifestReference, manifestText } from "../manifest/references.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
-import { applyEffect } from "./effects.ts";
-import { optionsText } from "./open.ts";
+import { applyEffect, specRevisionOf } from "./effects.ts";
+import { appendDecisionEvent, reasonText } from "./event.ts";
 import { next, proposalStance } from "./table.ts";
-import { renderTemplate, type Templates } from "./templates.ts";
+import { optionsText, renderTemplate, type Templates } from "./templates.ts";
 
 export type FollowUp =
   | {
@@ -182,10 +182,6 @@ async function applyAudit(
   return { kind: "recorded", followUps: [], settled: stateText(step.to) };
 }
 
-function reasonText(state: DecisionState): string {
-  return state.kind === "needs_human" ? state.reason : state.kind;
-}
-
 async function move(
   tx: Repo,
   decision: DecisionRow,
@@ -211,30 +207,34 @@ async function settle(
   context: { at: Date; host: string },
 ): Promise<void> {
   await move(tx, decision, to, { result: to.kind, text }, context.at);
-  const rounds = await tx.listDecisionRounds(decision.id);
-  await tx.appendEvent({
-    type: "decision",
-    ts: context.at,
-    host: context.host,
-    run_id: decision.run_id,
-    task_id: decision.task_id,
-    dispatch_id: null,
-    op_key: null,
-    payload: Json.parse({
-      decision_id: decision.id,
-      manifest_id: decision.manifest_id,
-      rounds: rounds.length,
-      outcome: to.kind,
-      reason: reasonText(to),
-      effect: decision.effect,
-      stance_history: rounds.map((row) => ({
-        round: row.round,
-        stance: row.stance,
-      })),
-    }),
-    source: { kind: "command", verb: "check" },
-  });
+  const supersedes = decision.effect === "change_spec";
+  if (!supersedes || to.kind !== "agreed")
+    await appendDecisionEvent(
+      tx,
+      decision,
+      to,
+      context,
+      supersedes
+        ? {
+            revision_id: await specRevisionOf(tx, decision),
+            replacement_task_id: null,
+          }
+        : {},
+    );
   await applyEffect(tx, decision, to, context);
+}
+
+export async function failDecision(
+  tx: Repo,
+  input: { decision: string; at: Date; host: string },
+): Promise<boolean> {
+  const decision = await tx.getDecision(input.decision);
+  if (decision === null) return false;
+  const state = parseDecisionState(decision.state, decision.reason);
+  const step = next(state, "runtime_failure", 3);
+  if (step === null) return false;
+  await settle(tx, decision, step.to, `${stateText(step.to)}: runtime-failure`, input);
+  return true;
 }
 
 export async function cancelDecision(
@@ -320,9 +320,20 @@ async function recipient(
     capacity: context.capacity,
     now: context.now,
   });
-  return seat.ok
-    ? seat.dispatch.dispatch_id
-    : { message: `${seat.refusal.code} ${seat.refusal.message}` };
+  if (seat.ok) return seat.dispatch.dispatch_id;
+  if (seat.runtimeFailure === true) {
+    await db.transaction((tx) =>
+      failDecision(tx, {
+        decision: decision.id,
+        at: context.now(),
+        host: context.host,
+      }),
+    );
+    return {
+      message: `${seat.refusal.code} ${seat.refusal.message}; Decision ${decision.id} is needs_human: runtime-failure`,
+    };
+  }
+  return { message: `${seat.refusal.code} ${seat.refusal.message}` };
 }
 
 function fieldsOf(decision: DecisionRow, references: Json) {

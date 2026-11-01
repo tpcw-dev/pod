@@ -30,6 +30,8 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Stance**: the auditor's answer to one proposal: agree, disagree, escalate, or needs_evidence.
 - **Evidence manifest**: the fixed list of sources a dispatch or decision may cite, each with its version, read time, and coverage.
 - **Revision**: an immutable, content-addressed version of a crew, process, or policy spec. Activation chooses which revision a scope uses.
+- **Fallback**: the crew seat Pod opens for a decider or auditor Seat when that Seat's own launch is refused. The launch is marked fallback_of in its start event and in the brief.
+- **Replacement Task**: the Task a change_spec Decision creates in the same lineage, with the new Task spec Revision and rework_of the Task it supersedes.
 - **Snapshot**: the three revision ids and the effective gate map a run pinned at start.
 - **Reserved**: policy classes a decision cannot settle on its own: deny, needs a human, needs an existing authorization.
 - **Area**: the classification of a learning, one of product, design, impl, process.

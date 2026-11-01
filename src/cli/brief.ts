@@ -41,6 +41,8 @@ const CountersJson = z.object({
   retries: z.number(),
   rework_tasks: z.number(),
   hand_filled: z.number(),
+  fallback_launches: z.number(),
+  model_mismatches: z.number(),
 });
 
 const TestJson = z.object({
@@ -89,6 +91,8 @@ export const BriefOutput = z.object({
             z.object({
               dispatch_id: z.string(),
               task_id: z.string().nullable(),
+              seat: z.string(),
+              note: z.string().nullable(),
               manifest_id: z.string().nullable(),
               activity: z.string(),
               settlement: z.string(),
@@ -227,6 +231,11 @@ function toBriefResult(tree: BriefTree): BriefResult {
         dispatches: run.dispatches.map((dispatch) => ({
           dispatch_id: dispatch.dispatch_id,
           task_id: dispatch.task_id,
+          seat: dispatch.seat,
+          note:
+            dispatch.fallback_of === null
+              ? null
+              : `fallback of ${dispatch.fallback_of}`,
           manifest_id: dispatch.manifest_id,
           activity: dispatch.activity,
           settlement: dispatch.settlement,

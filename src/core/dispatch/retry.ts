@@ -83,6 +83,23 @@ export async function retryPlan(
   return { worktreePath: id.slice(split + 2) };
 }
 
+export async function supersededWorktree(
+  db: Repo,
+  taskId: string,
+  host: string,
+): Promise<string | null> {
+  const task = await db.getTask(taskId);
+  const previous =
+    task?.rework_of == null ? null : await db.getTask(task.rework_of);
+  if (previous?.state !== "superseded") return null;
+  const last = (await db.listDispatches(previous.run_id))
+    .filter((row) => row.task_id === previous.task_id)
+    .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())[0];
+  if (last === undefined) return null;
+  const plan = await retryPlan(db, last.dispatch_id, host);
+  return "ok" in plan ? null : plan.worktreePath;
+}
+
 function launchFor(
   dispatch: Dispatch,
   seat: Seat | undefined,
@@ -150,6 +167,16 @@ export async function retry(
       `Dispatch ${input.dispatch} lost its Task or crew`,
       ["pod brief"],
     );
+  if (task.state === "superseded") {
+    const replacement = (await db.listTasks(task.run_id)).find(
+      (row) => row.rework_of === task.task_id,
+    );
+    return refuse("task_not_ready", `Task ${task.task_id} is superseded`, [
+      replacement === undefined
+        ? "pod brief"
+        : `pod dispatch --task ${replacement.task_id}`,
+    ]);
+  }
   let seats: Seat[];
   try {
     seats = readSeats(crew.value);

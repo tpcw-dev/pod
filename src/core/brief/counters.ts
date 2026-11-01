@@ -20,6 +20,8 @@ export function emptyCounters(): BriefCounters {
     retries: 0,
     rework_tasks: 0,
     hand_filled: 0,
+    fallback_launches: 0,
+    model_mismatches: 0,
   };
 }
 
@@ -31,6 +33,8 @@ export function sumCounters(rows: readonly BriefCounters[]): BriefCounters {
     sum.retries += row.retries;
     sum.rework_tasks += row.rework_tasks;
     sum.hand_filled += row.hand_filled;
+    sum.fallback_launches += row.fallback_launches;
+    sum.model_mismatches += row.model_mismatches;
   }
   return sum;
 }
@@ -67,8 +71,15 @@ function lineagePosition(tasks: readonly Pick<Task, "task_id" | "lineage_id" | "
 export function countRun(
   run: Pick<Run, "run_id">,
   tasks: readonly Pick<Task, "task_id" | "lineage_id" | "created_at">[],
-  dispatches: readonly Pick<Dispatch, "run_id" | "op_key">[],
-  events: readonly Pick<Event, "run_id" | "type" | "op_key" | "source">[],
+  dispatches: readonly (Pick<Dispatch, "run_id" | "op_key"> &
+    Partial<
+      Pick<
+        Dispatch,
+        "requested_launch" | "effective_launch" | "model_attribution"
+      >
+    >)[],
+  events: readonly (Pick<Event, "run_id" | "type" | "op_key" | "source"> &
+    Partial<Pick<Event, "payload">>)[],
   operations: readonly Pick<Operation, "op_key">[],
 ): BriefCounters {
   const runEvents = events.filter((row) => row.run_id === run.run_id);
@@ -89,5 +100,36 @@ export function countRun(
     hand_filled: runEvents.filter((row) =>
       handFilled.has(commandVerb(row.source) ?? ""),
     ).length,
+    fallback_launches: runEvents.filter(
+      (row) => row.type === "start" && fallbackOf(row.payload ?? null) !== null,
+    ).length,
+    model_mismatches: dispatches.filter(
+      (row) => row.run_id === run.run_id && modelMismatch(row),
+    ).length,
   };
+}
+
+export function fallbackOf(payload: Json): string | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload))
+    return null;
+  const value = payload["fallback_of"];
+  return typeof value === "string" ? value : null;
+}
+
+function modelOf(launch: Json | undefined): string | null {
+  if (typeof launch !== "object" || launch === null || Array.isArray(launch))
+    return null;
+  const model = launch["model"];
+  return typeof model === "string" ? model : null;
+}
+
+function modelMismatch(
+  row: Partial<
+    Pick<Dispatch, "requested_launch" | "effective_launch" | "model_attribution">
+  >,
+): boolean {
+  if (row.model_attribution !== "receipt") return false;
+  const requested = modelOf(row.requested_launch);
+  const effective = modelOf(row.effective_launch);
+  return requested !== null && effective !== null && requested !== effective;
 }

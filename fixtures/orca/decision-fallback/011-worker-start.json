@@ -1,0 +1,28 @@
+{
+  "verb": "worker-start",
+  "match": {
+    "argv": [
+      "orchestration",
+      "worker-start",
+      "--task",
+      "task_f46fa34f1310",
+      "--run",
+      "run_093c4a1c027d",
+      "--agent",
+      "pod-unregistered-agent",
+      "--model",
+      "claude-sonnet-5",
+      "--effort",
+      "low",
+      "--worktree",
+      "current",
+      "--json"
+    ]
+  },
+  "exitCode": 1,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"ec54c91a-fb3f-43a8-9817-cead7919bcfc\",\n  \"ok\": false,\n  \"error\": {\n    \"code\": \"agent_unconfigured\",\n    \"message\": \"A configured --agent is required when worker-start creates a terminal. Orchestration mutation request ID: db4d711a-f649-4cd1-8b19-040e8a08c366.\",\n    \"data\": {\n      \"orchestrationRequestId\": \"db4d711a-f649-4cd1-8b19-040e8a08c366\",\n      \"originalCommand\": [\n        \"orca-ide\",\n        \"orchestration\",\n        \"worker-start\",\n        \"--task\",\n        \"task_f46fa34f1310\",\n        \"--run\",\n        \"run_093c4a1c027d\",\n        \"--agent\",\n        \"pod-unregistered-agent\",\n        \"--model\",\n        \"claude-sonnet-5\",\n        \"--effort\",\n        \"low\",\n        \"--worktree\",\n        \"current\",\n        \"--json\"\n      ]\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-11-01T00:55:09.567Z"
+}

@@ -203,6 +203,8 @@ describeDb("dogfood-a", () => {
         retries: 0,
         rework_tasks: 0,
         hand_filled: 2,
+        fallback_launches: 0,
+        model_mismatches: 0,
       });
       orca.assertDone();
       tracker.assertDone();

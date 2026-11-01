@@ -4,6 +4,9 @@ import { checkPass, checkWait } from "../../src/core/check/check.ts";
 import { cancelDecision } from "../../src/core/decide/advance.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import { openDecision } from "../../src/core/decide/open.ts";
+import { dispatch } from "../../src/core/dispatch/dispatch.ts";
+import { supersededWorktree } from "../../src/core/dispatch/retry.ts";
+import { supersedeOpKey } from "../../src/core/process/project.ts";
 import {
   lost,
   ok,
@@ -18,17 +21,29 @@ import {
   decideInput,
   decider,
   deliveredPlan,
+  dispatchedPlan,
   implementTask,
   opened,
   planTask,
+  planner,
   proposal,
+  refusedReply,
   run,
   seatStarted,
   seatTask,
   sent,
+  taskSpec,
 } from "./decision-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
-import { batch, empty, events, replay, workers } from "./run-fixture.ts";
+import {
+  batch,
+  dispatchInput,
+  empty,
+  events,
+  replay,
+  started,
+  workers,
+} from "./run-fixture.ts";
 
 describeDb("pod check advances a Decision", () => {
   let conn: Connection;
@@ -311,5 +326,377 @@ describeDb("pod check advances a Decision", () => {
         /^pod check: Decision Seat launch decide_seat:\S+ is unknown \(no request id recorded\)/,
       ),
     );
+  });
+});
+
+describeDb("pod check applies a change_spec Decision", () => {
+  let conn: Connection;
+  const replacement = "task_plan_2";
+  const lineage = "run_1:plan";
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  async function pass(entries: TempEntry[]) {
+    const { orca, log } = replay(conn, entries);
+    const outcome = await checkPass(conn.db, orca, null, log, checkInput());
+    orca.assertDone();
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    return outcome.result;
+  }
+
+  async function openChangeSpec(
+    task = planTask,
+    spec?: string,
+    seat: TempEntry[] = [
+      seatTask("decider"),
+      ok("worker-start", seatStarted(decider), ["--task", "orca_decider"]),
+    ],
+  ) {
+    const templates = await conn.db.getRevisionByRef("decision", "default", 1);
+    const row = await conn.db.getTask(task);
+    if (row === null) throw new Error(`no Task ${task}`);
+    const { orca, log } = replay(conn, [...seat, sent(decider)]);
+    const outcome = await openDecision(
+      conn.db,
+      orca,
+      log,
+      decideInput(templates, {
+        task,
+        effect: "change_spec",
+        spec: taskSpec(row, spec),
+      }),
+    );
+    orca.assertDone();
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    return outcome.result.decision_id;
+  }
+
+  const opensAuditor = [
+    seatTask("auditor"),
+    ok("worker-start", seatStarted(auditor, "m-3"), ["--task", "orca_auditor"]),
+    sent(auditor),
+  ];
+
+  function agreeBatch(id: string, n = 2) {
+    const key = `delivery_cs${n}`;
+    return [
+      ok("check", batch(key, [audit(`a${n}`, id, 1, "agree")]), run),
+      ok("check", empty(key), ack(key)),
+    ];
+  }
+
+  async function proposed(id: string) {
+    await pass([
+      ok("check", batch("delivery_cs1", [proposal("p1", id, 1)]), run),
+      ok("check", empty("delivery_cs1"), ack("delivery_cs1")),
+      ...opensAuditor,
+      ok("worker-list", workers([]), run),
+    ]);
+  }
+
+  const plannerRunning = ok(
+    "worker-list",
+    workers([{ dispatchId: planner, taskId: planTask, workerState: "running" }]),
+    run,
+  );
+  const stopsPlanner = ok("worker-stop", { dispatchId: planner, state: "stopped" }, [
+    "--dispatch",
+    planner,
+  ]);
+  const createsReplacement = ok(
+    "task-create",
+    { task: { id: replacement, status: "ready" } },
+    ["--run", "run_1"],
+  );
+
+  async function activation() {
+    return conn.sql<{ revision_id: string }[]>`
+      select revision_id from config.activation
+      where scope = 'run' and scope_ref = 'run_1' and kind = 'task' and name = ${lineage}`;
+  }
+
+  async function supersedeOp(id: string) {
+    return conn.db.getOperation(supersedeOpKey(id));
+  }
+
+  test("agreed activates the Revision, stops the waiting worker, supersedes the Task, and readies a replacement the dependent follows", async () => {
+    await dispatchedPlan(conn);
+    const id = await openChangeSpec();
+    expect((await conn.db.getDispatch(planner))?.activity).toBe("waiting");
+    const decision = await conn.db.getDecision(id);
+    const revision = (
+      (await conn.db.getManifest(decision?.manifest_id ?? ""))
+        ?.references as { source: string; revision: string }[]
+    ).find((row) => row.source === "revision")?.revision;
+    expect(revision).toBeDefined();
+    await proposed(id);
+    expect(await activation()).toEqual([]);
+
+    await pass([
+      ...agreeBatch(id),
+      plannerRunning,
+      stopsPlanner,
+      createsReplacement,
+    ]);
+
+    expect((await conn.db.getDecision(id))?.state).toBe("agreed");
+    expect(await activation()).toEqual([{ revision_id: revision }]);
+    expect(await conn.db.getTask(planTask)).toMatchObject({
+      state: "superseded",
+    });
+    expect(await conn.db.getTask(replacement)).toMatchObject({
+      state: "ready",
+      rework_of: planTask,
+      lineage_id: lineage,
+      step_id: "plan",
+      spec_revision_id: revision,
+    });
+    expect((await conn.db.getTask(implementTask))?.deps).toEqual([replacement]);
+    expect(await conn.db.getDispatch(planner)).toMatchObject({
+      settlement: "superseded",
+      activity: "settled",
+    });
+    const stops = await events(conn, "stop");
+    expect(stops).toHaveLength(1);
+    expect(stops[0]).toMatchObject({
+      dispatch_id: planner,
+      payload: {
+        decision_id: id,
+        receipt: { dispatchId: planner, state: "stopped" },
+      },
+    });
+    const decided = await events(conn, "decision");
+    expect(decided).toHaveLength(1);
+    expect(decided[0]?.payload).toMatchObject({
+      decision_id: id,
+      outcome: "agreed",
+      effect: "change_spec",
+      revision_id: revision,
+      replacement_task_id: replacement,
+    });
+    expect((await supersedeOp(id))?.status).toBe("done");
+
+    expect(await supersededWorktree(conn.db, replacement, "local")).toBe(
+      "/w/one",
+    );
+    expect(await supersededWorktree(conn.db, replacement, "elsewhere")).toBe(
+      null,
+    );
+    expect(await supersededWorktree(conn.db, implementTask, "local")).toBe(
+      null,
+    );
+    const { orca, log } = replay(conn, [
+      ok("worker-start", started("ctx_replacement", replacement)),
+    ]);
+    const launched = await dispatch(
+      conn.db,
+      orca,
+      log,
+      dispatchInput({
+        task: replacement,
+        seat: "plan-1",
+        gitStatus: "## main\n M plan.md",
+      }),
+    );
+    if (!launched.ok) throw new Error(launched.refusal.message);
+    const view = await conn.db.getManifest(launched.result.manifest_id);
+    expect(view?.references).toContainEqual(
+      expect.objectContaining({ source: "git_status", excerpt: "## main\n M plan.md" }),
+    );
+  });
+
+  test("a failed worker-stop leaves the Task, the activation, and the op as they were, and the next pass finishes", async () => {
+    await dispatchedPlan(conn);
+    const id = await openChangeSpec();
+    await proposed(id);
+    const first = await pass([
+      ...agreeBatch(id),
+      plannerRunning,
+      refusedReply("worker-stop", "runtime_busy", ["--dispatch", planner]),
+    ]);
+    expect(first.nextSteps.join("\n")).toContain(
+      `worker-stop of Dispatch ${planner} failed: runtime_busy`,
+    );
+    expect((await conn.db.getTask(planTask))?.state).toBe("dispatched");
+    expect(await activation()).toEqual([]);
+    expect(await events(conn, "decision")).toEqual([]);
+    expect((await supersedeOp(id))?.status).toBe("pending");
+
+    await pass([
+      ok("check", empty(), run),
+      plannerRunning,
+      stopsPlanner,
+      createsReplacement,
+    ]);
+    expect((await conn.db.getTask(planTask))?.state).toBe("superseded");
+    expect((await conn.db.getTask(replacement))?.state).toBe("ready");
+  });
+
+  test("a worker-list showing the Dispatch stopped settles it with no worker-stop call", async () => {
+    await dispatchedPlan(conn);
+    const id = await openChangeSpec();
+    await proposed(id);
+    await pass([
+      ...agreeBatch(id),
+      ok(
+        "worker-list",
+        workers([
+          { dispatchId: planner, taskId: planTask, workerState: "stopped" },
+        ]),
+        run,
+      ),
+      createsReplacement,
+    ]);
+    expect(await conn.db.getDispatch(planner)).toMatchObject({
+      settlement: "superseded",
+    });
+    expect((await events(conn, "stop"))[0]?.payload).toMatchObject({
+      worker_state: "stopped",
+    });
+    expect((await conn.db.getTask(planTask))?.state).toBe("superseded");
+  });
+
+  test("an unknown worker-stop keeps its request id, and request-show completed settles it with no second stop", async () => {
+    await dispatchedPlan(conn);
+    const id = await openChangeSpec();
+    await proposed(id);
+    await pass([
+      ...agreeBatch(id),
+      plannerRunning,
+      unknownReply("worker-stop", "req_stop", ["--dispatch", planner]),
+    ]);
+    expect((await supersedeOp(id))?.result_ref).toMatchObject({
+      stop_request_id: "req_stop",
+      stop_unknown: false,
+    });
+    await pass([
+      ok("check", empty(), run),
+      plannerRunning,
+      ok("request-show", { requestId: "req_stop", state: "completed" }, [
+        "--request",
+        "req_stop",
+      ]),
+      createsReplacement,
+    ]);
+    expect((await events(conn, "stop"))[0]?.payload).toMatchObject({
+      request_id: "req_stop",
+    });
+    expect((await conn.db.getTask(planTask))?.state).toBe("superseded");
+  });
+
+  test("a failed replacement task-create leaves the Task as it was and the next pass creates under attempt 2", async () => {
+    await dispatchedPlan(conn);
+    const id = await openChangeSpec();
+    await proposed(id);
+    const first = await pass([
+      ...agreeBatch(id),
+      plannerRunning,
+      stopsPlanner,
+      refusedReply("task-create", "invalid_argument", ["--run", "run_1"]),
+    ]);
+    expect(first.nextSteps.join("\n")).toContain("task-create for the replacement");
+    expect((await conn.db.getTask(planTask))?.state).toBe("dispatched");
+    expect((await conn.db.getRun("run_1"))?.state).toBe("active");
+    expect((await supersedeOp(id))?.result_ref).toMatchObject({
+      create_attempt: 2,
+    });
+    await pass([
+      ok("check", empty(), run),
+      createsReplacement,
+      ok("worker-list", workers([]), run),
+    ]);
+    expect((await conn.db.getTask(planTask))?.state).toBe("superseded");
+    expect((await conn.db.getTask(replacement))?.state).toBe("ready");
+  });
+
+  test("an unknown replacement task-create is read with request-show on the same key and never created twice", async () => {
+    await dispatchedPlan(conn);
+    const id = await openChangeSpec();
+    await proposed(id);
+    await pass([
+      ...agreeBatch(id),
+      plannerRunning,
+      stopsPlanner,
+      unknownReply("task-create", "req_create", ["--run", "run_1"]),
+    ]);
+    const second = await pass([
+      ok("check", empty(), run),
+      ok("request-show", { requestId: "req_create", state: "completed" }, [
+        "--request",
+        "req_create",
+      ]),
+      ok("worker-list", workers([]), run),
+    ]);
+    expect(second.nextSteps.join("\n")).toContain("has no known task id");
+    expect((await supersedeOp(id))?.result_ref).toMatchObject({
+      create_attempt: 1,
+    });
+    expect((await conn.db.getTask(planTask))?.state).toBe("dispatched");
+  });
+
+  test("a second change_spec on the same lineage activates its own Revision over the first", async () => {
+    await dispatchedPlan(conn);
+    const first = await openChangeSpec();
+    await proposed(first);
+    await pass([
+      ...agreeBatch(first),
+      plannerRunning,
+      stopsPlanner,
+      createsReplacement,
+    ]);
+    const second = await openChangeSpec(
+      replacement,
+      "Plan it in two releases.",
+      [],
+    );
+    const key = "delivery_cs3";
+    await pass([
+      ok("check", batch(key, [proposal("p3", second, 1)]), run),
+      ok("check", empty(key), ack(key)),
+      sent(auditor),
+      ok("worker-list", workers([]), run),
+    ]);
+    await pass([
+      ...agreeBatch(second, 4),
+      ok("task-create", { task: { id: "task_plan_3", status: "ready" } }, [
+        "--run",
+        "run_1",
+      ]),
+      ok("worker-list", workers([]), run),
+    ]);
+    const decision = await conn.db.getDecision(second);
+    const revision = (
+      (await conn.db.getManifest(decision?.manifest_id ?? ""))
+        ?.references as { source: string; revision: string }[]
+    ).find((row) => row.source === "revision")?.revision;
+    expect(await activation()).toEqual([{ revision_id: revision }]);
+    expect(await conn.db.getTask(replacement)).toMatchObject({
+      state: "superseded",
+    });
+    expect(await conn.db.getTask("task_plan_3")).toMatchObject({
+      rework_of: replacement,
+      state: "ready",
+    });
+  });
+
+  test("a cancelled change_spec Decision leaves the Revision inactive and the Task as it was", async () => {
+    await dispatchedPlan(conn);
+    const id = await openChangeSpec();
+    await conn.db.transaction((tx) =>
+      cancelDecision(tx, { decision: id, at: new Date(), host: "local" }),
+    );
+    expect((await conn.db.getDecision(id))?.state).toBe("cancelled");
+    expect(await activation()).toEqual([]);
+    expect((await conn.db.getTask(planTask))?.state).toBe("dispatched");
+    expect(await supersedeOp(id)).toBeNull();
+    expect((await events(conn, "decision"))[0]?.payload).toMatchObject({
+      outcome: "cancelled",
+      effect: "change_spec",
+      replacement_task_id: null,
+    });
   });
 });

@@ -69,6 +69,190 @@ function lineageOf(runId: string, stepId: string): string {
   return `${runId}:${stepId}`;
 }
 
+async function callTaskCreate(
+  ctx: Pick<ProjectContext, "orca" | "log" | "process">,
+  plan: Pick<TaskPlan, "runId" | "step" | "opKey" | "deps">,
+) {
+  const { runId, step, opKey, deps } = plan;
+  ctx.log.at({ run_id: runId, task_id: null, op_key: opKey });
+  const receipt = await ctx.orca.taskCreate({
+    spec:
+      step.spec ??
+      `Process ${ctx.process.name}@${ctx.process.rev}, step ${step.id}, role ${step.role ?? step.type}.`,
+    run: runId,
+    ...(deps.length > 0 ? { deps } : {}),
+    taskTitle: step.id,
+  });
+  return { receipt, outcome: launchOutcome(receipt) };
+}
+
+export type Replacement =
+  | { kind: "created"; taskId: string }
+  | { kind: "retry"; message: string }
+  | { kind: "wait"; message: string };
+
+const OpenRequest = z.looseObject({ requestId: z.string().nullish() });
+
+export function supersedeOpKey(decisionId: string): string {
+  return derivedOpKey("decide", {
+    decision_id: decisionId,
+    effect: "change_spec",
+  });
+}
+
+export function replacementOpKey(
+  superseded: Pick<Task, "run_id" | "step_id" | "task_id">,
+  attempt: number,
+): string {
+  return derivedOpKey("project", {
+    run_id: superseded.run_id,
+    step_id: superseded.step_id,
+    supersede: superseded.task_id,
+    attempt: String(attempt),
+  });
+}
+
+export async function createReplacement(
+  ctx: Pick<ProjectContext, "db" | "orca" | "log" | "process" | "now">,
+  plan: Pick<TaskPlan, "runId" | "step" | "opKey" | "deps">,
+): Promise<Replacement> {
+  const { db, orca, log } = ctx;
+  const { opKey } = plan;
+  const failed = `task-create for the replacement under ${opKey} failed; run pod check again`;
+  const existing = await db.getOperation(opKey);
+  if (existing !== null) {
+    if (existing.status === "done" || existing.status === "refused") {
+      const task = TaskRef.safeParse(existing.result_ref);
+      return task.success
+        ? { kind: "created", taskId: task.data.task_id }
+        : { kind: "retry", message: failed };
+    }
+    const requestId =
+      OpenRequest.safeParse(existing.result_ref).data?.requestId ?? null;
+    const waiting = `task-create for the replacement under ${opKey} has no known task id (request ${requestId ?? "none"}); the change_spec effect waits for the operator`;
+    if (requestId === null) return { kind: "wait", message: waiting };
+    log.at({ run_id: plan.runId, task_id: null, op_key: opKey });
+    const shown = await orca.requestShow({ request: requestId });
+    const state = shown.result?.state;
+    if (state === "absent") {
+      await db.moveOperation(
+        opKey,
+        "done",
+        { outcome: "absent", request_id: requestId },
+        ctx.now(),
+      );
+      return { kind: "retry", message: failed };
+    }
+    if (state === "pending")
+      return {
+        kind: "wait",
+        message: `task-create for the replacement under ${opKey} is pending (request ${requestId}); run pod check again`,
+      };
+    return { kind: "wait", message: waiting };
+  }
+  await db.insertOperation({
+    op_key: opKey,
+    intent: "project",
+    owner_generation: 1,
+    at: ctx.now(),
+  });
+  const { receipt, outcome } = await callTaskCreate(ctx, plan);
+  const at = ctx.now();
+  if (outcome.kind === "ok" && receipt.result !== null) {
+    const taskId = receipt.result.task.id;
+    await db.moveOperation(opKey, "done", { task_id: taskId }, at);
+    return { kind: "created", taskId };
+  }
+  if (outcome.kind === "unknown") {
+    await db.moveOperation(
+      opKey,
+      "unknown",
+      { verb: "task-create", requestId: outcome.requestId },
+      at,
+    );
+    return {
+      kind: "wait",
+      message: `task-create for the replacement under ${opKey} has no known outcome; run pod check again`,
+    };
+  }
+  await db.moveOperation(
+    opKey,
+    "done",
+    failure("task-create", receipt.raw, receipt.exitCode),
+    at,
+  );
+  return { kind: "retry", message: failed };
+}
+
+function newestOf(tasks: readonly Task[], taskId: string): string {
+  const task = tasks.find((row) => row.task_id === taskId);
+  if (task === undefined) return taskId;
+  const lineage = tasks.filter((row) => row.lineage_id === task.lineage_id);
+  return (
+    lineage.find((row) =>
+      lineage.every((other) => other.rework_of !== row.task_id),
+    )?.task_id ?? taskId
+  );
+}
+
+export async function rerouteDeps(
+  tx: Repo,
+  runId: string,
+  map: ReadonlyMap<string, string>,
+  skip: readonly string[],
+): Promise<void> {
+  for (const row of await tx.listTasks(runId)) {
+    if (terminal.includes(row.state) || skip.includes(row.task_id)) continue;
+    const deps = depsOf(row);
+    const next = deps.map((dep) => map.get(dep) ?? dep);
+    if (next.some((dep, i) => dep !== deps[i]))
+      await tx.setTaskDeps(row.task_id, next);
+  }
+}
+
+export function replacementDeps(
+  tasks: readonly Task[],
+  superseded: Task,
+): string[] {
+  return depsOf(superseded).map((dep) => newestOf(tasks, dep));
+}
+
+export async function applySupersede(
+  tx: Repo,
+  input: {
+    superseded: Task;
+    replacementId: string;
+    revisionId: string;
+    at: Date;
+  },
+): Promise<{ state: TaskState }> {
+  const { superseded } = input;
+  const tasks = await tx.listTasks(superseded.run_id);
+  const deps = replacementDeps(tasks, superseded);
+  const states = new Map(tasks.map((row) => [row.task_id, row.state]));
+  const state: TaskState = allSatisfied(deps, states) ? "ready" : "pending";
+  await moveTask(tx, superseded.task_id, "superseded");
+  await tx.insertTask({
+    task_id: input.replacementId,
+    run_id: superseded.run_id,
+    step_id: superseded.step_id,
+    lineage_id: superseded.lineage_id,
+    role: superseded.role,
+    deps,
+    spec_revision_id: input.revisionId,
+    state,
+    rework_of: superseded.task_id,
+    created_at: input.at,
+  });
+  await rerouteDeps(
+    tx,
+    superseded.run_id,
+    new Map([[superseded.task_id, input.replacementId]]),
+    [input.replacementId],
+  );
+  return { state };
+}
+
 async function createTask(
   ctx: ProjectContext,
   plan: TaskPlan,
@@ -97,16 +281,7 @@ async function createTask(
       ]);
     return { ok: true, taskId: task.data.task_id };
   }
-  log.at({ run_id: runId, task_id: null, op_key: opKey });
-  const receipt = await orca.taskCreate({
-    spec:
-      step.spec ??
-      `Process ${ctx.process.name}@${ctx.process.rev}, step ${step.id}, role ${step.role ?? step.type}.`,
-    run: runId,
-    ...(deps.length > 0 ? { deps } : {}),
-    taskTitle: step.id,
-  });
-  const outcome = launchOutcome(receipt);
+  const { receipt, outcome } = await callTaskCreate(ctx, plan);
   if (outcome.kind !== "ok" || receipt.result === null) {
     const unknown = outcome.kind === "unknown";
     await db.transaction(async (tx) => {
@@ -370,8 +545,17 @@ export async function recordOutcome(
     )
       return settled("hold", [], true);
     const lineage = lineageOf(task.run_id, target.id);
-    const reworks = (await tx.listTasks(task.run_id)).filter(
-      (row) => row.lineage_id === lineage && row.rework_of !== null,
+    const tasks = await tx.listTasks(task.run_id);
+    const superseded = new Set(
+      tasks
+        .filter((row) => row.state === "superseded")
+        .map((row) => row.task_id),
+    );
+    const reworks = tasks.filter(
+      (row) =>
+        row.lineage_id === lineage &&
+        row.rework_of !== null &&
+        !superseded.has(row.rework_of),
     ).length;
     if (
       task.state === "delivered" &&
@@ -476,14 +660,7 @@ async function rework(
     const map = new Map<string, string>([[failed.task_id, replacement]]);
     if (replaced !== null && replaced !== failed.task_id)
       map.set(replaced, made.taskId);
-    for (const row of await tx.listTasks(runId)) {
-      if (terminal.includes(row.state) || created.includes(row.task_id))
-        continue;
-      const deps = depsOf(row);
-      const next = deps.map((dep) => map.get(dep) ?? dep);
-      if (next.some((dep, i) => dep !== deps[i]))
-        await tx.setTaskDeps(row.task_id, next);
-    }
+    await rerouteDeps(tx, runId, map, created);
   });
   return { ok: true, created };
 }

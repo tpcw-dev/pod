@@ -258,6 +258,22 @@ describeDb("applyOutcome", () => {
       });
     });
 
+    test("replacements of superseded Tasks do not count against rework_per_lineage", async () => {
+      const copy = (id: string, state: string, reworkOf: string | null) =>
+        conn.sql`
+          insert into ledger.task (task_id, run_id, step_id, lineage_id, role, deps, spec_revision_id, state, rework_of, created_at)
+          select ${id}, run_id, step_id, lineage_id, role, deps, spec_revision_id, ${state}, ${reworkOf}, created_at
+          from ledger.task where task_id = 'task_i1'`;
+      await copy("task_s0", "superseded", null);
+      await copy("task_s1", "superseded", "task_s0");
+      await copy("task_s2", "done", "task_s1");
+      const result = await apply(reworkCreates, "task_r1", "FAIL");
+      expect(result).toMatchObject({
+        ok: true,
+        result: { state: "failed", created: ["task_i2", "task_r2"] },
+      });
+    });
+
     test("a replayed FAIL creates nothing twice", async () => {
       await apply(reworkCreates, "task_r1", "FAIL");
       expect(await apply([], "task_r1", "FAIL")).toMatchObject({

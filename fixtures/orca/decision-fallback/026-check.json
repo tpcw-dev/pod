@@ -1,0 +1,18 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_093c4a1c027d",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"2de4ec9b-b08f-453b-b554-31c066810087\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_093c4a1c027d\",\n    \"deliveryId\": \"delivery_91ae7004584b\",\n    \"messages\": [\n      {\n        \"id\": \"msg_8f2b32a46a04\",\n        \"run_id\": \"run_093c4a1c027d\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_3b30891c-15f6-4a5f-8a6f-cd8cc2991449\",\n        \"to_handle\": \"run:run_093c4a1c027d\",\n        \"subject\": \"Rejected decision_gate: decision dec_66dcdd0314b829f0355fc9d852ec00b950a63de8cff564b1219631273c7e7472 round 1 audit\",\n        \"body\": \"Orca rejected this decision_gate: The Dispatch capability is missing. Pass --dispatch-capability <token> from your dispatch preamble.\",\n        \"type\": \"status\",\n        \"priority\": \"high\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"kind\\\":\\\"decision_audit\\\",\\\"dispatchId\\\":\\\"ctx_40d0f24cd2a1\\\",\\\"decisionId\\\":\\\"dec_66dcdd0314b829f0355fc9d852ec00b950a63de8cff564b1219631273c7e7472\\\",\\\"round\\\":1,\\\"stance\\\":\\\"agree\\\",\\\"reasons\\\":[\\\"Proposal names rollback step: roll back if release 1 verification fails\\\",\\\"Specifies health checkpoint before release 2 proceeds\\\",\\\"Citation process:dc1ba28ae9af3268b19c906fb8a46fe151cd344e08857cc2485695a064de4625 verified in manifest\\\"],\\\"points_of_disagreement\\\":[],\\\"_orcaLifecycleRejection\\\":{\\\"code\\\":\\\"dispatch_capability_invalid\\\",\\\"reason\\\":\\\"The Dispatch capability is missing. Pass --dispatch-capability <token> from your dispatch preamble.\\\"}}\",\n        \"created_at\": \"2026-11-01T00:56:18Z\",\n        \"delivered_at\": null\n      },\n      {\n        \"id\": \"msg_9bb82300b701\",\n        \"run_id\": \"run_093c4a1c027d\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_3b30891c-15f6-4a5f-8a6f-cd8cc2991449\",\n        \"to_handle\": \"run:run_093c4a1c027d\",\n        \"subject\": \"decision dec_66dcdd0314b829f0355fc9d852ec00b950a63de8cff564b1219631273c7e7472 round 1 audit\",\n        \"body\": \"\",\n        \"type\": \"decision_gate\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"kind\\\":\\\"decision_audit\\\",\\\"dispatchId\\\":\\\"ctx_40d0f24cd2a1\\\",\\\"decisionId\\\":\\\"dec_66dcdd0314b829f0355fc9d852ec00b950a63de8cff564b1219631273c7e7472\\\",\\\"round\\\":1,\\\"stance\\\":\\\"agree\\\",\\\"reasons\\\":[\\\"Proposal names rollback step: roll back if release 1 verification fails\\\",\\\"Specifies health checkpoint before release 2 proceeds\\\",\\\"Citation process:dc1ba28ae9af3268b19c906fb8a46fe151cd344e08857cc2485695a064de4625 verified in manifest\\\"],\\\"points_of_disagreement\\\":[]}\",\n        \"created_at\": \"2026-11-01T00:56:23Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 2,\n    \"replayed\": false,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"fde4fb9f-c6fd-4130-84c2-4e18946afe2c\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"3f4d6689-dfa8-4dc7-9d4f-6566647e5b74\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-11-01T00:56:23.684Z"
+}

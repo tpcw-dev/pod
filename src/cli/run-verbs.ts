@@ -4,7 +4,11 @@ import { checkPass, checkWait, resume } from "../core/check/check.ts";
 import { launchLeaseSeconds } from "../core/check/reconcile.ts";
 import { dispatch } from "../core/dispatch/dispatch.ts";
 import { release } from "../core/dispatch/release.ts";
-import { retry, retryPlan } from "../core/dispatch/retry.ts";
+import {
+  retry,
+  retryPlan,
+  supersededWorktree,
+} from "../core/dispatch/retry.ts";
 import { Size } from "../core/domain/ledger.ts";
 import type { Refused } from "../core/domain/outcome.ts";
 import { receiptLog, type ReceiptLog } from "../core/ledger/receipts.ts";
@@ -214,8 +218,9 @@ export async function dispatchVerb(
       .map(quote)
       .join(" ");
   const { result, opKey, orca } = await withOrca(
-    ({ db, orca: port, log, host }) =>
-      dispatch(db, port, log, {
+    async ({ db, orca: port, log, host }) => {
+      const worktree = await supersededWorktree(db, input.task, host.hostId);
+      return dispatch(db, port, log, {
         task: input.task,
         seat: input.seat,
         generation: Number(input.generation),
@@ -223,8 +228,10 @@ export async function dispatchVerb(
         host: host.hostId,
         capacity: host.capacity,
         command,
+        ...(worktree === null ? {} : { gitStatus: gitStatus(worktree) }),
         now: () => new Date(),
-      }),
+      });
+    },
   );
   return { ...result, op_key: opKey, orca };
 }

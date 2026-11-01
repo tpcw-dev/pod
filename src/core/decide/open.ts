@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Revision } from "../domain/config.ts";
+import type { NewRevision, Revision } from "../domain/config.ts";
 import type { DecisionEffect } from "../domain/decision.ts";
 import { Json } from "../domain/json.ts";
 import type { Run, Task } from "../domain/ledger.ts";
@@ -23,13 +23,15 @@ import {
   runReference,
   storyReference,
   taskReference,
+  taskSpecReference,
   ManifestReference,
 } from "../manifest/references.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { readProcess } from "../process/project.ts";
 import { next } from "./table.ts";
-import { renderTemplate, Templates } from "./templates.ts";
+import { failDecision } from "./advance.ts";
+import { optionsText, renderTemplate, Templates } from "./templates.ts";
 
 export interface Limits {
   decision_rounds: number;
@@ -40,6 +42,7 @@ export interface DecideInput {
   task: string;
   category: string;
   effect: DecisionEffect;
+  spec?: NewRevision | null;
   question: string;
   options: readonly string[];
   generation: number;
@@ -84,10 +87,6 @@ type Opened =
   | { kind: "refused"; refusal: Refusal }
   | { kind: "done"; result: DecideResult }
   | { kind: "send"; decisionId: string };
-
-export function optionsText(options: readonly string[]): string {
-  return options.map((option) => `- ${option}`).join("\n");
-}
 
 export async function openDecision(
   db: Db,
@@ -151,11 +150,15 @@ export async function openDecision(
     if (existing !== null) return replay(existing, opKey, request.task_id);
     const current = await tx.getTask(task.task_id);
     if (current === null) throw new Error(`Task ${task.task_id} vanished`);
-    const found = await precondition(tx, current);
+    const found = await precondition(tx, current, input.effect);
     if (found !== null) return record(found);
-    const references = await pinnedReferences(tx, run, current);
+    const references = await pinnedReferences(tx, run, current, input.effect);
     if (references === null)
       return record(notReady(current, "has no delivery"));
+    if (input.spec != null) {
+      const { revision } = await tx.insertRevision(input.spec);
+      references.push(taskSpecReference(revision));
+    }
     await tx.insertOperation({
       op_key: opKey,
       intent: "decide",
@@ -258,7 +261,11 @@ async function sendRoundOpen(
     capacity: input.capacity,
     now: input.now,
   });
-  if (!seat.ok) return seat;
+  if (!seat.ok) {
+    if (seat.runtimeFailure === true)
+      return { ok: false, refusal: await needsHuman(db, decision.id, seat.refusal, input) };
+    return seat;
+  }
   log.at({
     run_id: run.run_id,
     task_id: decision.task_id,
@@ -352,11 +359,28 @@ function notReady(task: Task, why: string): Refusal {
   };
 }
 
-async function precondition(tx: Repo, task: Task): Promise<Refusal | null> {
-  if (task.state !== "delivered") return notReady(task, "is not delivered");
+const specStates: readonly string[] = [
+  "pending",
+  "ready",
+  "hold",
+  "dispatched",
+  "delivered",
+];
+
+async function precondition(
+  tx: Repo,
+  task: Task,
+  effect: DecisionEffect,
+): Promise<Refusal | null> {
+  if (effect === "accept_plan" && task.state !== "delivered")
+    return notReady(task, "is not delivered");
+  if (effect === "change_spec" && !specStates.includes(task.state))
+    return notReady(task, `is ${task.state}`);
   const { step } = await readProcess(tx, task, "agreed");
-  if (step.decision === undefined)
+  if (effect === "accept_plan" && step.decision === undefined)
     return notReady(task, `step ${step.id} has no decision`);
+  if (effect === "change_spec" && step.type !== "worker")
+    return notReady(task, `step ${step.id} is ${step.type}, not a worker step`);
   const open = (await tx.openDecisionsForRun(task.run_id)).find(
     (row) => row.task_id === task.task_id,
   );
@@ -381,6 +405,7 @@ async function pinnedReferences(
   tx: Repo,
   run: Run,
   task: Task,
+  effect: DecisionEffect,
 ): Promise<ManifestReference[] | null> {
   const snapshot = await tx.getSnapshot(run.run_id);
   const story = await tx.getStory(run.story_provider, run.story_external_id);
@@ -399,7 +424,7 @@ async function pinnedReferences(
   const delivery = await tx.latestEvent(run.run_id, "delivery", {
     taskId: task.task_id,
   });
-  if (delivery === null) return null;
+  if (delivery === null && effect === "accept_plan") return null;
   return [
     storyReference(story),
     runReference(run),
@@ -407,6 +432,28 @@ async function pinnedReferences(
     revisionReference(crew),
     revisionReference(process),
     revisionReference(policy),
-    deliveryReference(delivery),
+    ...(delivery === null ? [] : [deliveryReference(delivery)]),
   ];
+}
+
+export async function needsHuman(
+  db: Db,
+  decisionId: string,
+  refusal: Refusal,
+  context: { host: string; now: () => Date },
+): Promise<Refusal> {
+  await db.transaction((tx) =>
+    failDecision(tx, {
+      decision: decisionId,
+      at: context.now(),
+      host: context.host,
+    }),
+  );
+  return {
+    ...refusal,
+    nextSteps: [
+      ...refusal.nextSteps,
+      `Decision ${decisionId} is needs_human: runtime-failure`,
+    ],
+  };
 }

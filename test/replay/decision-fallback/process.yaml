@@ -1,0 +1,27 @@
+kind: process
+name: decision-fallback
+schema_version: 1
+value:
+  summary: decision-fallback replay scenario, a plan agreed by the decision pair, then the build
+  selector: { stage: impl, size: [xl] }
+  roles: [planner, developer]
+  steps:
+    - id: plan
+      type: worker
+      role: planner
+      produces: [plan]
+      decision: plan
+      spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.
+    - id: implement
+      type: worker
+      role: developer
+      needs: [plan]
+      spec: Run the worker_done command your preamble gives, with --outcome succeeded, using the Bash tool, at once. Edit no file and run no other command.
+  edges:
+    - { from: plan, on: agreed, to: implement }
+    - { from: plan, on: cancelled, to: hold }
+    - { from: plan, on: [timeout, cancel, unknown], to: hold }
+    - { from: implement, on: done, to: done }
+    - { from: implement, on: [timeout, cancel, unknown], to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+  escalation: { to: decision-pair }
