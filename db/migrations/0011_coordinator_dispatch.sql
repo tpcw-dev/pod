@@ -1,0 +1,4 @@
+ALTER TABLE "ledger"."dispatch" DROP CONSTRAINT "dispatch_owner_check";--> statement-breakpoint
+ALTER TABLE "ledger"."run" ADD COLUMN "coordinator_dispatch_id" text;--> statement-breakpoint
+ALTER TABLE "ledger"."run" ADD CONSTRAINT "run_coordinator_dispatch_id_dispatch_dispatch_id_fk" FOREIGN KEY ("coordinator_dispatch_id") REFERENCES "ledger"."dispatch"("dispatch_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ledger"."dispatch" ADD CONSTRAINT "dispatch_owner_check" CHECK (("ledger"."dispatch"."task_id" is null or "ledger"."dispatch"."decision_id" is null) and ("ledger"."dispatch"."task_id" is not null or "ledger"."dispatch"."role" in ('decider', 'auditor')));

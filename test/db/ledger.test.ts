@@ -55,6 +55,7 @@ describeDb("ledger repositories", () => {
     snapshot_hash: "h",
     state: "active",
     created_at: at,
+    coordinator_dispatch_id: null,
   };
 
   beforeAll(async () => {

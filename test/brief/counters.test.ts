@@ -137,6 +137,7 @@ describeDb("brief counters", () => {
       snapshot_hash: "pending",
       state: "active",
       created_at: at,
+      coordinator_dispatch_id: null,
     });
     await conn.db.upsertStory(story);
     await conn.db.insertRun(runOf("run-a"));

@@ -25,7 +25,7 @@ describeDb("pod db migrate", () => {
   test("a run after the reset's migrate applies nothing", () => {
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 11, applied: 0 } },
+      json: { ok: true, result: { journal: 12, applied: 0 } },
     });
   });
 
@@ -36,11 +36,11 @@ describeDb("pod db migrate", () => {
     await db.close();
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 11, applied: 11 },
+      result: { journal: 12, applied: 12 },
     });
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 11, applied: 0 },
+      result: { journal: 12, applied: 0 },
     });
   });
 
@@ -56,7 +56,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 11, applied: 7 } },
+      json: { ok: true, result: { journal: 12, applied: 8 } },
     });
   });
 
@@ -72,7 +72,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 11, applied: 3 } },
+      json: { ok: true, result: { journal: 12, applied: 4 } },
     });
   });
 
@@ -88,7 +88,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 11, applied: 2 } },
+      json: { ok: true, result: { journal: 12, applied: 3 } },
     });
   });
 
@@ -104,7 +104,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 11, applied: 1 } },
+      json: { ok: true, result: { journal: 12, applied: 2 } },
     });
     const conn = openDb();
     try {
@@ -156,5 +156,31 @@ describeDb("pod db migrate", () => {
       code: "usage",
       nextSteps: ["set POD_DB_URL to the database URL"],
     });
+  });
+  test("a database at 0010 applies 0011, which adds the coordinator Dispatch column and lets only a Seat row carry no owner", async () => {
+    const db = openDb();
+    await db.sql`set client_min_messages = warning`;
+    await db.sql`drop schema if exists config, ledger, drizzle cascade`;
+    await db.close();
+    expect(
+      await migrate(dbUrl(), journalThrough("0010_decision_states")),
+    ).toEqual({ kind: "ok", journal: 11, applied: 11 });
+    expect(runCli(["db", "migrate"])).toMatchObject({
+      status: 0,
+      json: { ok: true, result: { journal: 12, applied: 1 } },
+    });
+    const conn = openDb();
+    try {
+      const [column] = await conn.sql<{ nullable: string }[]>`
+        select is_nullable as nullable from information_schema.columns
+        where table_schema = 'ledger' and table_name = 'run' and column_name = 'coordinator_dispatch_id'`;
+      expect(column?.nullable).toBe("YES");
+      const [owner] = await conn.sql<{ def: string }[]>`
+        select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'dispatch_owner_check'`;
+      expect(owner?.def).toContain("'decider'::text");
+      expect(owner?.def).toContain("'auditor'::text");
+    } finally {
+      await conn.close();
+    }
   });
 });

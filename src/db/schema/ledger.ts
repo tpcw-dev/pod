@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigserial,
   check,
   foreignKey,
@@ -49,6 +50,9 @@ export const run = ledger.table(
     snapshotHash: text("snapshot_hash").notNull(),
     state: text("state").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    coordinatorDispatchId: text("coordinator_dispatch_id").references(
+      (): AnyPgColumn => dispatch.dispatchId,
+    ),
   },
   (t) => [
     check(
@@ -195,7 +199,7 @@ export const dispatch = ledger.table(
     ),
     check(
       "dispatch_owner_check",
-      sql`(${t.taskId} is null) = (${t.decisionId} is not null)`,
+      sql`(${t.taskId} is null or ${t.decisionId} is null) and (${t.taskId} is not null or ${t.role} in ('decider', 'auditor'))`,
     ),
   ],
 );

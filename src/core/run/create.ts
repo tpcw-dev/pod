@@ -310,6 +310,7 @@ export async function runCreate(
       snapshot_hash: hash,
       state: "active",
       created_at: at,
+      coordinator_dispatch_id: null,
     });
     await tx.insertSnapshot({
       run_id: runId,
