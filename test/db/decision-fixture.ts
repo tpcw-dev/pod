@@ -379,19 +379,7 @@ export function questionFile(body: object): string {
   return path;
 }
 
-export function cli(
-  args: string[],
-  orca: readonly TempEntry[] = [],
-  env: Record<string, string> = {},
-): CliResult {
-  return runCli(args, {
-    POD_COORDINATOR: "session-1",
-    POD_ORCA_FIXTURES: fixtures([...orca, ok("no-further-call", {})]),
-    ...env,
-  });
-}
-
-export async function orcaReceipts(conn: Connection): Promise<number> {
+async function orcaReceipts(conn: Connection): Promise<number> {
   const [row] = await conn.sql<{ n: number }[]>`
     select count(*)::int as n from ledger.event
     where type = 'receipt' and payload ? 'argv'`;
@@ -405,7 +393,11 @@ export async function cliReplay(
   env: Record<string, string> = {},
 ): Promise<CliResult> {
   const before = await orcaReceipts(conn);
-  const result = cli(args, orca, env);
+  const result = runCli(args, {
+    POD_COORDINATOR: "session-1",
+    POD_ORCA_FIXTURES: fixtures([...orca, ok("no-further-call", {})]),
+    ...env,
+  });
   expect(
     await orcaReceipts(conn),
     `${args.join(" ")} replays every fixture`,
@@ -418,7 +410,7 @@ export const generation = ["--generation", "1"];
 export async function cliDeliveredPlan(
   conn: Connection,
   story: string,
-  process: string,
+  processRef: string,
 ): Promise<void> {
   await clearRuns(conn);
   const created = await cliReplay(
@@ -428,7 +420,7 @@ export async function cliDeliveredPlan(
       "create",
       `story:${story}`,
       "--process",
-      process,
+      processRef,
       "--size",
       "xl",
       "--stage",

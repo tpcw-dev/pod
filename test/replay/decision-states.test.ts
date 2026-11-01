@@ -319,10 +319,6 @@ describeDb("decision states", () => {
     return id;
   }
 
-  async function resumeSpent(id: string) {
-    return (await decision(id)).spent as Record<string, number>;
-  }
-
   let failed = "";
 
   const rows: Row[] = [
@@ -834,7 +830,14 @@ describeDb("decision states", () => {
         failed = await failedAtOpen(17);
         await settledAs(17, failed, "needs_human", "runtime-failure");
         expect(await rounds(failed)).toEqual([]);
-        expect(await resumeSpent(failed)).toMatchObject({ relaunches: 0 });
+        expect((await decision(failed)).spent).toMatchObject({ relaunches: 0 });
+        expect(
+          await conn.sql`select status, result_ref -> 'request' ->> 'seat' as seat
+            from ledger.operation where intent = 'decide_seat' order by created_at`,
+        ).toEqual([
+          { status: "refused", seat: "dec-1" },
+          { status: "refused", seat: "dec-2" },
+        ]);
       },
     },
     {
