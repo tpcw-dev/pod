@@ -10,7 +10,9 @@ import type {
   DocsReceipt,
   Section,
 } from "../../src/core/ports/docs.ts";
+import { policiesSection } from "../../src/core/state/sections.ts";
 import { buildState } from "../../src/core/state/view.ts";
+import { parse } from "yaml";
 import { cancelDecision } from "../../src/core/decide/advance.ts";
 import { deliveredPlan, opened, planTask } from "./decision-fixture.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
@@ -449,5 +451,40 @@ describeDb("pod state with Decisions", () => {
       reason: "decision needs_human: disagreement",
       at: expect.any(String),
     });
+  });
+});
+
+test("the policies section names the object members of specs/policy/default.yaml", () => {
+  const file = parse(readFileSync("specs/policy/default.yaml", "utf8")) as {
+    value: Json;
+  };
+  const revision = {
+    ...envelope("policy", "default", file.value),
+    id: "rev_default",
+    rev: 1,
+    actor: "operator",
+    reason: "",
+    created_at: now,
+  };
+  const section = policiesSection(
+    { repo: {} as never, docs: null, now: () => now },
+    revision,
+    null,
+  );
+  expect(section.reserved).toEqual({
+    deny: ["live_trading", "evidence_tamper", "safety_limit_removal"],
+    needs_human: [
+      "spend",
+      "credentials",
+      "data_delete",
+      "deploy_production",
+      "gate_change_running_run",
+      "policy_change",
+      "driver_or_gatekeeper_change",
+    ],
+    needs_existing_authorization: [
+      "repo_create: story_spec",
+      "vps_ssh: infrastructure_story",
+    ],
   });
 });

@@ -1,8 +1,13 @@
 import { z } from "zod";
 import type { NewRevision, Revision } from "../domain/config.ts";
-import type { DecisionEffect } from "../domain/decision.ts";
+import type {
+  DecisionEffect,
+  DecisionRow,
+  DecisionState,
+} from "../domain/decision.ts";
 import { Json } from "../domain/json.ts";
 import type { Run, Task } from "../domain/ledger.ts";
+import { authorizationOf, reservedOf } from "../domain/policy.ts";
 import {
   refuse,
   RefusalCode,
@@ -29,7 +34,13 @@ import {
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { readProcess } from "../process/project.ts";
-import { next } from "./table.ts";
+import { appendDecisionEvent } from "./event.ts";
+import {
+  firstUnauthorized,
+  reservedCheck,
+  type ReservedHit,
+} from "./reserved.ts";
+import { next, type DecisionEvent } from "./table.ts";
 import { failDecision } from "./advance.ts";
 import { changeSpecStates } from "./effects.ts";
 import { optionsText, renderTemplate, Templates } from "./templates.ts";
@@ -63,6 +74,7 @@ export interface DecideResult {
   manifest_id: string;
   decider_dispatch_id: string;
   round: number;
+  reserved: { class: string; member: string } | null;
 }
 
 const Recorded = z.looseObject({
@@ -77,6 +89,10 @@ const Recorded = z.looseObject({
       manifest_id: z.string(),
       decider_dispatch_id: z.string(),
       round: z.int(),
+      reserved: z
+        .object({ class: z.string(), member: z.string() })
+        .nullable()
+        .default(null),
     })
     .optional(),
   code: RefusalCode.optional(),
@@ -169,6 +185,12 @@ export async function openDecision(
     });
     const policy = await policyOf(tx, run);
     const limits = input.limits(policy);
+    const hits = reservedCheck(reservedOf(policy), {
+      category: input.category,
+      question: input.question,
+      options: input.options,
+      spec: input.spec?.value ?? null,
+    });
     const { manifest } = await recordManifest(tx, {
       run_id: run.run_id,
       task_id: current.task_id,
@@ -177,7 +199,7 @@ export async function openDecision(
       created_at: now,
       references,
     });
-    await tx.insertDecision({
+    const row: DecisionRow = {
       id: decisionId,
       run_id: run.run_id,
       task_id: current.task_id,
@@ -197,8 +219,21 @@ export async function openDecision(
       adoption_evidence: [],
       created_at: now,
       closed_at: null,
-    });
-    const step = next({ kind: "requested" }, "open", limits.decision_rounds);
+    };
+    await tx.insertDecision(row);
+    const route = routeOf(hits, authorizationOf(policy, run.story_external_id));
+    if (route !== null && route.routed !== "authorized")
+      return settleReserved(tx, row, route.routed, route.hit, {
+        opKey,
+        request,
+        at: now,
+        host: input.host,
+      });
+    const step = next(
+      { kind: "requested" },
+      route === null ? "open" : "authorized",
+      limits.decision_rounds,
+    );
     if (step === null) throw new Error("the decision table has no open row");
     await tx.updateDecisionState(decisionId, {
       from: "requested",
@@ -294,6 +329,7 @@ async function sendRoundOpen(
     manifest_id: manifest.id,
     decider_dispatch_id: seat.dispatch.dispatch_id,
     round: 1,
+    reserved: null,
   };
   await db.moveOperation(
     input.opKey,
@@ -311,6 +347,126 @@ async function sendRoundOpen(
     input.now(),
   );
   return { ok: true, result, opKey: input.opKey, orca: input.version };
+}
+
+type Routed =
+  "authorized" | "reserved_deny" | "reserved_needs_human" | "unauthorized";
+
+function routeOf(
+  hits: readonly ReservedHit[],
+  authorization: ReturnType<typeof authorizationOf>,
+): { routed: Routed; hit: ReservedHit } | null {
+  const [first] = hits;
+  if (first === undefined) return null;
+  if (first.class === "deny") return { routed: "reserved_deny", hit: first };
+  if (first.class === "needs_human")
+    return { routed: "reserved_needs_human", hit: first };
+  const missing = firstUnauthorized(hits, authorization);
+  return missing === null
+    ? { routed: "authorized", hit: first }
+    : { routed: "unauthorized", hit: missing };
+}
+
+async function moveReserved(
+  tx: Repo,
+  decision: DecisionRow,
+  from: DecisionState,
+  event: DecisionEvent,
+  hit: ReservedHit,
+  context: { at: Date; host: string },
+): Promise<DecisionState> {
+  const step = next(from, event, 3);
+  if (step === null) throw new Error(`the decision table has no ${event} row`);
+  const settled = step.to.kind !== "reserved_needs_human";
+  const moved = await tx.updateDecisionState(decision.id, {
+    from: from.kind,
+    to: step.to,
+    outcome: settled
+      ? { result: step.to.kind, text: `${step.to.kind}: ${hit.member}` }
+      : null,
+    closed_at: settled ? context.at : null,
+  });
+  if (!moved)
+    throw new Error(`Decision ${decision.id} moved from ${from.kind}`);
+  await appendDecisionEvent(
+    tx,
+    decision,
+    step.to,
+    context,
+    { reserved: { class: hit.class, member: hit.member } },
+    "decide",
+  );
+  return step.to;
+}
+
+async function settleReserved(
+  tx: Repo,
+  decision: DecisionRow,
+  routed: Exclude<Routed, "authorized">,
+  hit: ReservedHit,
+  context: {
+    opKey: string;
+    request: { task_id: string; category: string; effect: DecisionEffect };
+    at: Date;
+    host: string;
+  },
+): Promise<Opened> {
+  const reserved = { class: hit.class, member: hit.member };
+  const requested: DecisionState = { kind: "requested" };
+  if (routed === "reserved_deny") {
+    await moveReserved(tx, decision, requested, routed, hit, context);
+    const refusal: Refusal = {
+      code: "decision_denied",
+      message: `Decision ${decision.id} is reserved_denied: ${hit.member} is a Reserved deny member`,
+      nextSteps: [
+        `only the operator acts on ${hit.member}, outside pod decide`,
+      ],
+    };
+    await tx.moveOperation(
+      context.opKey,
+      "refused",
+      Json.parse({
+        request: context.request,
+        decision_id: decision.id,
+        ...refusal,
+      }),
+      context.at,
+    );
+    return { kind: "refused", refusal };
+  }
+  const held = await moveReserved(
+    tx,
+    decision,
+    requested,
+    routed,
+    hit,
+    context,
+  );
+  const to = await moveReserved(
+    tx,
+    decision,
+    held,
+    "policy_required",
+    hit,
+    context,
+  );
+  const result: DecideResult = {
+    decision_id: decision.id,
+    run_id: decision.run_id,
+    task_id: decision.task_id ?? "",
+    state: to.kind,
+    manifest_id: decision.manifest_id,
+    decider_dispatch_id: "",
+    round: 0,
+    reserved,
+  };
+  await tx.moveOperation(
+    context.opKey,
+    "done",
+    Json.parse({ request: context.request, decision_id: decision.id, result }),
+    context.at,
+  );
+  return { kind: "done", result };
 }
 
 function replay(

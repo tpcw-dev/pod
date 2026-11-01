@@ -3,6 +3,7 @@ import { singleActive } from "../config/active.ts";
 import { decisionLimits } from "../config/limits.ts";
 import {
   advanceDecision,
+  chargeBudget,
   followDecisions,
   type FollowUp,
 } from "../decide/advance.ts";
@@ -153,6 +154,7 @@ export async function checkPass(
       leaseSeconds: input.leaseSeconds,
     });
     result.reconciled = launches.reconciled;
+    await chargeOpenDecisions(db, run, input);
     result.nextSteps = [
       ...launches.reconciled
         .filter((row) => row.to === "unknown")
@@ -219,6 +221,21 @@ export async function checkPass(
     result.nextSteps.push(...(await nextKeys(db, run, input.generation)));
   result.nextSteps.push(...(await recordNoSource(db, run, input.now())));
   return { ok: true, result, orca: version };
+}
+
+async function chargeOpenDecisions(
+  db: Db,
+  run: Run,
+  input: CheckInput,
+): Promise<void> {
+  for (const decision of await db.openDecisionsForRun(run.run_id))
+    await db.transaction(async (tx) => {
+      await fence(tx, run.run_id, input.generation);
+      await chargeBudget(tx, decision.id, {
+        at: input.now(),
+        host: input.host,
+      });
+    });
 }
 
 async function readDeliveries(

@@ -7,13 +7,24 @@ export type DecisionEvent =
   | "escalate"
   | "needs_evidence"
   | "cancel"
-  | "runtime_failure";
+  | "runtime_failure"
+  | "reserved_deny"
+  | "reserved_needs_human"
+  | "authorized"
+  | "unauthorized"
+  | "policy_required"
+  | "budget_exhausted";
 
 export type Effect =
   "send_round_open" | "send_round_next" | "record_outcome" | "hold_task";
 
 type From =
-  "requested" | "round" | "round_below_bound" | "round_at_bound" | "open";
+  | "requested"
+  | "reserved_needs_human"
+  | "round"
+  | "round_below_bound"
+  | "round_at_bound"
+  | "open";
 
 type To = DecisionState | "next_round";
 
@@ -27,6 +38,11 @@ interface Row {
 const contextMissing: DecisionState = {
   kind: "needs_human",
   reason: "context-missing",
+};
+
+const runtimeFailure: DecisionState = {
+  kind: "needs_human",
+  reason: "runtime-failure",
 };
 
 export const transitions: readonly Row[] = [
@@ -69,7 +85,43 @@ export const transitions: readonly Row[] = [
   {
     from: "open",
     event: "runtime_failure",
-    to: { kind: "needs_human", reason: "runtime-failure" },
+    to: runtimeFailure,
+    effect: "record_outcome",
+  },
+  {
+    from: "requested",
+    event: "reserved_deny",
+    to: { kind: "reserved_denied" },
+    effect: "record_outcome",
+  },
+  {
+    from: "requested",
+    event: "reserved_needs_human",
+    to: { kind: "reserved_needs_human" },
+    effect: "record_outcome",
+  },
+  {
+    from: "requested",
+    event: "unauthorized",
+    to: { kind: "reserved_needs_human" },
+    effect: "record_outcome",
+  },
+  {
+    from: "reserved_needs_human",
+    event: "policy_required",
+    to: { kind: "needs_human", reason: "policy-required" },
+    effect: "record_outcome",
+  },
+  {
+    from: "requested",
+    event: "authorized",
+    to: { kind: "round", n: 1 },
+    effect: "send_round_open",
+  },
+  {
+    from: "open",
+    event: "budget_exhausted",
+    to: runtimeFailure,
     effect: "record_outcome",
   },
   {
@@ -84,8 +136,14 @@ function matches(from: From, state: DecisionState, bound: number): boolean {
   switch (from) {
     case "requested":
       return state.kind === "requested";
+    case "reserved_needs_human":
+      return state.kind === "reserved_needs_human";
     case "open":
-      return state.kind === "requested" || state.kind === "round";
+      return (
+        state.kind === "requested" ||
+        state.kind === "round" ||
+        state.kind === "awaiting_evidence"
+      );
     case "round":
       return state.kind === "round" && state.n <= bound;
     case "round_below_bound":

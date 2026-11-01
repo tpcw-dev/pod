@@ -80,7 +80,7 @@ export interface GateKeeper {
   type: "AQA" | "HQA";
 }
 
-const GateEntry = z.looseObject({
+export const GateEntry = z.looseObject({
   keeper: z.string().min(1),
   type: z.enum(["AQA", "HQA"]),
 });

@@ -28,6 +28,7 @@ export const DecideOutput = z.object({
   manifest_id: z.string(),
   decider_dispatch_id: z.string(),
   round: z.int(),
+  reserved: z.object({ class: z.string(), member: z.string() }).nullable(),
   op_key: z.string(),
   orca: z.string(),
 });

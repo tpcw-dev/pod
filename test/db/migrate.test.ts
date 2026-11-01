@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, expect, test } from "vitest";
 import { migrate } from "../../src/adapters/postgres/migrate.ts";
+import { openStates } from "../../src/core/domain/decision.ts";
 import { dbUrl, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 
 function journalThrough(tag: string): string {
@@ -24,7 +25,7 @@ describeDb("pod db migrate", () => {
   test("a run after the reset's migrate applies nothing", () => {
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 10, applied: 0 } },
+      json: { ok: true, result: { journal: 11, applied: 0 } },
     });
   });
 
@@ -35,11 +36,11 @@ describeDb("pod db migrate", () => {
     await db.close();
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 10, applied: 10 },
+      result: { journal: 11, applied: 11 },
     });
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 10, applied: 0 },
+      result: { journal: 11, applied: 0 },
     });
   });
 
@@ -55,7 +56,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 10, applied: 6 } },
+      json: { ok: true, result: { journal: 11, applied: 7 } },
     });
   });
 
@@ -71,7 +72,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 10, applied: 2 } },
+      json: { ok: true, result: { journal: 11, applied: 3 } },
     });
   });
 
@@ -87,8 +88,49 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 10, applied: 1 } },
+      json: { ok: true, result: { journal: 11, applied: 2 } },
     });
+  });
+
+  test("a database at 0009 applies 0010, whose state list and open index match the domain", async () => {
+    const db = openDb();
+    await db.sql`set client_min_messages = warning`;
+    await db.sql`drop schema if exists config, ledger, drizzle cascade`;
+    await db.close();
+    expect(await migrate(dbUrl(), journalThrough("0009_decision"))).toEqual({
+      kind: "ok",
+      journal: 10,
+      applied: 10,
+    });
+    expect(runCli(["db", "migrate"])).toMatchObject({
+      status: 0,
+      json: { ok: true, result: { journal: 11, applied: 1 } },
+    });
+    const conn = openDb();
+    try {
+      const [check] = await conn.sql<{ def: string }[]>`
+        select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'decision_state_check'`;
+      const [index] = await conn.sql<{ def: string }[]>`
+        select indexdef as def from pg_indexes where indexname = 'decision_open_task_idx'`;
+      const quoted = (text: string) => `'${text}'::text`;
+      for (const state of [
+        "requested",
+        "reserved_denied",
+        "reserved_needs_human",
+        "agreed",
+        "needs_human",
+        "cancelled",
+        "superseded",
+        ...openStates,
+      ])
+        expect(check?.def).toContain(quoted(state));
+      const listed = [...(index?.def ?? "").matchAll(/'([^']+)'::text/g)].map(
+        (found) => found[1],
+      );
+      expect(listed).toEqual(openStates);
+    } finally {
+      await conn.close();
+    }
   });
 
   test("an applied migration the journal lacks is journal_mismatch", async () => {

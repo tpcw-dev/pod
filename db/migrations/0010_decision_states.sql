@@ -1,0 +1,6 @@
+ALTER TABLE "ledger"."decision" DROP CONSTRAINT "decision_state_check";--> statement-breakpoint
+ALTER TABLE "ledger"."decision" DROP CONSTRAINT "decision_reason_check";--> statement-breakpoint
+DROP INDEX "ledger"."decision_open_task_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "decision_open_task_idx" ON "ledger"."decision" USING btree ("task_id") WHERE "ledger"."decision"."state" in ('requested', 'round:1', 'round:2', 'round:3', 'awaiting_evidence:1', 'awaiting_evidence:2', 'awaiting_evidence:3');--> statement-breakpoint
+ALTER TABLE "ledger"."decision" ADD CONSTRAINT "decision_state_check" CHECK ("ledger"."decision"."state" in ('requested', 'reserved_denied', 'reserved_needs_human', 'round:1', 'round:2', 'round:3', 'awaiting_evidence:1', 'awaiting_evidence:2', 'awaiting_evidence:3', 'agreed', 'needs_human', 'cancelled', 'superseded'));--> statement-breakpoint
+ALTER TABLE "ledger"."decision" ADD CONSTRAINT "decision_reason_check" CHECK ("ledger"."decision"."reason" in ('policy-required', 'disagreement', 'context-missing', 'runtime-failure', 'agreed', 'cancelled', 'denied', 'superseded'));

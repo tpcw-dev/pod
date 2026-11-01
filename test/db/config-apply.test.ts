@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { stringify } from "yaml";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import { freshRun } from "./run-fixture.ts";
 import { crewValue, processValue } from "./seed.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "pod-apply-"));
@@ -790,5 +791,178 @@ describeDb("pod config apply of decision templates", () => {
       "value.round_next uses unknown placeholder {{secret}}",
     );
     expect(result.json.error?.nextSteps).toEqual(["value.round_next"]);
+  });
+});
+
+describeDb("pod config apply of a policy", () => {
+  let conn: Connection;
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  function policyFile(name: string, value: Record<string, unknown>, scope = "global") {
+    const [kind, ref = ""] = scope.split(":");
+    return file(
+      `${name}.yaml`,
+      stringify({ kind: "policy", name, schema_version: 1, scope: kind, scope_ref: ref, value }),
+    );
+  }
+
+  function activateAt(path: string, scope: string) {
+    return runCli([
+      "config",
+      "apply",
+      path,
+      "--activate",
+      "--scope",
+      scope,
+      "--expected-revision",
+      "none",
+    ]);
+  }
+
+  const gates = {
+    review: { keeper: "reviewer-seat", type: "AQA" },
+    prd_review: { keeper: "human-gatekeeper", type: "HQA" },
+    design_clickthrough: { keeper: "human-gatekeeper", type: "HQA" },
+  };
+  const lift = { replaces: { prd_review: "decision-pair-aqa" } };
+
+  test("specs/policy/default.yaml applies and activates globally on a fresh database", async () => {
+    await clearDb(conn);
+    const applied = activate("specs/policy/default.yaml");
+    expect(applied.status).toBe(0);
+    expect(applied.json.result).toMatchObject({ ref: "policy.default@1" });
+  });
+
+  test("every replay and drill policy.yaml still applies", () => {
+    for (const path of [
+      "test/drill/policy.yaml",
+      "test/drill/direct-launch/policy.yaml",
+      "test/replay/capacity-1/policy.yaml",
+      "test/replay/decision-fallback/policy.yaml",
+      "test/replay/decision-happy-path/policy.yaml",
+      "test/replay/dogfood-a/policy.yaml",
+      "test/replay/drain/policy.yaml",
+      "test/replay/gate-scenario/policy.yaml",
+      "test/replay/integration-review/policy.yaml",
+      "test/replay/lost-launch-reply/policy.yaml",
+    ])
+      expect([path, runCli(["config", "apply", path]).status]).toEqual([path, 0]);
+  });
+
+  test.each([
+    [
+      "a replaces key outside the two Gates",
+      { gates: { ...gates, hqa_after_deploy: { keeper: "human-gatekeeper", type: "HQA" } }, profiles: { p: { replaces: { hqa_after_deploy: "decision-pair-aqa" } } } },
+      "profiles.p.replaces.hqa_after_deploy",
+    ],
+    [
+      "a replaces key not in gates",
+      { gates: { review: gates.review }, profiles: { p: lift } },
+      "profiles.p.replaces.prd_review",
+    ],
+    [
+      "a Gate with two keepers",
+      { gates: { review: { keeper: ["a", "b"], type: "AQA" } } },
+      "gates.review.keeper",
+    ],
+    ["decision_rounds 4", { gates: [], limits: { decision_rounds: 4 } }, "limits.decision_rounds"],
+    [
+      "an unparseable wall_clock",
+      { gates: [], limits: { decision_budget: { wall_clock: "soon" } } },
+      "limits.decision_budget.wall_clock",
+    ],
+    ["a member name that is not snake_case", { gates: [], reserved: { deny: ["Bad-Name"] } }, "reserved.deny.0"],
+    ["a reserved class that is a scalar", { gates: [], reserved: { deny: "x" } }, "reserved.deny"],
+    [
+      "an authorization outside needs_existing_authorization",
+      { gates: [], authorizations: { "S-1": { authorizes: ["spend"] } } },
+      "authorizations.S-1.authorizes.0",
+    ],
+  ])("%s is schema_invalid at its path", async (_, value, path) => {
+    const result = runCli(["config", "apply", policyFile("bad", value)]);
+    expect(result.status).toBe(2);
+    expect(result.json.error?.code).toBe("schema_invalid");
+    expect(result.json.error?.nextSteps).toEqual([path]);
+  });
+
+  test("an HQA keeper that is a Seat id of the active crew is schema_invalid", async () => {
+    await clearDb(conn);
+    expect(activate(envelopeFile("crew", "crew", crewValue)).status).toBe(0);
+    const result = runCli([
+      "config",
+      "apply",
+      policyFile("hqa-seat", { gates: { hqa_after_deploy: { keeper: "rev-1", type: "HQA" } } }),
+    ]);
+    expect(result.status).toBe(2);
+    expect(result.json.error?.nextSteps).toEqual(["gates.hqa_after_deploy.keeper"]);
+  });
+
+  test("a profile requiring a policy Revision that does not exist is revision_not_found", () => {
+    const missing = "0".repeat(64);
+    const result = runCli([
+      "config",
+      "apply",
+      policyFile("requires", {
+        gates,
+        profiles: { p: { ...lift, requires: { policy_revision: missing } } },
+      }),
+    ]);
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("revision_not_found");
+    expect(result.json.error?.message).toContain(missing);
+  });
+
+  test("profiles that validate with no active_profile apply", () => {
+    expect(
+      runCli(["config", "apply", policyFile("profiled", { gates, profiles: { p: lift } })])
+        .status,
+    ).toBe(0);
+  });
+
+  test("active_profile is gate_lift_refused, naming a Run with unsettled Tasks", async () => {
+    const value = { gates, profiles: { p: lift }, active_profile: "p" };
+    const quiet = runCli(["config", "apply", policyFile("lift", value)]);
+    expect(quiet.status).toBe(3);
+    expect(quiet.json.error?.code).toBe("gate_lift_refused");
+    expect(quiet.json.error?.message).toContain("refused in v1");
+    await freshRun(conn);
+    const busy = activate(policyFile("lift-busy", value));
+    expect(busy.status).toBe(3);
+    expect(busy.json.error).toMatchObject({ code: "gate_lift_refused" });
+    expect(busy.json.error?.message).toContain("Run run_1");
+  });
+
+  test("a project policy that drops a global needs_human member is schema_invalid naming it", async () => {
+    await clearDb(conn);
+    expect(
+      activate(
+        policyFile("policy", { gates: [], reserved: { needs_human: ["vendor_contract"] } }),
+      ).status,
+    ).toBe(0);
+    const dropped = activateAt(
+      policyFile("policy", { gates: [], reserved: { needs_human: ["spend"] } }, "project:p1"),
+      "project:p1",
+    );
+    expect(dropped.status).toBe(2);
+    expect(dropped.json.error?.code).toBe("schema_invalid");
+    expect(dropped.json.error?.message).toContain("vendor_contract");
+    const kept = activateAt(
+      policyFile(
+        "policy",
+        {
+          gates: [],
+          reserved: { deny: ["vendor_contract"], needs_human: ["other_vendor"] },
+          authorizations: { "S-1": { authorizes: ["repo_create"] } },
+        },
+        "project:p1",
+      ),
+      "project:p1",
+    );
+    expect(kept.status).toBe(0);
   });
 });

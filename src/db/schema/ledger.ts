@@ -238,11 +238,11 @@ export const decision = ledger.table(
     ),
     check(
       "decision_state_check",
-      sql`${t.state} in ('requested', 'round:1', 'round:2', 'round:3', 'agreed', 'needs_human', 'cancelled')`,
+      sql`${t.state} in ('requested', 'reserved_denied', 'reserved_needs_human', 'round:1', 'round:2', 'round:3', 'awaiting_evidence:1', 'awaiting_evidence:2', 'awaiting_evidence:3', 'agreed', 'needs_human', 'cancelled', 'superseded')`,
     ),
     check(
       "decision_reason_check",
-      sql`${t.reason} in ('policy-required', 'disagreement', 'context-missing', 'runtime-failure', 'agreed', 'cancelled', 'denied')`,
+      sql`${t.reason} in ('policy-required', 'disagreement', 'context-missing', 'runtime-failure', 'agreed', 'cancelled', 'denied', 'superseded')`,
     ),
     check("decision_binding_check", sql`${t.binding} = 'run'`),
     check(
@@ -251,7 +251,9 @@ export const decision = ledger.table(
     ),
     uniqueIndex("decision_open_task_idx")
       .on(t.taskId)
-      .where(sql`${t.state} in ('requested', 'round:1', 'round:2', 'round:3')`),
+      .where(
+        sql`${t.state} in ('requested', 'round:1', 'round:2', 'round:3', 'awaiting_evidence:1', 'awaiting_evidence:2', 'awaiting_evidence:3')`,
+      ),
   ],
 );
 

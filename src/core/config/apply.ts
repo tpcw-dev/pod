@@ -7,6 +7,12 @@ import { validateDecisionTemplates } from "../decide/templates.ts";
 import { fallbackProblem } from "../dispatch/seats.ts";
 import { validateProcess } from "../process/validate.ts";
 import { noSingleActive, singleActive } from "./active.ts";
+import {
+  activeProfile,
+  droppedMember,
+  requiredRevisions,
+  validatePolicy,
+} from "./policy.ts";
 import { canonicalJson, revisionId, sha256Hex } from "./canonical-json.ts";
 
 export interface ApplyInput {
@@ -107,14 +113,51 @@ async function processRefusal(
           nextSteps: [problem.path],
         };
   }
+  if (envelope.kind === "policy") return policyRefusal(tx, envelope);
   if (envelope.kind !== "process") return null;
   const { scope, scope_ref } = envelope;
   const crew = await singleActive(tx, "crew", scope, scope_ref);
   if (crew === null) return noSingleActive("crew", scope, scope_ref).refusal;
   const policy = await singleActive(tx, "policy", scope, scope_ref);
-  if (policy === null) return noSingleActive("policy", scope, scope_ref).refusal;
+  if (policy === null)
+    return noSingleActive("policy", scope, scope_ref).refusal;
   const checked = validateProcess(envelope.value, crew.value, policy.value);
   return checked.ok ? null : checked.refusal;
+}
+
+async function policyRefusal(
+  tx: Repo,
+  envelope: RevisionEnvelope,
+): Promise<Refusal | null> {
+  const { scope, scope_ref, value } = envelope;
+  const crew = await singleActive(tx, "crew", scope, scope_ref);
+  const invalid = validatePolicy(value, crew?.value ?? null);
+  if (invalid !== null) return invalid;
+  for (const id of requiredRevisions(value))
+    if ((await tx.getRevision(id)) === null)
+      return {
+        code: "revision_not_found",
+        message: `a profile requires policy Revision ${id}, which does not exist`,
+        nextSteps: [
+          "apply that policy Revision first, or correct requires.policy_revision",
+        ],
+      };
+  if (scope === "project") {
+    const global = await singleActive(tx, "policy", "global", "");
+    const dropped = global === null ? null : droppedMember(value, global.value);
+    if (dropped !== null) return dropped;
+  }
+  const profile = activeProfile(value);
+  if (profile === null) return null;
+  const [run] = await tx.liveRunsPinningPolicyScope(scope, scope_ref);
+  return {
+    code: "gate_lift_refused",
+    message:
+      run === undefined
+        ? `active_profile ${profile}: profile activation is refused in v1`
+        : `active_profile ${profile}: Run ${run} has an open Decision or an unsettled Task, and profile activation is refused in v1`,
+    nextSteps: ["remove active_profile and apply again"],
+  };
 }
 
 function storeRevision(

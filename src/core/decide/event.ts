@@ -1,9 +1,13 @@
-import type { DecisionRow, DecisionState } from "../domain/decision.ts";
+import {
+  reasonOf,
+  type DecisionRow,
+  type DecisionState,
+} from "../domain/decision.ts";
 import { Json } from "../domain/json.ts";
 import type { Repo } from "../ports/db.ts";
 
 export function reasonText(state: DecisionState): string {
-  return state.kind === "needs_human" ? state.reason : state.kind;
+  return reasonOf(state) ?? state.kind;
 }
 
 export async function appendDecisionEvent(
@@ -12,6 +16,7 @@ export async function appendDecisionEvent(
   to: DecisionState,
   context: { at: Date; host: string },
   effect: Record<string, Json> = {},
+  verb = "check",
 ): Promise<void> {
   const rounds = await tx.listDecisionRounds(decision.id);
   await tx.appendEvent({
@@ -35,6 +40,6 @@ export async function appendDecisionEvent(
       })),
       ...effect,
     }),
-    source: { kind: "command", verb: "check" },
+    source: { kind: "command", verb },
   });
 }
