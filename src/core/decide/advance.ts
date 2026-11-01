@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  openStates,
   parseDecisionState,
   stateText,
   type DecisionRow,
@@ -12,6 +13,7 @@ import type {
   IgnoredReason,
 } from "../domain/delivery.ts";
 import { Json } from "../domain/json.ts";
+import { budgetOf } from "../domain/policy.ts";
 import type { Dispatch, Run } from "../domain/ledger.ts";
 import {
   openDecisionSeat,
@@ -21,6 +23,7 @@ import { ManifestReference, manifestText } from "../manifest/references.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { applyEffect, specRevisionOf } from "./effects.ts";
+import { exhausted, spentNow } from "./budget.ts";
 import { appendDecisionEvent, reasonText } from "./event.ts";
 import { next, proposalStance } from "./table.ts";
 import { optionsText, renderTemplate, type Templates } from "./templates.ts";
@@ -73,6 +76,8 @@ export async function advanceDecision(
   const decision = await tx.getDecision(message.decisionId);
   if (decision === null || decision.run_id !== context.run.run_id)
     return { kind: "ignored", reason: "out_of_turn" };
+  if ((await chargeBudget(tx, decision.id, context)) !== null)
+    return { kind: "ignored", reason: "settled_decision" };
   if (dispatch.role !== fromRole[message.kind])
     return { kind: "ignored", reason: "out_of_turn" };
   const state = parseDecisionState(decision.state, decision.reason);
@@ -205,6 +210,7 @@ async function settle(
   to: DecisionState,
   text: string,
   context: { at: Date; host: string },
+  detail: Record<string, Json> = {},
 ): Promise<void> {
   await move(tx, decision, to, { result: to.kind, text }, context.at);
   const supersedes = decision.effect === "change_spec";
@@ -218,10 +224,40 @@ async function settle(
         ? {
             revision_id: await specRevisionOf(tx, decision),
             replacement_task_id: null,
+            ...detail,
           }
-        : {},
+        : detail,
     );
   await applyEffect(tx, decision, to, context);
+}
+
+export async function chargeBudget(
+  tx: Repo,
+  decisionId: string,
+  context: { at: Date; host: string },
+): Promise<string | null> {
+  const decision = await tx.getDecision(decisionId);
+  if (decision === null || !openStates.includes(decision.state)) return null;
+  const spent = spentNow(decision, context.at);
+  await tx.setDecisionSpent(decision.id, { ...spent });
+  const field = exhausted(budgetOf(decision.budget), spent);
+  if (field === null) return null;
+  const state = parseDecisionState(
+    decision.state,
+    decision.reason,
+    decision.outcome,
+  );
+  const step = next(state, "budget_exhausted", 3);
+  if (step === null) return null;
+  await settle(
+    tx,
+    decision,
+    step.to,
+    `${stateText(step.to)}: runtime-failure, ${field} budget exhausted`,
+    context,
+    { budget_exhausted: field },
+  );
+  return stateText(step.to);
 }
 
 export async function failDecision(

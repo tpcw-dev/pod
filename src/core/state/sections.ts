@@ -238,13 +238,23 @@ export async function runsSection(
 
 function strings(value: unknown): string[] {
   if (Array.isArray(value))
-    return value.filter((item): item is string => typeof item === "string");
+    return value.flatMap((item) => {
+      if (typeof item === "string") return [item];
+      const row = Fields.safeParse(item).data;
+      const name = row?.["name"];
+      const requires = row?.["requires"];
+      if (typeof name !== "string") return [];
+      return [typeof requires === "string" ? `${name}: ${requires}` : name];
+    });
   const fields = Fields.safeParse(value);
   if (!fields.success) return [];
-  return Object.entries(fields.data).map(
-    ([key, item]) =>
-      `${key}: ${typeof item === "string" ? item : JSON.stringify(item)}`,
-  );
+  return Object.entries(fields.data).map(([key, item]) => {
+    const requires = Fields.safeParse(item).data?.["requires"];
+    if (typeof item === "string") return `${key}: ${item}`;
+    return typeof requires === "string"
+      ? `${key}: ${requires}`
+      : `${key}: ${JSON.stringify(item)}`;
+  });
 }
 
 function revisionRef(revision: Revision | null) {

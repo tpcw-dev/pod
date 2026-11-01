@@ -22,6 +22,8 @@ export const RefusalCode = z.enum([
   "receipt_unverified_source",
   "config_invalid",
   "decision_not_gate",
+  "decision_denied",
+  "gate_lift_refused",
   "failed",
 ]);
 export type RefusalCode = z.infer<typeof RefusalCode>;

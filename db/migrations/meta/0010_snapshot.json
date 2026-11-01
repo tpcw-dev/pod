@@ -1,0 +1,1942 @@
+{
+  "id": "d0f8618e-4601-4680-b8ba-682cca24d9f3",
+  "prevId": "43987653-2d90-454e-aea6-f644fc4b3b54",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "config.activation": {
+      "name": "activation",
+      "schema": "config",
+      "columns": {
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_ref": {
+          "name": "scope_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision_id": {
+          "name": "revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bundle_id": {
+          "name": "bundle_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "activated_by": {
+          "name": "activated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "activated_at": {
+          "name": "activated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "previous_revision_id": {
+          "name": "previous_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "activation_revision_id_revision_id_fk": {
+          "name": "activation_revision_id_revision_id_fk",
+          "tableFrom": "activation",
+          "tableTo": "revision",
+          "schemaTo": "config",
+          "columnsFrom": [
+            "revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "activation_previous_revision_id_revision_id_fk": {
+          "name": "activation_previous_revision_id_revision_id_fk",
+          "tableFrom": "activation",
+          "tableTo": "revision",
+          "schemaTo": "config",
+          "columnsFrom": [
+            "previous_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "activation_scope_scope_ref_kind_name_pk": {
+          "name": "activation_scope_scope_ref_kind_name_pk",
+          "columns": [
+            "scope",
+            "scope_ref",
+            "kind",
+            "name"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "config.revision": {
+      "name": "revision",
+      "schema": "config",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "parent": {
+          "name": "parent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schema_version": {
+          "name": "schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rev": {
+          "name": "rev",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_ref": {
+          "name": "scope_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "value": {
+          "name": "value",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor": {
+          "name": "actor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "revision_parent_revision_id_fk": {
+          "name": "revision_parent_revision_id_fk",
+          "tableFrom": "revision",
+          "tableTo": "revision",
+          "schemaTo": "config",
+          "columnsFrom": [
+            "parent"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "revision_kind_name_rev_unique": {
+          "name": "revision_kind_name_rev_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "kind",
+            "name",
+            "rev"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "revision_kind_check": {
+          "name": "revision_kind_check",
+          "value": "\"config\".\"revision\".\"kind\" in ('crew', 'process', 'policy', 'task', 'decision')"
+        },
+        "revision_scope_check": {
+          "name": "revision_scope_check",
+          "value": "\"config\".\"revision\".\"scope\" in ('global', 'project', 'host', 'run')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "config.snapshot": {
+      "name": "snapshot",
+      "schema": "config",
+      "columns": {
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "crew_revision_id": {
+          "name": "crew_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "process_revision_id": {
+          "name": "process_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "policy_revision_id": {
+          "name": "policy_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effective_gate_map": {
+          "name": "effective_gate_map",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hash": {
+          "name": "hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pinned_at": {
+          "name": "pinned_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "snapshot_crew_revision_id_revision_id_fk": {
+          "name": "snapshot_crew_revision_id_revision_id_fk",
+          "tableFrom": "snapshot",
+          "tableTo": "revision",
+          "schemaTo": "config",
+          "columnsFrom": [
+            "crew_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "snapshot_process_revision_id_revision_id_fk": {
+          "name": "snapshot_process_revision_id_revision_id_fk",
+          "tableFrom": "snapshot",
+          "tableTo": "revision",
+          "schemaTo": "config",
+          "columnsFrom": [
+            "process_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "snapshot_policy_revision_id_revision_id_fk": {
+          "name": "snapshot_policy_revision_id_revision_id_fk",
+          "tableFrom": "snapshot",
+          "tableTo": "revision",
+          "schemaTo": "config",
+          "columnsFrom": [
+            "policy_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "ledger.decision": {
+      "name": "decision",
+      "schema": "ledger",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effect": {
+          "name": "effect",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "question": {
+          "name": "question",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "options": {
+          "name": "options",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "manifest_id": {
+          "name": "manifest_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "binding": {
+          "name": "binding",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "budget": {
+          "name": "budget",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "spent": {
+          "name": "spent",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "supersedes_decision_id": {
+          "name": "supersedes_decision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "adoption": {
+          "name": "adoption",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "adoption_evidence": {
+          "name": "adoption_evidence",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "closed_at": {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "decision_open_task_idx": {
+          "name": "decision_open_task_idx",
+          "columns": [
+            {
+              "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"ledger\".\"decision\".\"state\" in ('requested', 'round:1', 'round:2', 'round:3', 'awaiting_evidence:1', 'awaiting_evidence:2', 'awaiting_evidence:3')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "decision_run_id_run_run_id_fk": {
+          "name": "decision_run_id_run_run_id_fk",
+          "tableFrom": "decision",
+          "tableTo": "run",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "run_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "decision_task_id_task_task_id_fk": {
+          "name": "decision_task_id_task_task_id_fk",
+          "tableFrom": "decision",
+          "tableTo": "task",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "task_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "decision_manifest_id_evidence_manifest_id_fk": {
+          "name": "decision_manifest_id_evidence_manifest_id_fk",
+          "tableFrom": "decision",
+          "tableTo": "evidence_manifest",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "manifest_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "decision_supersedes_decision_id_decision_id_fk": {
+          "name": "decision_supersedes_decision_id_decision_id_fk",
+          "tableFrom": "decision",
+          "tableTo": "decision",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "supersedes_decision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "decision_effect_check": {
+          "name": "decision_effect_check",
+          "value": "\"ledger\".\"decision\".\"effect\" in ('accept_plan', 'change_spec')"
+        },
+        "decision_state_check": {
+          "name": "decision_state_check",
+          "value": "\"ledger\".\"decision\".\"state\" in ('requested', 'reserved_denied', 'reserved_needs_human', 'round:1', 'round:2', 'round:3', 'awaiting_evidence:1', 'awaiting_evidence:2', 'awaiting_evidence:3', 'agreed', 'needs_human', 'cancelled', 'superseded')"
+        },
+        "decision_reason_check": {
+          "name": "decision_reason_check",
+          "value": "\"ledger\".\"decision\".\"reason\" in ('policy-required', 'disagreement', 'context-missing', 'runtime-failure', 'agreed', 'cancelled', 'denied', 'superseded')"
+        },
+        "decision_binding_check": {
+          "name": "decision_binding_check",
+          "value": "\"ledger\".\"decision\".\"binding\" = 'run'"
+        },
+        "decision_adoption_check": {
+          "name": "decision_adoption_check",
+          "value": "\"ledger\".\"decision\".\"adoption\" in ('pending', 'adopted', 'reworked', 'reversed')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "ledger.decision_round": {
+      "name": "decision_round",
+      "schema": "ledger",
+      "columns": {
+        "decision_id": {
+          "name": "decision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "round": {
+          "name": "round",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decider_dispatch_id": {
+          "name": "decider_dispatch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auditor_dispatch_id": {
+          "name": "auditor_dispatch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "proposal": {
+          "name": "proposal",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "audit": {
+          "name": "audit",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stance": {
+          "name": "stance",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "manifest_id": {
+          "name": "manifest_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ts": {
+          "name": "ts",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "decision_round_decision_id_decision_id_fk": {
+          "name": "decision_round_decision_id_decision_id_fk",
+          "tableFrom": "decision_round",
+          "tableTo": "decision",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "decision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "decision_round_decider_dispatch_id_dispatch_dispatch_id_fk": {
+          "name": "decision_round_decider_dispatch_id_dispatch_dispatch_id_fk",
+          "tableFrom": "decision_round",
+          "tableTo": "dispatch",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "decider_dispatch_id"
+          ],
+          "columnsTo": [
+            "dispatch_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "decision_round_auditor_dispatch_id_dispatch_dispatch_id_fk": {
+          "name": "decision_round_auditor_dispatch_id_dispatch_dispatch_id_fk",
+          "tableFrom": "decision_round",
+          "tableTo": "dispatch",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "auditor_dispatch_id"
+          ],
+          "columnsTo": [
+            "dispatch_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "decision_round_manifest_id_evidence_manifest_id_fk": {
+          "name": "decision_round_manifest_id_evidence_manifest_id_fk",
+          "tableFrom": "decision_round",
+          "tableTo": "evidence_manifest",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "manifest_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "decision_round_decision_id_round_pk": {
+          "name": "decision_round_decision_id_round_pk",
+          "columns": [
+            "decision_id",
+            "round"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "decision_round_round_check": {
+          "name": "decision_round_round_check",
+          "value": "\"ledger\".\"decision_round\".\"round\" between 1 and 3"
+        },
+        "decision_round_stance_check": {
+          "name": "decision_round_stance_check",
+          "value": "\"ledger\".\"decision_round\".\"stance\" in ('agree', 'disagree', 'escalate')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "ledger.dispatch": {
+      "name": "dispatch",
+      "schema": "ledger",
+      "columns": {
+        "dispatch_id": {
+          "name": "dispatch_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decision_id": {
+          "name": "decision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "seat": {
+          "name": "seat",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_launch": {
+          "name": "requested_launch",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effective_launch": {
+          "name": "effective_launch",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model_attribution": {
+          "name": "model_attribution",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "retry_of": {
+          "name": "retry_of",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "op_key": {
+          "name": "op_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "settlement": {
+          "name": "settlement",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "terminal_handle": {
+          "name": "terminal_handle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "settled_at": {
+          "name": "settled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "activity": {
+          "name": "activity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "manifest_id": {
+          "name": "manifest_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "execution_backend": {
+          "name": "execution_backend",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "owner_host": {
+          "name": "owner_host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "external_execution_id": {
+          "name": "external_execution_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "auth_ref": {
+          "name": "auth_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "output_ref": {
+          "name": "output_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "dispatch_task_id_task_task_id_fk": {
+          "name": "dispatch_task_id_task_task_id_fk",
+          "tableFrom": "dispatch",
+          "tableTo": "task",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "task_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "dispatch_run_id_run_run_id_fk": {
+          "name": "dispatch_run_id_run_run_id_fk",
+          "tableFrom": "dispatch",
+          "tableTo": "run",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "run_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "dispatch_decision_id_decision_id_fk": {
+          "name": "dispatch_decision_id_decision_id_fk",
+          "tableFrom": "dispatch",
+          "tableTo": "decision",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "decision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "dispatch_op_key_operation_op_key_fk": {
+          "name": "dispatch_op_key_operation_op_key_fk",
+          "tableFrom": "dispatch",
+          "tableTo": "operation",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "op_key"
+          ],
+          "columnsTo": [
+            "op_key"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "dispatch_manifest_id_evidence_manifest_id_fk": {
+          "name": "dispatch_manifest_id_evidence_manifest_id_fk",
+          "tableFrom": "dispatch",
+          "tableTo": "evidence_manifest",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "manifest_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "dispatch_retry_of_dispatch_dispatch_id_fk": {
+          "name": "dispatch_retry_of_dispatch_dispatch_id_fk",
+          "tableFrom": "dispatch",
+          "tableTo": "dispatch",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "retry_of"
+          ],
+          "columnsTo": [
+            "dispatch_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "dispatch_model_attribution_check": {
+          "name": "dispatch_model_attribution_check",
+          "value": "\"ledger\".\"dispatch\".\"model_attribution\" in ('receipt', 'unknown')"
+        },
+        "dispatch_activity_check": {
+          "name": "dispatch_activity_check",
+          "value": "\"ledger\".\"dispatch\".\"activity\" in ('running', 'waiting', 'settled')"
+        },
+        "dispatch_owner_check": {
+          "name": "dispatch_owner_check",
+          "value": "(\"ledger\".\"dispatch\".\"task_id\" is null) = (\"ledger\".\"dispatch\".\"decision_id\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "ledger.event": {
+      "name": "event",
+      "schema": "ledger",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ts": {
+          "name": "ts",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "host": {
+          "name": "host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dispatch_id": {
+          "name": "dispatch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "op_key": {
+          "name": "op_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "event_run_ts": {
+          "name": "event_run_ts",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ts",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "event_type_check": {
+          "name": "event_type_check",
+          "value": "\"ledger\".\"event\".\"type\" in ('start', 'delivery', 'receipt', 'activation', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'retry', 'ignored', 'unknown_launch', 'learning', 'outcome')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "ledger.evidence_manifest": {
+      "name": "evidence_manifest",
+      "schema": "ledger",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decision_id": {
+          "name": "decision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "references": {
+          "name": "references",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tests": {
+          "name": "tests",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "evidence_manifest_run_id_run_run_id_fk": {
+          "name": "evidence_manifest_run_id_run_run_id_fk",
+          "tableFrom": "evidence_manifest",
+          "tableTo": "run",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "run_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "evidence_manifest_task_id_task_task_id_fk": {
+          "name": "evidence_manifest_task_id_task_task_id_fk",
+          "tableFrom": "evidence_manifest",
+          "tableTo": "task",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "task_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "evidence_manifest_parent_id_evidence_manifest_id_fk": {
+          "name": "evidence_manifest_parent_id_evidence_manifest_id_fk",
+          "tableFrom": "evidence_manifest",
+          "tableTo": "evidence_manifest",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "parent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "ledger.gate_receipt": {
+      "name": "gate_receipt",
+      "schema": "ledger",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "gate_id": {
+          "name": "gate_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "spec_revision_id": {
+          "name": "spec_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "candidate_sha": {
+          "name": "candidate_sha",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deployed_revision": {
+          "name": "deployed_revision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "keeper": {
+          "name": "keeper",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sync_state": {
+          "name": "sync_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "gate_receipt_run_idx": {
+          "name": "gate_receipt_run_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "gate_receipt_run_id_run_run_id_fk": {
+          "name": "gate_receipt_run_id_run_run_id_fk",
+          "tableFrom": "gate_receipt",
+          "tableTo": "run",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "run_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "gate_receipt_task_id_task_task_id_fk": {
+          "name": "gate_receipt_task_id_task_task_id_fk",
+          "tableFrom": "gate_receipt",
+          "tableTo": "task",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "task_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "gate_receipt_spec_revision_id_revision_id_fk": {
+          "name": "gate_receipt_spec_revision_id_revision_id_fk",
+          "tableFrom": "gate_receipt",
+          "tableTo": "revision",
+          "schemaTo": "config",
+          "columnsFrom": [
+            "spec_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "gate_receipt_outcome_check": {
+          "name": "gate_receipt_outcome_check",
+          "value": "\"ledger\".\"gate_receipt\".\"outcome\" in ('PASS', 'FAIL')"
+        },
+        "gate_receipt_sync_state_check": {
+          "name": "gate_receipt_sync_state_check",
+          "value": "\"ledger\".\"gate_receipt\".\"sync_state\" in ('pending', 'synced', 'voided')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "ledger.learning": {
+      "name": "learning",
+      "schema": "ledger",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "source_story": {
+          "name": "source_story",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "evidence_refs": {
+          "name": "evidence_refs",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "adoption": {
+          "name": "adoption",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "area": {
+          "name": "area",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "learning_adoption_check": {
+          "name": "learning_adoption_check",
+          "value": "\"ledger\".\"learning\".\"adoption\" in ('new', 'adopted', 'rejected')"
+        },
+        "learning_area_check": {
+          "name": "learning_area_check",
+          "value": "\"ledger\".\"learning\".\"area\" in ('product', 'design', 'impl', 'process')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "ledger.operation": {
+      "name": "operation",
+      "schema": "ledger",
+      "columns": {
+        "op_key": {
+          "name": "op_key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "intent": {
+          "name": "intent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_generation": {
+          "name": "owner_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "result_ref": {
+          "name": "result_ref",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "operation_intent_check": {
+          "name": "operation_intent_check",
+          "value": "\"ledger\".\"operation\".\"intent\" in ('run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide', 'config_apply', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning')"
+        },
+        "operation_status_check": {
+          "name": "operation_status_check",
+          "value": "\"ledger\".\"operation\".\"status\" in ('pending', 'unknown', 'done', 'refused')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "ledger.outbox": {
+      "name": "outbox",
+      "schema": "ledger",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "op_key": {
+          "name": "op_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target": {
+          "name": "target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tries": {
+          "name": "tries",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "acked_at": {
+          "name": "acked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "readback": {
+          "name": "readback",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "outbox_pending_idx": {
+          "name": "outbox_pending_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"ledger\".\"outbox\".\"acked_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "outbox_op_key_operation_op_key_fk": {
+          "name": "outbox_op_key_operation_op_key_fk",
+          "tableFrom": "outbox",
+          "tableTo": "operation",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "op_key"
+          ],
+          "columnsTo": [
+            "op_key"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "outbox_target_check": {
+          "name": "outbox_target_check",
+          "value": "\"ledger\".\"outbox\".\"target\" in ('tracker')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "ledger.run": {
+      "name": "run",
+      "schema": "ledger",
+      "columns": {
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "story_provider": {
+          "name": "story_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "story_external_id": {
+          "name": "story_external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "host": {
+          "name": "host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "coordinator": {
+          "name": "coordinator",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_generation": {
+          "name": "owner_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "snapshot_hash": {
+          "name": "snapshot_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "run_story_provider_story_external_id_story_provider_external_id_fk": {
+          "name": "run_story_provider_story_external_id_story_provider_external_id_fk",
+          "tableFrom": "run",
+          "tableTo": "story",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "story_provider",
+            "story_external_id"
+          ],
+          "columnsTo": [
+            "provider",
+            "external_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "run_state_check": {
+          "name": "run_state_check",
+          "value": "\"ledger\".\"run\".\"state\" in ('active', 'hold', 'drained', 'done')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "ledger.story": {
+      "name": "story",
+      "schema": "ledger",
+      "columns": {
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "size": {
+          "name": "size",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stage": {
+          "name": "stage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dependencies": {
+          "name": "dependencies",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "synced_at": {
+          "name": "synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kickoff_line": {
+          "name": "kickoff_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "story_provider_external_id_pk": {
+          "name": "story_provider_external_id_pk",
+          "columns": [
+            "provider",
+            "external_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "story_size_check": {
+          "name": "story_size_check",
+          "value": "\"ledger\".\"story\".\"size\" in ('xs', 's', 'm', 'l', 'xl')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "ledger.task": {
+      "name": "task",
+      "schema": "ledger",
+      "columns": {
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "step_id": {
+          "name": "step_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lineage_id": {
+          "name": "lineage_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deps": {
+          "name": "deps",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "spec_revision_id": {
+          "name": "spec_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rework_of": {
+          "name": "rework_of",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "task_run_id_run_run_id_fk": {
+          "name": "task_run_id_run_run_id_fk",
+          "tableFrom": "task",
+          "tableTo": "run",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "run_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "task_spec_revision_id_revision_id_fk": {
+          "name": "task_spec_revision_id_revision_id_fk",
+          "tableFrom": "task",
+          "tableTo": "revision",
+          "schemaTo": "config",
+          "columnsFrom": [
+            "spec_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "task_rework_of_task_task_id_fk": {
+          "name": "task_rework_of_task_task_id_fk",
+          "tableFrom": "task",
+          "tableTo": "task",
+          "schemaTo": "ledger",
+          "columnsFrom": [
+            "rework_of"
+          ],
+          "columnsTo": [
+            "task_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "task_state_check": {
+          "name": "task_state_check",
+          "value": "\"ledger\".\"task\".\"state\" in ('pending', 'ready', 'dispatched', 'delivered', 'passed', 'failed', 'blocked', 'hold', 'done', 'superseded')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "ledger.usage_observation": {
+      "name": "usage_observation",
+      "schema": "ledger",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seat": {
+          "name": "seat",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "window_start": {
+          "name": "window_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "window_end": {
+          "name": "window_end",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "coverage": {
+          "name": "coverage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "usage_observation_provider_idx": {
+          "name": "usage_observation_provider_idx",
+          "columns": [
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "observed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "usage_observation_coverage_check": {
+          "name": "usage_observation_coverage_check",
+          "value": "\"ledger\".\"usage_observation\".\"coverage\" in ('measured', 'partial', 'no_source')"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {
+    "config": "config",
+    "ledger": "ledger"
+  },
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

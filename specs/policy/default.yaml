@@ -1,0 +1,35 @@
+kind: policy
+name: default
+schema_version: 1
+scope: global
+value:
+  gates:
+    review: { keeper: reviewer-seat, type: AQA }
+    merge: { keeper: lead, type: AQA }
+    prd_review: { keeper: human-gatekeeper, type: HQA }
+    design_clickthrough: { keeper: human-gatekeeper, type: HQA }
+    hqa_after_deploy: { keeper: human-gatekeeper, type: HQA }
+    staging_review: { keeper: human-gatekeeper, type: HQA }
+  profiles:
+    autonomous:
+      replaces: { prd_review: decision-pair-aqa, design_clickthrough: decision-pair-aqa }
+  reserved:
+    deny:
+      - { name: live_trading, match: [live trading, live trade, place an order, real money] }
+      - { name: evidence_tamper, match: [tamper, falsify, forge evidence, fake evidence, edit the ledger, rewrite the ledger] }
+      - { name: safety_limit_removal, match: [remove the limit, disable the limit, safety limit, remove the guard, disable the guard] }
+    needs_human:
+      - { name: spend, match: [pay, purchase, subscription, budget, cost, spend, buy, "$", "€", "£", "¥"] }
+      - { name: credentials, match: [credential, password, secret, api key, access token, private key, ssh key] }
+      - { name: data_delete, match: [delete data, data deletion, drop table, drop database, truncate, purge, wipe] }
+      - { name: deploy_production, match: [production deploy, deploy to production, deploy production, prod deploy, deploy to prod] }
+      - { name: gate_change_running_run, match: [skip the gate, lift the gate, change the gate, gate change, bypass review] }
+      - { name: policy_change, match: [policy change, change the policy, edit the policy] }
+      - { name: driver_or_gatekeeper_change, match: [change the driver, change the gatekeeper, new gatekeeper, reassign the ticket] }
+    needs_existing_authorization:
+      - { name: repo_create, requires: story_spec, match: [create a repo, new repo, create a repository, new repository] }
+      - { name: vps_ssh, requires: infrastructure_story, match: [ssh, vps] }
+  escalate_when: [scope_exceeds_story, affects_other_story, new_dependency, architecture_choice]
+  limits:
+    decision_rounds: 3
+    decision_budget: { wall_clock: 2h, relaunches: 2, tool_calls: 40, context_tokens: 60k }

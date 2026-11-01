@@ -1033,6 +1033,8 @@ The human ruling authorizes recovery from a Seat failure, and Pod never relaunch
 
 The budget lives on the `ledger.decision` row. It has four fields, which are wall clock, relaunches, tool calls, and context tokens. `spent` decrements the remaining budget across relaunches and never resets. An injected timeout and relaunch keep the lineage budget. A Decision that supersedes another through `supersedes_decision_id` is in the same lineage and inherits its remaining budget.
 
+Spec clarification: S13a. Each `pod check` pass writes `spent.wall_clock` as the seconds since the Decision's `created_at`, on every open Decision of the Run before it reads deliveries, and a field whose `spent` exceeds `limits.decision_budget` moves the Decision to `needs_human` with reason `runtime-failure`, the field named as `budget_exhausted` in the `decision` event, with no round spent. `relaunches` and `tool_calls` count from S13b. `context_tokens` is not observable, so it stays 0 and never exhausts.
+
 #### Escalation threshold
 
 Only four cases open the loop. They are a change beyond the Story's scope, an effect on another Story, a new dependency, and a choice between two architectures. The policy's `escalate_when` lists them. A process step can narrow the list and never widen it. Anything else, the developer decides and records as a `self_decision` event with no rounds and no Decision Seats.
@@ -1088,6 +1090,8 @@ limits:
 - An HQA keeper is a human account with a verifiable source, one of the sources "Trust boundary and the bypass test" accepts.
 - A policy change is a needs-human category. It takes effect only as a new policy Revision that the human gatekeeper applies.
 - An agent cannot choose a profile.
+
+Spec clarification: S13a. Pod has no Story Revision. A Story's existing authorization is the `authorizations` map of the policy Revision the Run's snapshot pins, keyed by the Story's external id: `authorizations: { <story>: { authorizes: [repo_create, vps_ssh], story_kind: infrastructure } }`. `repo_create` is authorized when the Run's Story entry lists it in `authorizes`. `vps_ssh` is authorized when the entry lists it and carries `story_kind: infrastructure`. Anything else, an absent entry included, ends `needs_human` with reason `policy-required`. `pod config apply` refuses with `schema_invalid` an `authorizes` item that is not a needs_existing_authorization member of that policy, a `story_kind` other than `infrastructure`, an entry with any other key, and an `authorizations` that is not a map. An absent map is `{}` on that policy alone and is never read from the global policy, and the project-scope rule that keeps the global deny and needs_human members does not cover it. The operator applies the policy with `pod config apply` before `pod run create`.
 
 #### Gate-lift
 

@@ -99,3 +99,59 @@ test("the table holds one row per from and event", () => {
   const keys = transitions.map((row) => `${row.from} ${row.event}`);
   expect(new Set(keys).size).toBe(keys.length);
 });
+
+test("a Reserved deny from requested goes to reserved_denied", () => {
+  expect(next({ kind: "requested" }, "reserved_deny", 3)).toEqual({
+    to: { kind: "reserved_denied" },
+    effect: "record_outcome",
+  });
+});
+
+test("a needs_human or unauthorized hit passes reserved_needs_human to needs_human policy-required", () => {
+  for (const event of ["reserved_needs_human", "unauthorized"] as const)
+    expect(next({ kind: "requested" }, event, 3)?.to).toEqual({
+      kind: "reserved_needs_human",
+    });
+  expect(next({ kind: "reserved_needs_human" }, "policy_required", 3)).toEqual({
+    to: { kind: "needs_human", reason: "policy-required" },
+    effect: "record_outcome",
+  });
+});
+
+test("an authorized hit opens round 1", () => {
+  expect(next({ kind: "requested" }, "authorized", 3)).toEqual({
+    to: round(1),
+    effect: "send_round_open",
+  });
+});
+
+test("an exhausted budget sends every open state to needs_human runtime-failure", () => {
+  const open: DecisionState[] = [
+    { kind: "requested" },
+    round(1),
+    round(3),
+    { kind: "awaiting_evidence", n: 2 },
+  ];
+  for (const from of open)
+    expect(next(from, "budget_exhausted", 3)?.to).toEqual({
+      kind: "needs_human",
+      reason: "runtime-failure",
+    });
+  for (const from of [
+    { kind: "reserved_denied" },
+    { kind: "agreed" },
+    { kind: "needs_human", reason: "policy-required" },
+  ] satisfies DecisionState[])
+    expect(next(from, "budget_exhausted", 3)).toBeNull();
+});
+
+test("the Reserved rows apply only from requested", () => {
+  for (const event of [
+    "reserved_deny",
+    "reserved_needs_human",
+    "authorized",
+    "unauthorized",
+  ] as const)
+    expect(next(round(1), event, 3)).toBeNull();
+  expect(next({ kind: "requested" }, "policy_required", 3)).toBeNull();
+});

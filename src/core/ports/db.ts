@@ -121,6 +121,8 @@ export interface Repo {
   insertDecision(row: DecisionRow): Promise<void>;
   getDecision(id: string): Promise<DecisionRow | null>;
   updateDecisionState(id: string, change: DecisionChange): Promise<boolean>;
+  setDecisionSpent(id: string, spent: Json): Promise<void>;
+  liveRunsPinningPolicyScope(scope: Scope, scopeRef: string): Promise<string[]>;
   insertDecisionRound(row: DecisionRound): Promise<void>;
   listDecisionRounds(decisionId: string): Promise<DecisionRound[]>;
   openDecisionsForRun(runId: string): Promise<DecisionRow[]>;

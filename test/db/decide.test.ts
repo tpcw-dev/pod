@@ -385,3 +385,169 @@ describeDb("pod decide", () => {
     expect(outcome).toMatchObject({ ok: true, result: { state: "round:1" } });
   });
 });
+
+describeDb("pod decide runs the Reserved check before any Seat", () => {
+  let conn: Connection;
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  async function rows(id: string) {
+    const events = await conn.sql<
+      { outcome: string; reason: string; verb: string; member: string }[]
+    >`select payload->>'outcome' as outcome, payload->>'reason' as reason,
+        source->>'verb' as verb, payload->'reserved'->>'member' as member
+      from ledger.event where type = 'decision' and payload->>'decision_id' = ${id}
+      order by id`;
+    const [seats] = await conn.sql<{ n: number }[]>`
+      select count(*)::int as n from ledger.dispatch where decision_id is not null`;
+    const [rounds] = await conn.sql<{ n: number }[]>`
+      select count(*)::int as n from ledger.decision_round`;
+    const [op] = await conn.sql<{ status: string }[]>`
+      select status from ledger.operation where intent = 'decide'`;
+    return {
+      decision: await conn.db.getDecision(id),
+      events,
+      seats: seats?.n,
+      rounds: rounds?.n,
+      op: op?.status,
+    };
+  }
+
+  function quiet(over: Parameters<typeof decideInput>[1]) {
+    return async (templates: Revision) => {
+      const { log } = replay(conn, []);
+      return openDecision(conn.db, noCalls(), log, decideInput(templates, over));
+    };
+  }
+
+  test("a tradeoff question that names a purchase ends needs_human policy-required with no Seat", async () => {
+    const templates = await deliveredPlan(conn);
+    const outcome = await quiet({
+      category: "tradeoff",
+      question: "Should the plan purchase a hosted build cache?",
+    })(templates);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        state: "needs_human",
+        decider_dispatch_id: "",
+        round: 0,
+        reserved: { class: "needs_human", member: "spend" },
+      },
+    });
+    if (!outcome.ok) throw new Error("expected ok");
+    const found = await rows(outcome.result.decision_id);
+    expect(found.decision).toMatchObject({
+      state: "needs_human",
+      reason: "policy-required",
+      closed_at: expect.any(Date),
+    });
+    expect(found.events).toEqual([
+      { outcome: "reserved_needs_human", reason: "reserved_needs_human", verb: "decide", member: "spend" },
+      { outcome: "needs_human", reason: "policy-required", verb: "decide", member: "spend" },
+    ]);
+    expect([found.seats, found.rounds, found.op]).toEqual([0, 0, "done"]);
+    expect(await quiet({ category: "tradeoff", question: "Should the plan purchase a hosted build cache?" })(templates)).toMatchObject({
+      ok: true,
+      result: { decision_id: outcome.result.decision_id, state: "needs_human" },
+    });
+  });
+
+  test("a deny member ends reserved_denied and returns decision_denied", async () => {
+    const templates = await deliveredPlan(conn);
+    const ask = quiet({ question: "Should the worker start live trading on the account?" });
+    const outcome = await ask(templates);
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: { code: "decision_denied" },
+    });
+    if (outcome.ok) throw new Error("expected a refusal");
+    expect(outcome.refusal.message).toContain("live_trading");
+    const [row] = await conn.sql<{ id: string }[]>`select id from ledger.decision`;
+    const found = await rows(row?.id ?? "");
+    expect(found.decision).toMatchObject({
+      state: "reserved_denied",
+      reason: "denied",
+      closed_at: expect.any(Date),
+    });
+    expect(found.events).toEqual([
+      { outcome: "reserved_denied", reason: "denied", verb: "decide", member: "live_trading" },
+    ]);
+    expect([found.seats, found.rounds, found.op]).toEqual([0, 0, "refused"]);
+    expect(await ask(templates)).toMatchObject({
+      ok: false,
+      refusal: { code: "decision_denied" },
+    });
+  });
+
+  const repoQuestion = "Should the plan create a repository for the docs site?";
+
+  test("an authorized repo_create reaches round 1 and opens the decider", async () => {
+    const templates = await deliveredPlan(conn, {
+      gates: [],
+      authorizations: { "S-9": { authorizes: ["repo_create"] } },
+    });
+    const { orca, log } = replay(conn, [
+      seatTask("decider"),
+      ok("worker-start", seatStarted(decider), ["--task", "orca_decider"]),
+      sent(decider),
+    ]);
+    const outcome = await openDecision(
+      conn.db,
+      orca,
+      log,
+      decideInput(templates, { question: repoQuestion }),
+    );
+    orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { state: "round:1", decider_dispatch_id: decider, reserved: null },
+    });
+  });
+
+  test.each([
+    ["no authorizations", { gates: [] }, repoQuestion, "repo_create"],
+    [
+      "another Story's entry",
+      { gates: [], authorizations: { "S-1": { authorizes: ["repo_create"] } } },
+      repoQuestion,
+      "repo_create",
+    ],
+    [
+      "vps_ssh without the infrastructure kind",
+      { gates: [], authorizations: { "S-9": { authorizes: ["vps_ssh"] } } },
+      "Should the worker ssh into the build host?",
+      "vps_ssh",
+    ],
+  ])("an unauthorized hit with %s ends needs_human with two events", async (_, policy, question, member) => {
+    const templates = await deliveredPlan(conn, policy);
+    const outcome = await quiet({ question })(templates);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        state: "needs_human",
+        reserved: { class: "needs_existing_authorization", member },
+      },
+    });
+    if (!outcome.ok) throw new Error("expected ok");
+    const found = await rows(outcome.result.decision_id);
+    expect(found.decision).toMatchObject({ reason: "policy-required" });
+    expect(found.events.map((row) => row.outcome)).toEqual([
+      "reserved_needs_human",
+      "needs_human",
+    ]);
+    expect(found.seats).toBe(0);
+  });
+
+  test("a needs_human row does not block a later request on the same Task", async () => {
+    const templates = await deliveredPlan(conn);
+    const first = await quiet({ category: "tradeoff", question: "Buy a build cache?" })(templates);
+    expect(first).toMatchObject({ ok: true, result: { state: "needs_human" } });
+    const id = await opened(conn, templates);
+    expect(await conn.db.getDecision(id)).toMatchObject({ state: "round:1" });
+  });
+});

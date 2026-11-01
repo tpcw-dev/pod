@@ -957,6 +957,27 @@ function makeRepo(x: Executor): Repo {
       return rows.length > 0;
     },
 
+    async setDecisionSpent(id, spent) {
+      await x.update(decision).set({ spent }).where(eq(decision.id, id));
+    },
+
+    async liveRunsPinningPolicyScope(scope, scopeRef) {
+      const rows = await x
+        .select({ runId: snapshot.runId })
+        .from(snapshot)
+        .innerJoin(revision, eq(revision.id, snapshot.policyRevisionId))
+        .where(
+          and(
+            eq(revision.scope, scope),
+            eq(revision.scopeRef, scopeRef),
+            sql`(exists (select 1 from ${decision} where ${decision.runId} = ${snapshot.runId} and ${inArray(decision.state, openStates)})
+              or exists (select 1 from ${task} where ${task.runId} = ${snapshot.runId} and ${task.state} not in ('done', 'superseded', 'failed')))`,
+          ),
+        )
+        .orderBy(asc(snapshot.runId));
+      return rows.map((row) => row.runId);
+    },
+
     async insertDecisionRound(row: DecisionRound) {
       await x.insert(decisionRound).values({
         decisionId: row.decision_id,

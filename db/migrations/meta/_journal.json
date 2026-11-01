@@ -71,6 +71,13 @@
       "when": 1793923200000,
       "tag": "0009_decision",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794009600000,
+      "tag": "0010_decision_states",
+      "breakpoints": true
     }
   ]
 }

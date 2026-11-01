@@ -750,3 +750,115 @@ describeDb("pod check applies a change_spec Decision", () => {
     });
   });
 });
+
+describeDb("pod check spends a Decision's wall clock", () => {
+  let conn: Connection;
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  const idle = () => [
+    ok("check", empty(), run),
+    ok("worker-list", workers([]), run),
+  ];
+
+  async function openedAt(): Promise<{ id: string; createdAt: Date }> {
+    const id = await opened(conn, await deliveredPlan(conn));
+    const decision = await conn.db.getDecision(id);
+    if (decision === null) throw new Error("no Decision");
+    return { id, createdAt: decision.created_at };
+  }
+
+  async function passAt(at: Date) {
+    const { orca, log } = replay(conn, idle());
+    const outcome = await checkPass(
+      conn.db,
+      orca,
+      null,
+      log,
+      checkInput({ now: () => at }),
+    );
+    orca.assertDone();
+    expect(outcome).toMatchObject({ ok: true });
+  }
+
+  const later = (from: Date, seconds: number) =>
+    new Date(from.getTime() + seconds * 1000);
+
+  async function decisionEvents(id: string) {
+    return conn.sql<{ outcome: string; reason: string; field: string | null }[]>`
+      select payload->>'outcome' as outcome, payload->>'reason' as reason,
+        payload->>'budget_exhausted' as field
+      from ledger.event where type = 'decision' and payload->>'decision_id' = ${id}
+      order by id`;
+  }
+
+  test("a pass inside the budget persists spent.wall_clock and changes nothing else", async () => {
+    const { id, createdAt } = await openedAt();
+    await passAt(later(createdAt, 60));
+    expect(await conn.db.getDecision(id)).toMatchObject({
+      state: "round:1",
+      spent: { wall_clock: 60, relaunches: 0, tool_calls: 0, context_tokens: 0 },
+    });
+    expect(await decisionEvents(id)).toEqual([]);
+  });
+
+  test("a pass past created_at + wall_clock ends needs_human runtime-failure, once", async () => {
+    const { id, createdAt } = await openedAt();
+    await passAt(later(createdAt, 7201));
+    expect(await conn.db.getDecision(id)).toMatchObject({
+      state: "needs_human",
+      reason: "runtime-failure",
+      spent: { wall_clock: 7201 },
+      closed_at: later(createdAt, 7201),
+    });
+    expect(await decisionEvents(id)).toEqual([
+      { outcome: "needs_human", reason: "runtime-failure", field: "wall_clock" },
+    ]);
+    const [rounds] = await conn.sql<{ n: number }[]>`
+      select count(*)::int as n from ledger.decision_round where decision_id = ${id}`;
+    expect(rounds?.n).toBe(0);
+    await passAt(later(createdAt, 9000));
+    expect(await decisionEvents(id)).toHaveLength(1);
+    expect((await conn.db.getDecision(id))?.spent).toMatchObject({
+      wall_clock: 7201,
+    });
+  });
+
+  test("a proposal that arrives after the wall clock is ignored as settled_decision", async () => {
+    const { id, createdAt } = await openedAt();
+    const { orca, log } = replay(conn, [
+      ok("check", batch("delivery_late", [proposal("p_late", id, 1)]), run),
+      ok("check", empty("delivery_late"), ack("delivery_late")),
+      ok("worker-list", workers([]), run),
+    ]);
+    const outcome = await checkPass(
+      conn.db,
+      orca,
+      null,
+      log,
+      checkInput({ now: () => later(createdAt, 7300) }),
+    );
+    orca.assertDone();
+    expect(outcome).toMatchObject({ ok: true, result: { ignored: 1 } });
+    expect((await conn.db.getDecision(id))?.state).toBe("needs_human");
+  });
+
+  test("pod check --wait --decision returns when the budget settles the Decision", async () => {
+    const { id, createdAt } = await openedAt();
+    const { orca, log } = replay(conn, idle());
+    const outcome = await checkWait(conn.db, orca, null, log, {
+      ...checkInput({ now: () => later(createdAt, 7201) }),
+      decision: id,
+      interval: 5,
+      timeout: 60,
+      sleep: () => Promise.reject(new Error("no sleep expected")),
+    });
+    orca.assertDone();
+    expect(outcome).toMatchObject({ ok: true });
+    expect((await conn.db.getDecision(id))?.reason).toBe("runtime-failure");
+  });
+});
