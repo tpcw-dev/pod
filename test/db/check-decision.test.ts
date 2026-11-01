@@ -223,6 +223,32 @@ describeDb("pod check advances a Decision", () => {
     expect(row?.manifest_id).toBe(decision?.manifest_id);
   });
 
+  test("evidence that cites a policy or a task reference is not a changed dependency, and the next agree applies", async () => {
+    const id = await start();
+    await pass(delivery(1, [proposal("p1", id, 1)], opensAuditor));
+    await pass(
+      delivery(2, [audit("a1", id, 1, "needs_evidence")], [sent(decider)]),
+    );
+    await pass(
+      delivery(
+        3,
+        [
+          evidence("e1", id, 1, [
+            { source: "policy", revision: "policy-v2", excerpt: "the gates" },
+            { source: "task", revision: "task-note", excerpt: "prose note" },
+          ]),
+        ],
+        [sent(auditor)],
+      ),
+    );
+    await pass(delivery(4, [audit("a2", id, 1, "agree")]));
+    expect(await conn.db.getDecision(id)).toMatchObject({
+      state: "agreed",
+      reason: "agreed",
+    });
+    expect((await conn.db.getTask(planTask))?.state).toBe("done");
+  });
+
   test("a round_next send that fails stays owed, and the next pass with no delivery sends it once", async () => {
     const id = await start();
     await pass(delivery(1, [proposal("p1", id, 1)], opensAuditor));
@@ -596,39 +622,57 @@ describeDb("pod check applies a change_spec Decision", () => {
     });
   });
 
-  test("a superseded agreed change_spec Decision still reads its pending supersede op on the next pass", async () => {
+  test("a superseded agreed change_spec Decision never applies its spec, and the superseding Decision's op is the one followed", async () => {
     await dispatchedPlan(conn);
-    const id = await openChangeSpec();
-    await proposed(id);
+    const old = await openChangeSpec();
+    await proposed(old);
     await pass([
-      ...agreeBatch(id),
+      ...agreeBatch(old),
       plannerRunning,
       refusedReply("worker-stop", "runtime_busy", ["--dispatch", planner]),
     ]);
-    expect((await supersedeOp(id))?.status).toBe("pending");
+    expect((await supersedeOp(old))?.status).toBe("pending");
     const templates = await conn.db.getRevisionByRef("decision", "default", 1);
     const row = await conn.db.getTask(planTask);
     if (row === null) throw new Error("no plan Task");
+    const later = taskSpec(row, "A later spec.");
     const { orca, log } = replay(conn, [sent(decider)]);
-    const superseding = await openDecision(
+    const opened = await openDecision(
       conn.db,
       orca,
       log,
       decideInput(templates, {
         effect: "change_spec",
-        spec: taskSpec(row, "A later spec."),
-        supersedes: id,
+        spec: later,
+        supersedes: old,
       }),
     );
     orca.assertDone();
-    if (!superseding.ok) throw new Error(superseding.refusal.message);
-    expect((await conn.db.getDecision(id))?.state).toBe("superseded");
-    await conn.db.setTaskState(planTask, "failed");
+    if (!opened.ok) throw new Error(opened.refusal.message);
+    const id = opened.result.decision_id;
+    expect((await conn.db.getDecision(old))?.state).toBe("superseded");
+    expect(await supersedeOp(old)).toMatchObject({
+      status: "refused",
+      result_ref: expect.objectContaining({ superseded_by: id }),
+    });
+    expect((await conn.db.getTask(planTask))?.state).toBe("dispatched");
+
     await pass([
-      ok("check", empty("delivery_cs_after"), run),
-      ok("worker-list", workers([]), run),
+      ok("check", batch("delivery_cs_b1", [proposal("pb1", id, 1)]), run),
+      ok("check", empty("delivery_cs_b1"), ack("delivery_cs_b1")),
+      sent(auditor),
+      plannerRunning,
     ]);
-    expect((await supersedeOp(id))?.status).toBe("refused");
+    await pass([
+      ok("check", batch("delivery_cs_b2", [audit("ab1", id, 1, "agree")]), run),
+      ok("check", empty("delivery_cs_b2"), ack("delivery_cs_b2")),
+      plannerRunning,
+      stopsPlanner,
+      createsReplacement,
+    ]);
+    expect(await activation()).toEqual([{ revision_id: later.id }]);
+    expect((await supersedeOp(id))?.status).toBe("done");
+    expect((await conn.db.getTask(planTask))?.state).toBe("superseded");
   });
 
   test("a failed worker-stop leaves the Task, the activation, and the op as they were, and the next pass finishes", async () => {
@@ -1155,6 +1199,24 @@ describeDb("pod check reads a human ruling on a needs_human Decision", () => {
     expect(again.nextSteps).not.toContainEqual(
       expect.stringMatching(/^decision_budget_exhausted/),
     );
+  });
+
+  test("a resume after the wall clock is spent is refused with decision_budget_exhausted and launches nothing", async () => {
+    const id = await failedInRound2();
+    await conn.sql`update ledger.decision
+      set created_at = now() - interval '3 hours' where id = ${id}`;
+    say(`decision ${id} resume`);
+    const result = await pass(quiet(1));
+    expect(result.nextSteps).toContainEqual(
+      expect.stringMatching(
+        /^decision_budget_exhausted: Decision \S+ has spent its wall_clock budget/,
+      ),
+    );
+    expect(await conn.db.getDecision(id)).toMatchObject({
+      state: "needs_human",
+      reason: "runtime-failure",
+      spent: expect.objectContaining({ relaunches: 0 }),
+    });
   });
 
   test("a ruling by the worker token's author is ignored as an unverified source", async () => {

@@ -97,14 +97,20 @@ function pinnedSpec(excerpt: string): string | null {
   }
 }
 
+async function rootManifest(tx: Repo, id: string) {
+  let manifest = await tx.getManifest(id);
+  while (manifest?.parent_id != null)
+    manifest = await tx.getManifest(manifest.parent_id);
+  return manifest;
+}
+
 export async function dependenciesUnchanged(
   tx: Repo,
   decision: DecisionRow,
 ): Promise<string | null> {
-  const manifest = await tx.getManifest(decision.manifest_id);
   const references = z
     .array(ManifestReference)
-    .parse(manifest?.references ?? []);
+    .parse((await rootManifest(tx, decision.manifest_id))?.references ?? []);
   const snapshot = await tx.getSnapshot(decision.run_id);
   const task =
     decision.task_id === null ? null : await tx.getTask(decision.task_id);

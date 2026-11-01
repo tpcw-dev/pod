@@ -5,7 +5,7 @@ import type { Run } from "../domain/ledger.ts";
 import { budgetOf } from "../domain/policy.ts";
 import type { Repo } from "../ports/db.ts";
 import { cancelDecision, move, settle, stale } from "./advance.ts";
-import { spentNow } from "./budget.ts";
+import { exhausted, spentNow } from "./budget.ts";
 import { appendDecisionEvent } from "./event.ts";
 import { oweSend } from "./owed.ts";
 import { next } from "./table.ts";
@@ -115,12 +115,18 @@ export async function applyRuling(
   if (state.reason !== "runtime-failure")
     return `Decision ${decision.id} is needs_human: ${state.reason}; a resume ruling applies only to runtime-failure`;
   const spent = spentNow(decision, context.at);
-  if (spent.relaunches >= budgetOf(decision.budget).relaunches) {
+  const budget = budgetOf(decision.budget);
+  const field =
+    spent.relaunches >= budget.relaunches
+      ? "relaunches"
+      : exhausted(budget, spent);
+  if (field !== null) {
     await appendDecisionEvent(tx, decision, state, context, {
       ...detail,
       refused: "decision_budget_exhausted",
+      budget_exhausted: field,
     });
-    return `decision_budget_exhausted: Decision ${decision.id} has spent its ${spent.relaunches} relaunches; the resume ruling is refused and the Decision stays needs_human`;
+    return `decision_budget_exhausted: Decision ${decision.id} has spent its ${field} budget; the resume ruling is refused and the Decision stays needs_human`;
   }
   const round = (Interrupted.safeParse(decision.outcome).data?.round ??
     1) as Round;

@@ -39,7 +39,7 @@ import {
 } from "../manifest/references.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
-import { readProcess } from "../process/project.ts";
+import { readProcess, supersedeOpKey } from "../process/project.ts";
 import { appendDecisionEvent } from "./event.ts";
 import {
   firstUnauthorized,
@@ -582,6 +582,19 @@ async function supersede(
     closed_at: context.at,
   });
   if (!moved) throw new Error(`Decision ${old.id} moved from ${old.state}`);
+  const effect = await tx.getOperation(supersedeOpKey(old.id));
+  if (effect?.status === "pending")
+    await tx.moveOperation(
+      effect.op_key,
+      "refused",
+      Json.parse({
+        ...(effect.result_ref as Record<string, Json>),
+        code: "failed",
+        message: `Decision ${old.id} is superseded by ${by}; its change_spec effect is not applied`,
+        superseded_by: by,
+      }),
+      context.at,
+    );
   await appendDecisionEvent(
     tx,
     old,
