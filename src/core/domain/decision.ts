@@ -94,7 +94,7 @@ const SupersededBy = z.looseObject({ by: z.string().min(1) });
 export function parseDecisionState(
   text: string,
   reason: string | null,
-  outcome: Json | null = null,
+  outcome: Json | null,
 ): DecisionState {
   const counted = /^(round|awaiting_evidence):([123])$/.exec(text);
   if (counted !== null)

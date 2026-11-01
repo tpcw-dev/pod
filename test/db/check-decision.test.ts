@@ -596,6 +596,41 @@ describeDb("pod check applies a change_spec Decision", () => {
     });
   });
 
+  test("a superseded agreed change_spec Decision still reads its pending supersede op on the next pass", async () => {
+    await dispatchedPlan(conn);
+    const id = await openChangeSpec();
+    await proposed(id);
+    await pass([
+      ...agreeBatch(id),
+      plannerRunning,
+      refusedReply("worker-stop", "runtime_busy", ["--dispatch", planner]),
+    ]);
+    expect((await supersedeOp(id))?.status).toBe("pending");
+    const templates = await conn.db.getRevisionByRef("decision", "default", 1);
+    const row = await conn.db.getTask(planTask);
+    if (row === null) throw new Error("no plan Task");
+    const { orca, log } = replay(conn, [sent(decider)]);
+    const superseding = await openDecision(
+      conn.db,
+      orca,
+      log,
+      decideInput(templates, {
+        effect: "change_spec",
+        spec: taskSpec(row, "A later spec."),
+        supersedes: id,
+      }),
+    );
+    orca.assertDone();
+    if (!superseding.ok) throw new Error(superseding.refusal.message);
+    expect((await conn.db.getDecision(id))?.state).toBe("superseded");
+    await conn.db.setTaskState(planTask, "failed");
+    await pass([
+      ok("check", empty("delivery_cs_after"), run),
+      ok("worker-list", workers([]), run),
+    ]);
+    expect((await supersedeOp(id))?.status).toBe("refused");
+  });
+
   test("a failed worker-stop leaves the Task, the activation, and the op as they were, and the next pass finishes", async () => {
     await dispatchedPlan(conn);
     const id = await openChangeSpec();

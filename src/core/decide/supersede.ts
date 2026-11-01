@@ -153,7 +153,7 @@ async function followOne(
 }
 
 function stateOf(decision: DecisionRow) {
-  return parseDecisionState(decision.state, decision.reason);
+  return parseDecisionState(decision.state, decision.reason, decision.outcome);
 }
 
 async function activate(

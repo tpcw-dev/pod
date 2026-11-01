@@ -307,7 +307,11 @@ async function applyEvidence(
   });
   if (!(await tx.setDecisionManifest(decision.id, parent.id, manifest.id)))
     throw new Error(`Decision ${decision.id} moved from manifest ${parent.id}`);
-  const state = parseDecisionState(decision.state, decision.reason);
+  const state = parseDecisionState(
+    decision.state,
+    decision.reason,
+    decision.outcome,
+  );
   const step = next(state, "evidence", 3);
   if (step === null) return { kind: "ignored", reason: "out_of_turn" };
   await move(tx, decision, step.to, null, null);
