@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { listWorkers } from "../check/workers.ts";
+import type { Revision } from "../domain/config.ts";
 import { Json } from "../domain/json.ts";
-import type { Operation, Run } from "../domain/ledger.ts";
+import type { Dispatch, Operation, Run } from "../domain/ledger.ts";
 import {
   refuse,
   RefusalCode,
@@ -8,6 +10,7 @@ import {
   type Refusal,
 } from "../domain/outcome.ts";
 import { launchOutcome, stopOnOpen } from "../ledger/launch.ts";
+import { seatOpKey } from "../dispatch/decision-seats.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import { renderRestoreHtml } from "../manifest/html.ts";
@@ -21,6 +24,7 @@ import {
 import { renderRestoreView, restoreView } from "../manifest/restore-view.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort, Receipt, TerminalShowResult } from "../ports/orca.ts";
+import { openCoordinator, seatRefusal, type SeatRefusal } from "./coordinator.ts";
 
 export interface TakeoverInput {
   story: string;
@@ -30,6 +34,7 @@ export interface TakeoverInput {
   opKey: string | null;
   viewPath: (runId: string, generation: number) => string;
   host: string;
+  seats?: { templates: Revision | null; capacity: number };
   command: (opKey: string) => string;
   now: () => Date;
 }
@@ -41,6 +46,8 @@ export const TakeoverRequest = z.looseObject({
   to_handle: z.string(),
   generation: z.int(),
   view_path: z.string(),
+  from_dispatch: z.string().optional(),
+  stop_evidence: z.string().optional(),
 });
 export type TakeoverRequest = z.infer<typeof TakeoverRequest>;
 
@@ -57,6 +64,8 @@ const Taken = z.object({
 type Taken = z.infer<typeof Taken>;
 
 export interface TakeoverResult extends Taken {
+  coordinator_dispatch_id: string | null;
+  seat_refusal?: SeatRefusal;
   restore_view: string;
   nextSteps: string[];
 }
@@ -65,6 +74,7 @@ export const TakeoverRecorded = z.looseObject({
   request: TakeoverRequest,
   outcome: z.enum(["taken", "failed"]).optional(),
   result: Taken.optional(),
+  owes: z.looseObject({ decide_seat: z.string() }).optional(),
   requestId: z.string().nullish(),
   code: RefusalCode.optional(),
   message: z.string().optional(),
@@ -163,22 +173,108 @@ function unsafe(live: readonly string[], readable: boolean): Refusal {
   };
 }
 
+const acceptedWorkerStates: readonly string[] = ["stopped", "failed"];
+
+type ResidentEvidence =
+  | { consumer: number; stop: string }
+  | { refusal: Refusal };
+
+function residentUnsafe(
+  dispatchId: string,
+  handle: string | null,
+  listed: boolean,
+): Refusal {
+  return {
+    code: "takeover_unsafe",
+    message:
+      !listed && handle === null
+        ? `worker-list gave no readable reply and Dispatch ${dispatchId} has no terminal handle`
+        : `the old coordinator Dispatch ${dispatchId} has not stopped`,
+    nextSteps: [
+      `orca orchestration worker-stop --dispatch ${dispatchId}`,
+      ...(handle === null ? [] : [`orca terminal close --terminal ${handle}`]),
+      `evidence accepted: worker-list shows Dispatch ${dispatchId} stopped or failed, or terminal show reports connected false with an exitCause, or terminal_handle_stale`,
+    ],
+  };
+}
+
+async function readResidentEvidence(
+  orca: OrcaPort,
+  run: Run,
+  decider: Dispatch | null,
+  dispatchId: string,
+): Promise<ResidentEvidence> {
+  const shown = await orca.runShow({ run: run.run_id });
+  if (shown.exitCode !== 0 || shown.result === null)
+    return { refusal: unsafe([], false) };
+  const consumer = shown.result.run.consumer_generation;
+  const rows = await listWorkers(orca, run.run_id);
+  const row = rows?.find((item) => item.dispatchId === dispatchId);
+  if (row !== undefined && acceptedWorkerStates.includes(row.workerState))
+    return { consumer, stop: row.workerState };
+  const handle = decider?.terminal_handle ?? null;
+  if (
+    handle !== null &&
+    coordinatorStopped(await orca.terminalShow({ terminal: handle }))
+  )
+    return { consumer, stop: "terminal_stopped" };
+  return { refusal: residentUnsafe(dispatchId, handle, rows !== null) };
+}
+
 export type Recorded =
   { kind: "taken"; taken: Taken } | { kind: "refused"; refusal: Refusal };
 
+interface TakeoverRecord {
+  opKey: string;
+  request: TakeoverRequest;
+  consumerGeneration: number;
+  host: string;
+  verb: "takeover" | "check";
+  at: Date;
+}
+
 export async function recordTakeover(
   db: Db,
-  record: {
-    opKey: string;
-    request: TakeoverRequest;
-    consumerGeneration: number;
-    host: string;
-    verb: "takeover" | "check";
-    at: Date;
-  },
+  record: TakeoverRecord,
+): Promise<Recorded> {
+  return db.transaction((tx) => recordTaken(tx, record));
+}
+
+async function settleOldCoordinator(
+  tx: Repo,
+  run: Run,
+  record: TakeoverRecord,
+  dispatchId: string,
+): Promise<void> {
+  const moved = await tx.settleDispatch(dispatchId, {
+    activity: "settled",
+    settlement: "stopped",
+    settled_at: record.at,
+  });
+  if (!moved) return;
+  await tx.appendEvent({
+    type: "stop",
+    ts: record.at,
+    host: record.host,
+    run_id: run.run_id,
+    task_id: null,
+    dispatch_id: dispatchId,
+    op_key: record.opKey,
+    payload: Json.parse({
+      worker_state: record.request.stop_evidence ?? null,
+      reason: "takeover",
+    }),
+    source: { kind: "command", verb: record.verb },
+  });
+}
+
+async function recordTaken(
+  tx: Repo,
+  record: TakeoverRecord,
 ): Promise<Recorded> {
   const { opKey, request, at } = record;
-  return db.transaction(async (tx): Promise<Recorded> => {
+  const resident = request.from_dispatch;
+  {
     const row = await tx.getOperation(opKey);
     const current = TakeoverRecorded.safeParse(row?.result_ref);
     if (current.success && current.data.result !== undefined)
@@ -195,10 +291,12 @@ export async function recordTakeover(
         },
       };
     const next = request.generation + 1;
+    const before = await tx.getRun(request.run_id);
+    if (before === null) throw new Error(`Run ${request.run_id} vanished`);
     const moved = await tx.advanceOwner(request.run_id, {
       from: request.generation,
       to: next,
-      coordinator: request.to_handle,
+      coordinator: resident === undefined ? request.to_handle : before.coordinator,
     });
     const run = await tx.getRun(request.run_id);
     if (run === null) throw new Error(`Run ${request.run_id} vanished`);
@@ -218,6 +316,8 @@ export async function recordTakeover(
       );
       return { kind: "refused", refusal };
     }
+    if (resident !== undefined)
+      await settleOldCoordinator(tx, run, record, resident);
     const story = await tx.getStory(run.story_provider, run.story_external_id);
     const snapshot = await tx.getSnapshot(run.run_id);
     if (story === null || snapshot === null)
@@ -250,8 +350,8 @@ export async function recordTakeover(
       run_id: run.run_id,
       story: request.story,
       owner_generation: next,
-      coordinator: request.to_handle,
-      previous_coordinator: request.from_handle,
+      coordinator: resident === undefined ? request.to_handle : run.coordinator,
+      previous_coordinator: resident ?? request.from_handle,
       consumer_generation: record.consumerGeneration,
       manifest_id: manifest.id,
       view_path: request.view_path,
@@ -259,7 +359,18 @@ export async function recordTakeover(
     await tx.moveOperation(
       opKey,
       "done",
-      Json.parse({ request, outcome: "taken", result: taken }),
+      Json.parse({
+        request,
+        outcome: "taken",
+        result: taken,
+        ...(resident === undefined
+          ? {}
+          : {
+              owes: {
+                decide_seat: seatOpKey(run.run_id, "decider", null, null, next),
+              },
+            }),
+      }),
       at,
     );
     await tx.appendEvent({
@@ -272,8 +383,8 @@ export async function recordTakeover(
       op_key: opKey,
       payload: Json.parse({
         op_key: opKey,
-        previous_coordinator: request.from_handle,
-        coordinator: request.to_handle,
+        previous_coordinator: taken.previous_coordinator,
+        coordinator: taken.coordinator,
         previous_generation: request.generation,
         owner_generation: next,
         consumer_generation: record.consumerGeneration,
@@ -283,7 +394,7 @@ export async function recordTakeover(
       source: { kind: "command", verb: record.verb },
     });
     return { kind: "taken", taken };
-  });
+  }
 }
 
 async function finished(
@@ -291,6 +402,9 @@ async function finished(
   taken: Taken,
   opKey: string,
   version: string,
+  pair: Pick<TakeoverResult, "coordinator" | "coordinator_dispatch_id"> & {
+    seat_refusal?: SeatRefusal;
+  } = { coordinator: taken.coordinator, coordinator_dispatch_id: null },
 ): Promise<Outcome<TakeoverResult>> {
   const nextSteps = [checkStep(taken.run_id, taken.owner_generation)];
   const view = await restoreView(
@@ -303,8 +417,12 @@ async function finished(
     ok: true,
     result: {
       ...taken,
+      ...pair,
       restore_view: renderRestoreHtml(renderRestoreView(view)),
-      nextSteps,
+      nextSteps: [
+        ...nextSteps,
+        ...(pair.seat_refusal?.nextSteps ?? []),
+      ],
     },
     opKey,
     orca: version,
@@ -317,6 +435,130 @@ function duplicate(opKey: string) {
     `op key ${opKey} belongs to another intent or request`,
     ["pass a new --op-key"],
   );
+}
+
+async function finishResident(
+  db: Db,
+  orca: OrcaPort,
+  log: ReceiptLog,
+  input: TakeoverInput,
+  taken: Taken,
+  opKey: string,
+  version: string,
+): Promise<Outcome<TakeoverResult>> {
+  const run = await db.getRun(taken.run_id);
+  if (run === null) throw new Error(`Run ${taken.run_id} vanished`);
+  const seat = await openCoordinator(db, orca, log, {
+    run,
+    generation: taken.owner_generation,
+    viewPath: taken.view_path,
+    manifestId: taken.manifest_id,
+    relaunch: taken.owner_generation,
+    templates: input.seats?.templates ?? null,
+    capacity: input.seats?.capacity ?? 1,
+    host: input.host,
+    now: input.now,
+  });
+  if (!seat.ok)
+    return finished(db, taken, opKey, version, {
+      coordinator: run.coordinator,
+      coordinator_dispatch_id: run.coordinator_dispatch_id,
+      seat_refusal: seatRefusal("decider", seat.refusal),
+    });
+  return finished(db, taken, opKey, version, {
+    coordinator: seat.dispatch.terminal_handle ?? run.coordinator,
+    coordinator_dispatch_id: seat.dispatch.dispatch_id,
+  });
+}
+
+async function recordRefused(
+  tx: Repo,
+  insert: { opKey: string; generation: number; request: TakeoverRequest; at: Date },
+  refusal: Refusal,
+): Promise<Refusal> {
+  const { opKey, request, at } = insert;
+  const { created } = await tx.insertOperation({
+    op_key: opKey,
+    intent: "takeover",
+    owner_generation: insert.generation,
+    at,
+    result_ref: Json.parse({ request }),
+  });
+  if (created)
+    await tx.moveOperation(
+      opKey,
+      "refused",
+      Json.parse({ request, ...refusal }),
+      at,
+    );
+  return refusal;
+}
+
+async function takeoverResident(
+  db: Db,
+  orca: OrcaPort,
+  log: ReceiptLog,
+  input: TakeoverInput,
+  run: Run,
+  dispatchId: string,
+  opKey: string,
+  version: string,
+): Promise<Outcome<TakeoverResult>> {
+  const evidence = await readResidentEvidence(
+    orca,
+    run,
+    await db.getDispatch(dispatchId),
+    dispatchId,
+  );
+  const request: TakeoverRequest = {
+    run_id: run.run_id,
+    story: input.story,
+    from_handle: run.coordinator,
+    to_handle: input.coordinator,
+    generation: input.generation,
+    view_path: input.viewPath(run.run_id, input.generation + 1),
+    from_dispatch: dispatchId,
+    ...("stop" in evidence ? { stop_evidence: evidence.stop } : {}),
+  };
+  const at = input.now();
+  const insert = { opKey, generation: input.generation, request, at };
+  const gate = await db.transaction(async (tx): Promise<Recorded> => {
+    const current = await tx.lockRun(run.run_id);
+    if (current === null) throw new Error(`Run ${run.run_id} vanished`);
+    const refused = async (refusal: Refusal): Promise<Recorded> => ({
+      kind: "refused",
+      refusal: await recordRefused(tx, insert, refusal),
+    });
+    if (input.generation !== current.owner_generation)
+      return refused(staleRefusal(current, input.generation));
+    if ("refusal" in evidence) return refused(evidence.refusal);
+    const { created } = await tx.insertOperation({
+      op_key: opKey,
+      intent: "takeover",
+      owner_generation: input.generation,
+      at,
+      result_ref: Json.parse({ request }),
+    });
+    if (!created)
+      return {
+        kind: "refused",
+        refusal: {
+          code: "duplicate_op",
+          message: `op key ${opKey} was taken by another call`,
+          nextSteps: [input.command(opKey)],
+        },
+      };
+    return recordTaken(tx, {
+      opKey,
+      request,
+      consumerGeneration: evidence.consumer,
+      host: input.host,
+      verb: "takeover",
+      at,
+    });
+  });
+  if (gate.kind === "refused") return { ok: false, refusal: gate.refusal };
+  return finishResident(db, orca, log, input, gate.taken, opKey, version);
 }
 
 export async function takeover(
@@ -349,7 +591,17 @@ export async function takeover(
     if (existing.status === "pending" || existing.status === "unknown")
       return stopOnOpen(orca, log, context, existing, input.command(opKey));
     if (ref.data.result !== undefined)
-      return finished(db, ref.data.result, opKey, version);
+      return ref.data.owes === undefined
+        ? finished(db, ref.data.result, opKey, version)
+        : finishResident(
+            db,
+            orca,
+            log,
+            input,
+            ref.data.result,
+            opKey,
+            version,
+          );
     if (existing.status === "refused")
       return refuse(
         ref.data.code ?? "failed",
@@ -362,6 +614,21 @@ export async function takeover(
   }
 
   log.at(context);
+  if (run.coordinator_dispatch_id !== null)
+    return takeoverResident(
+      db,
+      orca,
+      log,
+      input,
+      run,
+      run.coordinator_dispatch_id,
+      opKey,
+      version,
+    );
+  if (input.coordinator === "")
+    return refuse("usage", "POD_COORDINATOR is not set", [
+      "set POD_COORDINATOR to the new coordinator's Orca terminal handle",
+    ]);
   const evidence = await readEvidence(orca, run, input.coordinator);
   const request: TakeoverRequest = {
     run_id: run.run_id,
@@ -375,23 +642,12 @@ export async function takeover(
   const gate = await db.transaction(async (tx): Promise<Refusal | null> => {
     const current = await tx.lockRun(run.run_id);
     if (current === null) throw new Error(`Run ${run.run_id} vanished`);
-    const record = async (refusal: Refusal) => {
-      const { created } = await tx.insertOperation({
-        op_key: opKey,
-        intent: "takeover",
-        owner_generation: input.generation,
-        at: now,
-        result_ref: Json.parse({ request }),
-      });
-      if (created)
-        await tx.moveOperation(
-          opKey,
-          "refused",
-          Json.parse({ request, ...refusal }),
-          now,
-        );
-      return refusal;
-    };
+    const record = (refusal: Refusal) =>
+      recordRefused(
+        tx,
+        { opKey, generation: input.generation, request, at: now },
+        refusal,
+      );
     if (input.generation !== current.owner_generation)
       return record(staleRefusal(current, input.generation));
     if (!evidence.readable || evidence.live.length > 0)

@@ -10,6 +10,7 @@ import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { noCalls } from "../orca/temp-fixtures.ts";
 import { decider, deliveredPlan, opened } from "./decision-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
+import { residentSeat } from "./resident-fixture.ts";
 
 describeDb("resident decision Seats", () => {
   let conn: Connection;
@@ -23,39 +24,6 @@ describeDb("resident decision Seats", () => {
     templates = await deliveredPlan(conn);
   });
   afterAll(() => conn.close());
-
-  async function resident(
-    dispatchId: string,
-    role: "decider" | "auditor",
-    settlement = "open",
-  ) {
-    await conn.db.insertOperation({
-      op_key: `seat-${dispatchId}`,
-      intent: "decide_seat",
-      owner_generation: 1,
-      at: new Date(),
-    });
-    await conn.db.moveOperation(`seat-${dispatchId}`, "done", null, new Date());
-    await conn.db.insertDispatch({
-      dispatch_id: dispatchId,
-      task_id: null,
-      decision_id: null,
-      run_id: "run_1",
-      seat: role === "decider" ? "dec-1" : "aud-1",
-      role,
-      requested_launch: {},
-      effective_launch: null,
-      model_attribution: "unknown",
-      retry_of: null,
-      op_key: `seat-${dispatchId}`,
-      settlement,
-      terminal_handle: `term_${dispatchId}`,
-      created_at: new Date(),
-      settled_at: settlement === "open" ? null : new Date(),
-      activity: settlement === "open" ? "running" : "settled",
-      manifest_id: null,
-    });
-  }
 
   async function seat(over: Partial<SeatInput>) {
     const run = await conn.db.getRun("run_1");
@@ -91,8 +59,8 @@ describeDb("resident decision Seats", () => {
   });
 
   test("on a Run with a coordinator Dispatch a Decision reuses the resident decider and auditor", async () => {
-    await resident("ctx_res_dec", "decider");
-    await resident("ctx_res_aud", "auditor");
+    await residentSeat(conn, "ctx_res_dec", "decider");
+    await residentSeat(conn, "ctx_res_aud", "auditor");
     await conn.db.setRunCoordinator("run_1", {
       generation: 1,
       dispatch_id: "ctx_res_dec",
@@ -111,7 +79,9 @@ describeDb("resident decision Seats", () => {
   });
 
   test("a Decision on a Run whose coordinator Dispatch settled opens no decider and points at takeover", async () => {
-    await resident("ctx_res_dec", "decider", "stopped");
+    await residentSeat(conn, "ctx_res_dec", "decider", "settled", {
+      settlement: "stopped",
+    });
     await conn.db.setRunCoordinator("run_1", {
       generation: 1,
       dispatch_id: "ctx_res_dec",

@@ -6,6 +6,7 @@ import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
+import type { Revision } from "../../src/core/domain/config.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import {
   recordTakeover,
@@ -21,7 +22,9 @@ import {
   unknownReply,
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
+import { deliveredPlan, seatStarted } from "./decision-fixture.ts";
 import { describeDb, openDb, podHome, resetDb, runCli } from "./helpers.ts";
+import { residentSeat } from "./resident-fixture.ts";
 import {
   dispatched,
   empty,
@@ -638,5 +641,168 @@ describeDb("pod takeover", () => {
     const path = join(podHome, "restore", "run_1-2.html");
     expect(taken.json).toMatchObject({ ok: true, result: { view_path: path } });
     expect(existsSync(path)).toBe(true);
+  });
+});
+
+describeDb("pod takeover on a Run with a coordinator Dispatch", () => {
+  let conn: Connection;
+  let templates: Revision;
+  const oldDecider = "ctx_old_dec";
+  const residentAuditor = "ctx_res_aud";
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  beforeEach(async () => {
+    templates = await deliveredPlan(conn);
+    await residentSeat(conn, oldDecider, "decider");
+    await residentSeat(conn, residentAuditor, "auditor", "waiting");
+    await conn.db.setRunCoordinator("run_1", {
+      generation: 1,
+      dispatch_id: oldDecider,
+      coordinator: `term_${oldDecider}`,
+    });
+  });
+  afterAll(() => conn.close());
+
+  function residentInput(over: Partial<TakeoverInput> = {}): TakeoverInput {
+    return input({
+      story: "S-9",
+      coordinator: "",
+      seats: { templates, capacity: 2 },
+      ...over,
+    });
+  }
+
+  const listed = (workerState: string): TempEntry =>
+    ok(
+      "worker-list",
+      workers([{ dispatchId: oldDecider, taskId: "orca_old", workerState }]),
+      run1,
+    );
+
+  const newDecider = [
+    ok("task-create", { task: { id: "orca_new_dec", status: "ready" } }, [
+      "--run",
+      "run_1",
+    ]),
+    ok("worker-start", seatStarted("ctx_new_dec"), ["--task", "orca_new_dec"]),
+  ];
+
+  async function residentRun(entries: readonly TempEntry[]) {
+    const { orca, log } = replay(conn, entries);
+    const outcome = await takeover(conn.db, orca, log, residentInput());
+    orca.assertDone();
+    return outcome;
+  }
+
+  test("a stopped decider is taken over: the generation advances, a new decider becomes the coordinator, and the auditor is untouched", async () => {
+    const auditorBefore = await conn.db.getDispatch(residentAuditor);
+    const outcome = await residentRun([
+      ok("run-show", orcaRun(`term_${oldDecider}`, 1), ["--id", "run_1"]),
+      listed("stopped"),
+      ...newDecider,
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        owner_generation: 2,
+        previous_coordinator: oldDecider,
+        coordinator_dispatch_id: "ctx_new_dec",
+        coordinator: "term_ctx_new_dec",
+      },
+    });
+    expect(await conn.db.getRun("run_1")).toMatchObject({
+      owner_generation: 2,
+      coordinator_dispatch_id: "ctx_new_dec",
+      coordinator: "term_ctx_new_dec",
+    });
+    expect(await conn.db.getDispatch(oldDecider)).toMatchObject({
+      settlement: "stopped",
+      activity: "settled",
+    });
+    expect(await conn.db.getDispatch(residentAuditor)).toEqual(auditorBefore);
+    const [taken] = await events(conn, "takeover");
+    expect(taken?.payload).toMatchObject({
+      previous_coordinator: oldDecider,
+      owner_generation: 2,
+    });
+    const stops = await conn.sql<{ dispatch_id: string; payload: unknown }[]>`
+      select dispatch_id, payload from ledger.event where type = 'stop'`;
+    expect(stops).toEqual([
+      {
+        dispatch_id: oldDecider,
+        payload: { worker_state: "stopped", reason: "takeover" },
+      },
+    ]);
+    const [seatOp] = await conn.sql<{ request: { decision_id: unknown } }[]>`
+      select result_ref -> 'request' as request from ledger.operation
+      where intent = 'decide_seat' and result_ref -> 'result' ->> 'dispatch_id' = 'ctx_new_dec'`;
+    expect(seatOp?.request.decision_id).toBeNull();
+  });
+
+  test("a failed decider with no terminal handle is accepted evidence, with no terminal-show", async () => {
+    await conn.sql`update ledger.dispatch set terminal_handle = null where dispatch_id = ${oldDecider}`;
+    const outcome = await residentRun([
+      ok("run-show", orcaRun(`term_${oldDecider}`, 1), ["--id", "run_1"]),
+      listed("failed"),
+      ...newDecider,
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { coordinator_dispatch_id: "ctx_new_dec" },
+    });
+  });
+
+  test("a running decider whose terminal is connected is takeover_unsafe, recorded refused", async () => {
+    const outcome = await residentRun([
+      ok("run-show", orcaRun(`term_${oldDecider}`, 1), ["--id", "run_1"]),
+      listed("running"),
+      terminal(`term_${oldDecider}`, true),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "takeover_unsafe",
+        message: `the old coordinator Dispatch ${oldDecider} has not stopped`,
+      },
+    });
+    expect(await conn.db.getRun("run_1")).toMatchObject({
+      owner_generation: 1,
+      coordinator_dispatch_id: oldDecider,
+    });
+    expect((await conn.db.getDispatch(oldDecider))?.settlement).toBe("open");
+  });
+
+  test("a ready decider with no terminal handle is takeover_unsafe", async () => {
+    await conn.sql`update ledger.dispatch set terminal_handle = null where dispatch_id = ${oldDecider}`;
+    const outcome = await residentRun([
+      ok("run-show", orcaRun(`term_${oldDecider}`, 1), ["--id", "run_1"]),
+      listed("ready"),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: { code: "takeover_unsafe" },
+    });
+  });
+
+  test("a refused new decider leaves the takeover taken and the old Dispatch named", async () => {
+    const outcome = await residentRun([
+      ok("run-show", orcaRun(`term_${oldDecider}`, 1), ["--id", "run_1"]),
+      listed("stopped"),
+      lost("task-create"),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        owner_generation: 2,
+        coordinator_dispatch_id: oldDecider,
+        seat_refusal: { role: "decider", code: "failed" },
+      },
+    });
+    expect((await conn.db.getRun("run_1"))?.coordinator_dispatch_id).toBe(
+      oldDecider,
+    );
   });
 });

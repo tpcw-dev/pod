@@ -19,6 +19,7 @@ import {
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import { residentSeat } from "./resident-fixture.ts";
 import { seedConfig } from "./seed.ts";
 
 const requestId = "44444444-4444-4444-8444-444444444444";
@@ -427,37 +428,14 @@ describeDb("pod dispatch", () => {
     });
   });
 
-  async function residentDecider(activity: "running" | "waiting" = "running") {
-    await conn.db.insertOperation({
-      op_key: "seat-dec",
-      intent: "decide_seat",
-      owner_generation: 1,
-      at: new Date(),
-    });
-    await conn.db.moveOperation("seat-dec", "done", null, new Date());
-    await conn.db.insertDispatch({
-      dispatch_id: "ctx_dec",
-      task_id: null,
-      decision_id: null,
-      run_id: "run_1",
+  async function residentDecider() {
+    await residentSeat(conn, "ctx_dec", "decider", "running", {
       seat: "both-1",
-      role: "decider",
-      requested_launch: {},
-      effective_launch: null,
-      model_attribution: "unknown",
-      retry_of: null,
-      op_key: "seat-dec",
-      settlement: "open",
-      terminal_handle: "term_dec",
-      created_at: new Date(),
-      settled_at: null,
-      activity,
-      manifest_id: null,
     });
     await conn.db.setRunCoordinator("run_1", {
       generation: 1,
       dispatch_id: "ctx_dec",
-      coordinator: "term_dec",
+      coordinator: "term_ctx_dec",
     });
   }
 
