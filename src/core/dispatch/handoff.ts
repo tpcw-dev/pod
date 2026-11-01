@@ -11,11 +11,18 @@ export async function yieldSlot(
   host: string,
 ): Promise<string | null> {
   if (run.coordinator_dispatch_id === null || run.host !== host) return null;
-  const coordinator = await tx.getDispatch(run.coordinator_dispatch_id);
+  return yieldDispatch(tx, run.coordinator_dispatch_id);
+}
+
+export async function yieldDispatch(
+  tx: Repo,
+  dispatchId: string,
+): Promise<string | null> {
+  const coordinator = await tx.getDispatch(dispatchId);
   if (coordinator?.settlement !== "open" || coordinator.activity !== "running")
     return null;
-  await tx.setDispatchActivity(coordinator.dispatch_id, "waiting");
-  return coordinator.dispatch_id;
+  await tx.setDispatchActivity(dispatchId, "waiting");
+  return dispatchId;
 }
 
 export function handoffOf(

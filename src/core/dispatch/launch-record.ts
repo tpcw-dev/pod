@@ -158,7 +158,10 @@ export async function recordLate(
 
 export type DispatchOwner =
   | { task_id: string; decision_id: null }
-  | { task_id: null; decision_id: string };
+  | { task_id: null; decision_id: string }
+  | { task_id: null; decision_id: null };
+
+const seatRoles: readonly string[] = ["decider", "auditor"];
 
 export interface StartRow {
   owner: DispatchOwner;
@@ -172,7 +175,7 @@ export interface StartRow {
   retry_of: string | null;
   fallback_of?: string | null;
   op_key: string;
-  manifest_id: string;
+  manifest_id: string | null;
   verb: string;
   late: boolean;
   at: Date;
@@ -180,6 +183,12 @@ export interface StartRow {
 
 export async function insertStart(tx: Repo, start: StartRow): Promise<void> {
   const { launched, owner } = start;
+  if (
+    owner.task_id === null &&
+    owner.decision_id === null &&
+    !seatRoles.includes(start.role)
+  )
+    throw new Error(`a ${start.role} Dispatch needs a Task or a Decision`);
   const row: Dispatch = {
     dispatch_id: launched.dispatchId,
     task_id: owner.task_id,

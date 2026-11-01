@@ -105,8 +105,18 @@ export async function reconcileLaunches(
       nextSteps.push(unreadableLine(operation, ref.error));
       continue;
     }
-    const decision = await db.getDecision(ref.data.request.decision_id);
-    if (decision?.run_id !== input.run.run_id) continue;
+    const { decision_id: decisionId, run_id: runId } = ref.data.request;
+    if (decisionId === null && runId === undefined) {
+      nextSteps.push(
+        `pod check: launch ${operation.op_key} has an unreadable request (request.run_id) and holds a slot; inspect ledger.operation ${operation.op_key}`,
+      );
+      continue;
+    }
+    const owner =
+      decisionId === null
+        ? runId
+        : (await db.getDecision(decisionId))?.run_id;
+    if (owner !== input.run.run_id) continue;
     const outcome = await reconcileSeat(
       db,
       orca,

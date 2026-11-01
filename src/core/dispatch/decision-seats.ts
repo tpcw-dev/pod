@@ -8,6 +8,7 @@ import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { seatLaunch } from "./dispatch.ts";
+import { returnSlot, yieldDispatch } from "./handoff.ts";
 import { drainRefusal, slotRefusal } from "./launch-gate.ts";
 import {
   attribution,
@@ -40,14 +41,14 @@ export function decisionIdOf(opKey: string): string {
 export function seatOpKey(
   runId: string,
   role: SeatRole,
-  decisionId: string,
+  decisionId: string | null,
   fallbackOf: string | null = null,
   relaunch = 0,
 ) {
   return derivedOpKey("decide_seat", {
     run_id: runId,
     role,
-    decision_id: decisionId,
+    decision_id: decisionId ?? "",
     ...(fallbackOf === null ? {} : { fallback_of: fallbackOf }),
     ...(relaunch === 0 ? {} : { relaunch: String(relaunch) }),
   });
@@ -132,15 +133,16 @@ function unfilled(role: SeatRole): { refusal: Refusal } {
 
 export interface SeatInput {
   run: Run;
-  decisionId: string;
+  decisionId: string | null;
   role: SeatRole;
   spec: string;
-  manifestId: string;
+  manifestId: string | null;
   generation: number;
   host: string;
   capacity: number;
   now: () => Date;
   relaunch?: number;
+  handoff?: string | null;
 }
 
 export type SeatOutcome =
@@ -148,7 +150,8 @@ export type SeatOutcome =
   | { ok: false; refusal: Refusal; runtimeFailure?: boolean };
 
 const SeatRequest = z.looseObject({
-  decision_id: z.string(),
+  decision_id: z.string().nullable(),
+  run_id: z.string().optional(),
   role: z.enum(["decider", "auditor"]),
   seat: z.string(),
   host: z.string(),
@@ -166,7 +169,7 @@ export const SeatRef = z.looseObject({
   request: SeatRequest,
   launch: z.looseObject({ agent: z.string() }),
   spec: z.string(),
-  manifest_id: z.string(),
+  manifest_id: z.string().nullable(),
   orca_task: z.string(),
   requestId: z.string().nullish(),
 });
@@ -179,13 +182,52 @@ const Done = z.looseObject({
   nextSteps: z.array(z.string()).optional(),
 });
 
-export function openSeat(dispatches: readonly Dispatch[], role: SeatRole) {
+function own(
+  dispatches: readonly Dispatch[],
+  role: SeatRole,
+  decisionId: string | null,
+): Dispatch | undefined {
+  const open = dispatches.filter(
+    (row) =>
+      row.task_id === null && row.role === role && row.settlement === "open",
+  );
+  return (
+    (decisionId === null
+      ? undefined
+      : open.find((row) => row.decision_id === decisionId)) ??
+    open.find((row) => row.decision_id === null)
+  );
+}
+
+export function residentOrOwn(
+  run: Pick<Run, "coordinator_dispatch_id">,
+  dispatches: readonly Dispatch[],
+  role: SeatRole,
+  decisionId: string | null,
+): Dispatch | undefined {
+  const found = own(dispatches, role, decisionId);
+  if (found !== undefined || decisionId === null) return found;
+  if (run.coordinator_dispatch_id !== null) return undefined;
   return dispatches.find(
     (row) =>
-      row.decision_id !== null &&
-      row.role === role &&
-      row.settlement === "open",
+      row.task_id === null && row.role === role && row.settlement === "open",
   );
+}
+
+function settledCoordinator(run: Run, input: SeatInput): Refusal | null {
+  if (
+    input.role !== "decider" ||
+    input.decisionId === null ||
+    run.coordinator_dispatch_id === null
+  )
+    return null;
+  return {
+    code: "task_not_ready",
+    message: `the Run's coordinator Dispatch ${run.coordinator_dispatch_id} has settled; pod takeover opens a new one`,
+    nextSteps: [
+      `pod takeover story:${run.story_external_id} --generation ${run.owner_generation}`,
+    ],
+  };
 }
 
 export async function openDecisionSeat(
@@ -195,8 +237,11 @@ export async function openDecisionSeat(
   input: SeatInput,
 ): Promise<SeatOutcome> {
   const { run } = input;
-  const reuse = openSeat(await db.listDispatches(run.run_id), input.role);
+  const dispatches = await db.listDispatches(run.run_id);
+  const reuse = residentOrOwn(run, dispatches, input.role, input.decisionId);
   if (reuse !== undefined) return { ok: true, dispatch: reuse, reused: true };
+  const settled = settledCoordinator(run, input);
+  if (settled !== null) return { ok: false, refusal: settled };
   const snapshot = await db.getSnapshot(run.run_id);
   const crew =
     snapshot === null ? null : await db.getRevision(snapshot.crew_revision_id);
@@ -213,9 +258,13 @@ export async function openDecisionSeat(
   }
   const deciderSeat =
     input.role === "auditor"
-      ? ((await db.listDispatches(run.run_id)).find(
-          (row) =>
-            row.decision_id === input.decisionId && row.role === "decider",
+      ? ((
+          dispatches.find(
+            (row) =>
+              input.decisionId !== null &&
+              row.decision_id === input.decisionId &&
+              row.role === "decider",
+          ) ?? own(dispatches, "decider", null)
         )?.seat ?? null)
       : null;
   const picked = pickSeat(seats, input.role, deciderSeat);
@@ -270,6 +319,7 @@ async function launchSeat(
   const launch: LaunchArgs = seatLaunch(seat);
   const request = {
     decision_id: input.decisionId,
+    run_id: run.run_id,
     role: input.role,
     seat: seat.id,
     host: input.host,
@@ -285,6 +335,17 @@ async function launchSeat(
   };
   const now = input.now();
   const context = { run_id: run.run_id, task_id: null, op_key: opKey };
+  const handoff: { coordinator_waiting?: string } = {};
+  const refuseLaunch = (found: Refusal, raw: unknown, at: Date) =>
+    db.transaction(async (tx) => {
+      await returnSlot(tx, handoff);
+      await tx.moveOperation(
+        opKey,
+        "refused",
+        Json.parse({ request, ...found, raw: raw ?? null }),
+        at,
+      );
+    });
 
   type Gate =
     | { kind: "launch" }
@@ -313,6 +374,9 @@ async function launchSeat(
         };
       return { kind: "done", dispatchId: done?.result?.dispatch_id ?? null };
     }
+    const yielded =
+      input.handoff == null ? null : await yieldDispatch(tx, input.handoff);
+    if (yielded !== null) handoff.coordinator_waiting = yielded;
     const found = await seatRefusal(tx, input);
     await tx.insertOperation({
       op_key: opKey,
@@ -324,9 +388,11 @@ async function launchSeat(
         launch,
         spec: input.spec,
         manifest_id: input.manifestId,
+        ...handoff,
       }),
     });
     if (found === null) return { kind: "launch" };
+    await returnSlot(tx, handoff);
     await tx.moveOperation(
       opKey,
       "refused",
@@ -371,12 +437,7 @@ async function launchSeat(
       message: `task-create for the ${input.role} Seat ${seat.id} failed`,
       nextSteps: ["pod check"],
     };
-    await db.moveOperation(
-      opKey,
-      "refused",
-      Json.parse({ request, ...found, raw: created.raw ?? null }),
-      input.now(),
-    );
+    await refuseLaunch(found, created.raw, input.now());
     return { ok: false, refusal: found };
   }
   const receipt = await orca.workerStart({
@@ -395,6 +456,7 @@ async function launchSeat(
     spec: input.spec,
     manifest_id: input.manifestId,
     orca_task: orcaTask,
+    ...handoff,
   };
   const at = input.now();
   if (launched !== null) {
@@ -417,12 +479,7 @@ async function launchSeat(
         "pod check",
       ],
     };
-    await db.moveOperation(
-      opKey,
-      "refused",
-      Json.parse({ request, ...found, raw: receipt.raw ?? null }),
-      at,
-    );
+    await refuseLaunch(found, receipt.raw, at);
     return { ok: false, refusal: found };
   }
   await recordSeatUnknown(
@@ -498,6 +555,10 @@ export async function recordSeatStarted(
     late: false,
     at: input.at,
   });
+  if (ref.request.role === "auditor" && ref.request.decision_id === null) {
+    await tx.setDispatchActivity(launched.dispatchId, "waiting");
+    await returnSlot(tx, Json.parse(ref));
+  }
   return launched.dispatchId;
 }
 

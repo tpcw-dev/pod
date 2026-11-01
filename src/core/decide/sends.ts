@@ -4,6 +4,7 @@ import { Json } from "../domain/json.ts";
 import type { Run } from "../domain/ledger.ts";
 import {
   openDecisionSeat,
+  residentOrOwn,
   type ReceiptLog,
   type SeatRole,
 } from "../dispatch/decision-seats.ts";
@@ -214,11 +215,15 @@ async function openDecider(
   db: Db,
   decision: DecisionRow,
 ): Promise<string | null> {
-  const open = (await db.listDispatches(decision.run_id)).find(
-    (row) =>
-      row.decision_id === decision.id &&
-      row.role === "decider" &&
-      row.settlement === "open",
+  const run = await db.getRun(decision.run_id);
+  if (run === null) return null;
+  const open = residentOrOwn(
+    run,
+    (await db.listDispatches(decision.run_id)).filter(
+      (row) => row.decision_id === decision.id || row.decision_id === null,
+    ),
+    "decider",
+    decision.id,
   );
   return open?.dispatch_id ?? null;
 }
