@@ -1,5 +1,8 @@
-import { readFileSync } from "node:fs";
-import { parse } from "yaml";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect } from "vitest";
+import { parse, stringify } from "yaml";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass, type CheckInput } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
@@ -9,14 +12,15 @@ import { revisionId } from "../../src/core/config/canonical-json.ts";
 import type { NewRevision, Revision } from "../../src/core/domain/config.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import { runCreate } from "../../src/core/run/create.ts";
-import { ok, type TempEntry } from "../orca/temp-fixtures.ts";
-import { clearDb } from "./helpers.ts";
+import { fixtures, ok, type TempEntry } from "../orca/temp-fixtures.ts";
+import { clearDb, runCli, type CliResult } from "./helpers.ts";
 import {
   batch,
   dispatched,
   empty,
   message,
   replay,
+  started,
   workers,
 } from "./run-fixture.ts";
 import { activeRevision } from "./seed.ts";
@@ -295,13 +299,14 @@ export function proposal(
   decisionId: string,
   round: number,
   citations: string[] = ["story:abc"],
+  text = `round ${round} proposal`,
 ): unknown {
   return message(id, "decision_gate", {
     kind: "decision_proposal",
     dispatchId: decider,
     decisionId,
     round,
-    proposal: `round ${round} proposal`,
+    proposal: text,
     citations,
   });
 }
@@ -312,6 +317,7 @@ export function audit(
   round: number,
   stance: string,
   from = auditor,
+  reasons = [`reason ${round}`],
 ): unknown {
   return message(id, "decision_gate", {
     kind: "decision_audit",
@@ -319,7 +325,7 @@ export function audit(
     decisionId,
     round,
     stance,
-    reasons: [`reason ${round}`],
+    reasons,
     points_of_disagreement: stance === "agree" ? [] : [`point ${round}`],
   });
 }
@@ -339,4 +345,168 @@ export function evidence(
     round,
     references,
   });
+}
+
+export async function clearRuns(conn: Connection): Promise<void> {
+  const tables = await conn.sql<{ name: string }[]>`
+    select format('%I.%I', schemaname, tablename) as name
+    from pg_tables where schemaname = 'ledger'`;
+  await conn.sql.unsafe(
+    `truncate config.snapshot, ${tables.map((table) => table.name).join(", ")} cascade`,
+  );
+  await conn.sql`delete from config.activation where scope = 'run'`;
+}
+
+export function applyConfig(files: readonly string[]): void {
+  for (const file of files) {
+    const applied = runCli([
+      "config",
+      "apply",
+      file,
+      "--activate",
+      "--scope",
+      "global",
+      "--expected-revision",
+      "none",
+    ]);
+    expect(applied.status, applied.json.error?.message ?? file).toBe(0);
+  }
+}
+
+export function questionFile(body: object): string {
+  const path = join(mkdtempSync(join(tmpdir(), "pod-question-")), "q.yaml");
+  writeFileSync(path, stringify(body));
+  return path;
+}
+
+async function orcaReceipts(conn: Connection): Promise<number> {
+  const [row] = await conn.sql<{ n: number }[]>`
+    select count(*)::int as n from ledger.event
+    where type = 'receipt' and payload ? 'argv'`;
+  return row?.n ?? 0;
+}
+
+export async function cliReplay(
+  conn: Connection,
+  args: string[],
+  orca: readonly TempEntry[] = [],
+  env: Record<string, string> = {},
+): Promise<CliResult> {
+  const before = await orcaReceipts(conn);
+  const result = runCli(args, {
+    POD_COORDINATOR: "session-1",
+    POD_ORCA_FIXTURES: fixtures([...orca, ok("no-further-call", {})]),
+    ...env,
+  });
+  expect(
+    await orcaReceipts(conn),
+    `${args.join(" ")} replays every fixture`,
+  ).toBe(before + orca.length);
+  return result;
+}
+
+export const generation = ["--generation", "1"];
+
+export async function cliDeliveredPlan(
+  conn: Connection,
+  story: string,
+  processRef: string,
+): Promise<void> {
+  await clearRuns(conn);
+  const created = await cliReplay(
+    conn,
+    [
+      "run",
+      "create",
+      `story:${story}`,
+      "--process",
+      processRef,
+      "--size",
+      "xl",
+      "--stage",
+      "impl",
+    ],
+    [
+      ok("run-create", { run: { id: "run_1" } }),
+      ok("task-create", { task: { id: planTask, status: "ready" } }),
+      ok("task-create", { task: { id: implementTask, status: "pending" } }),
+    ],
+  );
+  expect(created.status, created.json.error?.message).toBe(0);
+  const launched = await cliReplay(
+    conn,
+    ["dispatch", "--task", planTask, "--seat", "plan-1", ...generation],
+    [ok("worker-start", started(planner, planTask))],
+  );
+  expect(launched.status, launched.json.error?.message).toBe(0);
+  const delivered = await cliReplay(
+    conn,
+    ["check", ...run, ...generation],
+    [
+      ok(
+        "check",
+        batch("delivery_plan", [
+          message("msg_plan", "worker_done", {
+            taskId: planTask,
+            dispatchId: planner,
+            outcome: "succeeded",
+          }),
+        ]),
+        run,
+      ),
+      ok("check", empty("delivery_plan"), ack("delivery_plan")),
+      ok(
+        "worker-list",
+        workers([
+          { dispatchId: planner, taskId: planTask, workerState: "succeeded" },
+        ]),
+        run,
+      ),
+    ],
+  );
+  expect(delivered.status, delivered.json.error?.message).toBe(0);
+}
+
+export const opensDecider = [
+  seatTask("decider"),
+  ok("worker-start", seatStarted(decider), ["--task", "orca_decider"]),
+  sent(decider),
+];
+
+export const opensAuditor = [
+  seatTask("auditor"),
+  ok("worker-start", seatStarted(auditor, "m-3"), ["--task", "orca_auditor"]),
+  sent(auditor),
+];
+
+export function decideArgs(
+  file: string,
+  effect = "accept_plan",
+  more: string[] = [],
+): string[] {
+  return [
+    "decide",
+    file,
+    "--task",
+    planTask,
+    "--category",
+    "architecture_choice",
+    "--effect",
+    effect,
+    ...generation,
+    ...more,
+  ];
+}
+
+export function delivery(
+  key: string,
+  messages: unknown[],
+  after: TempEntry[] = [],
+): TempEntry[] {
+  return [
+    ok("check", batch(key, messages), run),
+    ok("check", empty(key), ack(key)),
+    ...after,
+    ok("worker-list", workers([]), run),
+  ];
 }

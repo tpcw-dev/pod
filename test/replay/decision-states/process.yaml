@@ -1,0 +1,30 @@
+kind: process
+name: decision-states
+schema_version: 1
+value:
+  summary: decision-states replay scenarios, a plan the decision pair settles, then the build
+  selector: { stage: impl, size: [xl] }
+  roles: [planner, developer]
+  steps:
+    - {
+        id: plan,
+        type: worker,
+        role: planner,
+        produces: [plan],
+        decision: plan,
+      }
+    - {
+        id: implement,
+        type: worker,
+        role: developer,
+        needs: [plan],
+        spec: Build it.,
+      }
+  edges:
+    - { from: plan, on: agreed, to: implement }
+    - { from: plan, on: cancelled, to: hold }
+    - { from: plan, on: [timeout, cancel, unknown], to: hold }
+    - { from: implement, on: done, to: done }
+    - { from: implement, on: [timeout, cancel, unknown], to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+  escalation: { to: decision-pair }
