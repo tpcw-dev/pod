@@ -66,6 +66,15 @@ export async function retryPlan(
     dispatch.task_id === null ? null : await db.getTask(dispatch.task_id);
   const superseded = task === null ? null : await supersededRefusal(db, task);
   if (superseded !== null) return superseded;
+  return recordedWorktree(db, dispatch, host);
+}
+
+async function recordedWorktree(
+  db: Repo,
+  dispatch: Dispatch,
+  host: string,
+): Promise<{ worktreePath: string } | Refused> {
+  const dispatchId = dispatch.dispatch_id;
   const worktree = Placement.catch({}).parse(
     dispatch.requested_launch,
   ).worktree;
@@ -115,7 +124,7 @@ export async function supersededWorktree(
     .filter((row) => row.task_id === previous.task_id)
     .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())[0];
   if (last === undefined) return null;
-  const plan = await retryPlan(db, last.dispatch_id, host);
+  const plan = await recordedWorktree(db, last, host);
   return "ok" in plan ? null : plan.worktreePath;
 }
 
