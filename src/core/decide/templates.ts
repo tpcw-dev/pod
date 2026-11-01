@@ -7,6 +7,12 @@ export const templateFields = [
   "round_next",
 ] as const;
 
+export const optionalTemplateFields = [
+  "resume_summary",
+  "evidence_request",
+  "evidence",
+] as const;
+
 export const placeholders = [
   "question",
   "options",
@@ -16,10 +22,12 @@ export const placeholders = [
   "audit",
   "points_of_disagreement",
   "decision_id",
+  "summary",
+  "proposal",
+  "citations",
 ] as const;
 
 export type Placeholder = (typeof placeholders)[number];
-export type Templates = Record<(typeof templateFields)[number], string>;
 
 const pattern = /\{\{([a-z_]+)\}\}/g;
 
@@ -28,7 +36,30 @@ export const Templates = z.strictObject({
   auditor: z.string().min(1),
   round_open: z.string().min(1),
   round_next: z.string().min(1),
+  resume_summary: z.string().min(1).optional(),
+  evidence_request: z.string().min(1).optional(),
+  evidence: z.string().min(1).optional(),
 });
+export type Templates = z.infer<typeof Templates>;
+
+export const fallbackTemplates: Record<
+  (typeof optionalTemplateFields)[number],
+  string
+> = {
+  resume_summary:
+    "Decision {{decision_id}} resumes at round {{round}}.\n\nEarlier rounds:\n{{summary}}",
+  evidence_request:
+    "Decision {{decision_id}} round {{round}}. The auditor needs evidence.\n\nAudit: {{audit}}",
+  evidence:
+    "Decision {{decision_id}} round {{round}}. Audit this proposal against Evidence manifest {{manifest_id}}.\n\nProposal: {{proposal}}\nCitations: {{citations}}\n{{manifest}}",
+};
+
+export function templateOf(
+  templates: Templates | null,
+  field: (typeof optionalTemplateFields)[number],
+): string {
+  return templates?.[field] ?? fallbackTemplates[field];
+}
 
 export function renderTemplate(
   template: string,
@@ -47,14 +78,22 @@ export function validateDecisionTemplates(
     value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
+  const known: readonly string[] = [
+    ...templateFields,
+    ...optionalTemplateFields,
+  ];
   for (const key of Object.keys(record))
-    if (!(templateFields as readonly string[]).includes(key))
+    if (!known.includes(key))
       return {
         path: `value.${key}`,
         message: `value.${key} is not a decision template field`,
       };
-  for (const field of templateFields) {
+  for (const field of known) {
     const text = record[field];
+    const optional = (optionalTemplateFields as readonly string[]).includes(
+      field,
+    );
+    if (optional && text === undefined) continue;
     if (typeof text !== "string" || text === "")
       return {
         path: `value.${field}`,

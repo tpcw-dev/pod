@@ -1,4 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 
 function run(
@@ -56,6 +59,8 @@ test("help lists the verbs sorted by name", () => {
     "config export",
     "db migrate",
     "decide",
+    "decide cancel",
+    "decide ruling",
     "dispatch",
     "docs read",
     "drain",
@@ -107,4 +112,21 @@ test("a launch lease that is not a positive whole number is usage", () => {
       },
     });
   }
+});
+
+test("decide ruling prints the comment text and opens no database", () => {
+  const noDb = {
+    POD_HOME: mkdtempSync(join(tmpdir(), "pod-ruling-cli-")),
+    POD_DATABASE_URL: "",
+  };
+  const result = run(["decide", "ruling", "D", "resume", "--note", "x"], noDb);
+  expect(result.status).toBe(0);
+  expect(result.stdout).toBe("decision D resume\nx\n");
+  const cancel = run(["decide", "cancel", "D", "--generation", "1"], noDb);
+  expect(cancel.status).not.toBe(0);
+});
+
+test("decide ruling refuses a verb other than resume, agreed, or cancelled", () => {
+  const result = run(["decide", "ruling", "D", "maybe"]);
+  expect(result.status).toBe(2);
 });

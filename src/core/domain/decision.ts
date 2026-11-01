@@ -65,7 +65,12 @@ export function stateText(state: DecisionState): string {
 export function reasonOf(state: DecisionState): DecisionReason | null {
   if (state.kind === "needs_human") return state.reason;
   if (state.kind === "reserved_denied") return "denied";
-  if (state.kind === "agreed" || state.kind === "cancelled") return state.kind;
+  if (
+    state.kind === "agreed" ||
+    state.kind === "cancelled" ||
+    state.kind === "superseded"
+  )
+    return state.kind;
   return null;
 }
 
@@ -89,7 +94,7 @@ const SupersededBy = z.looseObject({ by: z.string().min(1) });
 export function parseDecisionState(
   text: string,
   reason: string | null,
-  outcome: Json | null = null,
+  outcome: Json | null,
 ): DecisionState {
   const counted = /^(round|awaiting_evidence):([123])$/.exec(text);
   if (counted !== null)

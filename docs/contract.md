@@ -68,6 +68,7 @@ Cited from "Constraints".
 | `verdict post` | tracker | operator | by voiding the receipt | Head SHA equals the current candidate SHA, and the reviewer is not the developer |
 | `hqa record` | tracker | operator | by voiding the receipt | a source-verified comment by the human gatekeeper, or by the relay principal with a matching content hash, plus a deploy event for `hqa_after_deploy` |
 | `decide` | orca | operator | or the escalating actor, by a cancel event | the Reserved check passed, an Evidence manifest is pinned, and the `effect` fits the Task as "Decision effects" requires |
+| `decide cancel` | ledger | nobody |  | an open Decision and an owner generation that matches its Run |
 | `takeover` | orca | nobody |  | evidence that the old coordinator has stopped, which on an xl Run is the decider Dispatch |
 | `drain` | ledger | operator |  | an owner generation that matches the Run |
 | `learning add` | ledger | nobody |  | a source Story, at least one evidence reference, and an `area` |

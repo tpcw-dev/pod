@@ -1,18 +1,16 @@
 import { z } from "zod";
 import { singleActive } from "../config/active.ts";
 import { decisionLimits } from "../config/limits.ts";
-import {
-  advanceDecision,
-  chargeBudget,
-  followDecisions,
-  type FollowUp,
-} from "../decide/advance.ts";
+import { advanceDecision, chargeBudget } from "../decide/advance.ts";
+import { applyRuling } from "../decide/ruling.ts";
+import { followDecisions } from "../decide/sends.ts";
 import { followSupersedes } from "../decide/supersede.ts";
 import { Templates } from "../decide/templates.ts";
 import {
   deliveryFacts,
   deliveryOutcome,
   readDecisionMessage,
+  type DecisionMessage,
   type DeliveryRow,
 } from "../domain/delivery.ts";
 import { openStates } from "../domain/decision.ts";
@@ -33,6 +31,7 @@ import type { TrackerPort } from "../ports/tracker.ts";
 import { drainOutbox } from "../tracker/outbox.ts";
 import { syncStory } from "../tracker/sync.ts";
 import { voidEditedReceipts } from "../gate/hqa.ts";
+import { verifiedRulings } from "../gate/ruling.ts";
 import { syncVerdictReceipts } from "../gate/verdict.ts";
 import { fence, StaleGeneration } from "./fence.ts";
 import { reconcileLaunches, type Reconciled } from "./reconcile.ts";
@@ -47,6 +46,8 @@ export interface CheckInput {
   capacity: number;
   now: () => Date;
   leaseSeconds: number;
+  hostName?: string;
+  bypassPath?: string;
 }
 
 export interface CheckResult {
@@ -178,22 +179,21 @@ export async function checkPass(
         now: input.now,
       });
       tracked.push(...voids.nextSteps);
+      tracked.push(...(await applyRulings(db, tracker, log, run, input)));
     }
     result.nextSteps.unshift(...tracked);
-    const followUps: FollowUp[] = [];
-    const read = await readDeliveries(db, orca, log, input, result, followUps);
+    const read = await readDeliveries(db, orca, log, input, result);
     if (read !== null) return read;
-    if (followUps.length > 0)
-      result.nextSteps.push(
-        ...(await followDecisions(db, orca, log, followUps, {
-          run,
-          templates: await activeTemplates(db),
-          generation: input.generation,
-          host: input.host,
-          capacity: input.capacity,
-          now: input.now,
-        })),
-      );
+    result.nextSteps.push(
+      ...(await followDecisions(db, orca, log, {
+        run,
+        templates: await activeTemplates(db),
+        generation: input.generation,
+        host: input.host,
+        capacity: input.capacity,
+        now: input.now,
+      })),
+    );
     result.nextSteps.push(
       ...(await followSupersedes(db, orca, log, {
         run,
@@ -238,13 +238,38 @@ async function chargeOpenDecisions(
     });
 }
 
+async function applyRulings(
+  db: Db,
+  tracker: TrackerPort,
+  log: ReceiptLog,
+  run: Run,
+  input: CheckInput,
+): Promise<string[]> {
+  const { rulings, nextSteps } = await verifiedRulings(db, tracker, log, {
+    run,
+    hostName: input.hostName,
+    bypassPath: input.bypassPath,
+    now: input.now,
+  });
+  for (const ruling of rulings) {
+    const step = await db.transaction(async (tx) => {
+      const owned = await fence(tx, run.run_id, input.generation);
+      return applyRuling(tx, owned, ruling, {
+        at: input.now(),
+        host: input.host,
+      });
+    });
+    if (step !== null) nextSteps.push(step);
+  }
+  return nextSteps;
+}
+
 async function readDeliveries(
   db: Db,
   orca: OrcaPort,
   log: ReceiptLog,
   input: CheckInput,
   result: CheckResult,
-  followUps: FollowUp[],
 ): Promise<Refused | null> {
   log.at({ run_id: input.run, task_id: null, op_key: null });
   let batch = await orca.check({ run: input.run });
@@ -259,10 +284,7 @@ async function readDeliveries(
     await db.transaction(async (tx) => {
       const run = await fence(tx, input.run, input.generation);
       for (const message of messages)
-        await recordMessage(tx, run, deliveryId, message, input, {
-          result,
-          followUps,
-        });
+        await recordMessage(tx, run, deliveryId, message, input, result);
     });
     result.acked.push(deliveryId);
     batch = await orca.check({ run: input.run, ack: deliveryId });
@@ -301,9 +323,8 @@ async function recordMessage(
   deliveryId: string,
   message: OrcaMessage,
   input: CheckInput,
-  sink: { result: CheckResult; followUps: FollowUp[] },
+  result: CheckResult,
 ): Promise<void> {
-  const { result } = sink;
   if (await tx.messageRecorded(run.run_id, message.id)) return;
   const id = message.payload.dispatchId;
   const dispatch = id === undefined ? null : await tx.getDispatch(id);
@@ -354,16 +375,16 @@ async function recordMessage(
         at,
         host: input.host,
       });
-      if (advanced.kind === "ignored") return ignore(advanced.reason);
-      sink.followUps.push(...advanced.followUps);
-      const got = read.message;
+      if (advanced.kind === "ignored") {
+        if (advanced.detail !== undefined)
+          result.nextSteps.push(`ignored ${advanced.detail}`);
+        return ignore(advanced.reason);
+      }
       decision = {
-        decision_id: got.decisionId,
-        round: String(got.round),
-        kind: got.kind,
-        ...(got.kind === "decision_proposal"
-          ? { proposal: got.proposal, citations: got.citations }
-          : { stance: got.stance }),
+        decision_id: read.message.decisionId,
+        round: String(read.message.round),
+        kind: read.message.kind,
+        ...decisionFields(read.message),
       };
     }
   }
@@ -439,6 +460,17 @@ async function recordMessage(
       host: input.host,
       source: base.source,
     });
+}
+
+function decisionFields(message: DecisionMessage): Record<string, Json> {
+  switch (message.kind) {
+    case "decision_proposal":
+      return { proposal: message.proposal, citations: message.citations };
+    case "decision_audit":
+      return { stance: message.stance };
+    case "decision_evidence":
+      return { references: message.references.length };
+  }
 }
 
 async function roundBound(tx: Repo, run: Run): Promise<number> {

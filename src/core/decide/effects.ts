@@ -84,3 +84,51 @@ export async function applyEffect(
     source: { kind: "decision", decision_id: decision.id },
   });
 }
+
+const PinnedTask = z.looseObject({ spec_revision_id: z.string() });
+
+function pinnedSpec(excerpt: string): string | null {
+  try {
+    return (
+      PinnedTask.safeParse(JSON.parse(excerpt)).data?.spec_revision_id ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function rootManifest(tx: Repo, id: string) {
+  let manifest = await tx.getManifest(id);
+  while (manifest?.parent_id != null)
+    manifest = await tx.getManifest(manifest.parent_id);
+  return manifest;
+}
+
+export async function dependenciesUnchanged(
+  tx: Repo,
+  decision: DecisionRow,
+): Promise<string | null> {
+  const references = z
+    .array(ManifestReference)
+    .parse((await rootManifest(tx, decision.manifest_id))?.references ?? []);
+  const snapshot = await tx.getSnapshot(decision.run_id);
+  const task =
+    decision.task_id === null ? null : await tx.getTask(decision.task_id);
+  const current: Partial<Record<string, string | null>> = {
+    crew: snapshot?.crew_revision_id ?? null,
+    process: snapshot?.process_revision_id ?? null,
+    policy: snapshot?.policy_revision_id ?? null,
+  };
+  for (const row of references) {
+    const named = `${row.source}:${row.revision}`;
+    if (row.source in current && current[row.source] !== row.revision)
+      return named;
+    if (
+      row.source === "task" &&
+      task !== null &&
+      pinnedSpec(row.excerpt) !== task.spec_revision_id
+    )
+      return named;
+  }
+  return null;
+}

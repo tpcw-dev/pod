@@ -48,13 +48,107 @@ test("a bound of 1 sends the first disagree to needs_human", () => {
   });
 });
 
-test("escalate and needs_evidence go to needs_human with context-missing", () => {
-  for (const event of ["escalate", "needs_evidence"] as const)
-    for (const n of [1, 2, 3] as const)
-      expect(next(round(n), event, 3)).toEqual({
-        to: { kind: "needs_human", reason: "context-missing" },
-        effect: "record_outcome",
-      });
+test("escalate counts as a disagree: next round below the bound, needs_human disagreement at it", () => {
+  expect(next(round(1), "escalate", 3)).toEqual({
+    to: round(2),
+    effect: "send_round_next",
+  });
+  expect(next(round(3), "escalate", 3)).toEqual({
+    to: { kind: "needs_human", reason: "disagreement" },
+    effect: "record_outcome",
+  });
+});
+
+test("needs_evidence moves round n to awaiting_evidence n, and evidence returns it", () => {
+  for (const n of [1, 2, 3] as const) {
+    expect(next(round(n), "needs_evidence", 3)).toEqual({
+      to: { kind: "awaiting_evidence", n },
+      effect: "send_evidence_request",
+    });
+    expect(next({ kind: "awaiting_evidence", n }, "evidence", 3)).toEqual({
+      to: round(n),
+      effect: "send_round_evidence",
+    });
+  }
+  expect(next(round(1), "evidence", 3)).toBeNull();
+});
+
+test("a changed dependency sends a round or needs_human to context-missing", () => {
+  for (const from of [
+    round(2),
+    { kind: "needs_human", reason: "disagreement" },
+  ] satisfies DecisionState[])
+    expect(next(from, "dependency_changed", 3)).toEqual({
+      to: { kind: "needs_human", reason: "context-missing" },
+      effect: "record_outcome",
+    });
+  expect(next({ kind: "agreed" }, "dependency_changed", 3)).toBeNull();
+});
+
+test("a resume ruling returns runtime-failure to the interrupted round, and nothing else", () => {
+  const failed: DecisionState = {
+    kind: "needs_human",
+    reason: "runtime-failure",
+  };
+  expect(next(failed, "ruling_resume", 3, { round: 2 })).toEqual({
+    to: round(2),
+    effect: "send_resume",
+  });
+  expect(next(failed, "ruling_resume", 3)).toEqual({
+    to: round(1),
+    effect: "send_resume",
+  });
+  expect(
+    next({ kind: "needs_human", reason: "disagreement" }, "ruling_resume", 3),
+  ).toBeNull();
+});
+
+test("an agreed or cancelled ruling settles any needs_human", () => {
+  for (const reason of [
+    "policy-required",
+    "disagreement",
+    "context-missing",
+    "runtime-failure",
+  ] as const) {
+    const from: DecisionState = { kind: "needs_human", reason };
+    expect(next(from, "ruling_agreed", 3)).toEqual({
+      to: { kind: "agreed" },
+      effect: "record_outcome",
+    });
+    expect(next(from, "ruling_cancelled", 3)).toEqual({
+      to: { kind: "cancelled" },
+      effect: "hold_task",
+    });
+  }
+  expect(next(round(1), "ruling_agreed", 3)).toBeNull();
+});
+
+test("supersede applies to an open accept_plan Decision or an agreed one", () => {
+  const superseded = {
+    to: { kind: "superseded", by: "dec_new" },
+    effect: "record_outcome",
+  };
+  for (const from of [
+    { kind: "requested" },
+    round(2),
+    { kind: "awaiting_evidence", n: 1 },
+  ] satisfies DecisionState[])
+    expect(
+      next(from, "supersede", 3, { effect: "accept_plan", by: "dec_new" }),
+    ).toEqual(superseded);
+  for (const effect of ["accept_plan", "change_spec"] as const)
+    expect(
+      next({ kind: "agreed" }, "supersede", 3, { effect, by: "dec_new" }),
+    ).toEqual(superseded);
+  expect(
+    next(round(2), "supersede", 3, { effect: "change_spec", by: "dec_new" }),
+  ).toBeNull();
+  expect(
+    next({ kind: "cancelled" }, "supersede", 3, {
+      effect: "accept_plan",
+      by: "dec_new",
+    }),
+  ).toBeNull();
 });
 
 test("cancel from every open state goes to cancelled and holds the Task", () => {

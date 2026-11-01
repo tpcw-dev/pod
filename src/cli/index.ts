@@ -85,6 +85,8 @@ function parse() {
         category: { type: "string" },
         effect: { type: "string" },
         decision: { type: "string" },
+        note: { type: "string" },
+        supersedes: { type: "string" },
         page: { type: "string" },
         heading: { type: "string" },
         json: { type: "boolean" },

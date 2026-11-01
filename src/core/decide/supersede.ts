@@ -53,7 +53,7 @@ async function followOne(
   const task = await db.getTask(ref.task_id);
   if (decision === null || task === null)
     throw new Error(`supersede ${opKey} lost its Decision or Task`);
-  if (!changeSpecStates.includes(task.state))
+  if (decision.state !== "agreed" || !changeSpecStates.includes(task.state))
     return db.transaction((tx) =>
       refuseEffect(tx, opKey, ref, decision, task, context),
     );
@@ -153,7 +153,7 @@ async function followOne(
 }
 
 function stateOf(decision: DecisionRow) {
-  return parseDecisionState(decision.state, decision.reason);
+  return parseDecisionState(decision.state, decision.reason, decision.outcome);
 }
 
 async function activate(
@@ -211,7 +211,10 @@ async function refuseEffect(
   context: SupersedeContext,
 ): Promise<string> {
   const at = context.now();
-  const message = `Task ${task.task_id} is ${task.state}; the change_spec effect of Decision ${decision.id} is not applied`;
+  const message =
+    decision.state === "agreed"
+      ? `Task ${task.task_id} is ${task.state}; the change_spec effect of Decision ${decision.id} is not applied`
+      : `Decision ${decision.id} is ${decision.state}; its change_spec effect is not applied`;
   await tx.moveOperation(
     opKey,
     "refused",

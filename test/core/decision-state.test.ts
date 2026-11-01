@@ -18,7 +18,7 @@ test("each state's text and reason read back to the same state", () => {
     { kind: "cancelled" },
   ];
   for (const state of states)
-    expect(parseDecisionState(stateText(state), reasonOf(state))).toEqual(
+    expect(parseDecisionState(stateText(state), reasonOf(state), null)).toEqual(
       state,
     );
   expect(stateText({ kind: "awaiting_evidence", n: 1 })).toBe(
@@ -30,11 +30,12 @@ test("each state's text and reason read back to the same state", () => {
 test("superseded reads by from the outcome and throws without it", () => {
   const state: DecisionState = { kind: "superseded", by: "dec_2" };
   expect(stateText(state)).toBe("superseded");
+  expect(reasonOf(state)).toBe("superseded");
   expect(parseDecisionState("superseded", null, { by: "dec_2" })).toEqual(
     state,
   );
   expect(() => parseDecisionState("superseded", null, null)).toThrow(
     "unknown Decision state superseded",
   );
-  expect(() => parseDecisionState("round:4", null)).toThrow();
+  expect(() => parseDecisionState("round:4", null, null)).toThrow();
 });

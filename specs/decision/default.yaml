@@ -50,3 +50,24 @@ value:
     Audit: {{audit}}
     Points of disagreement:
     {{points_of_disagreement}}
+  resume_summary: |
+    Decision {{decision_id}} resumes at round {{round}} after a Seat failure. You are a new Seat for this Decision; the earlier rounds were:
+
+    {{summary}}
+  evidence_request: |
+    Decision {{decision_id}} round {{round}}. The auditor needs more evidence before it audits your proposal.
+
+    Audit: {{audit}}
+
+    Answer with exactly one message that lists the evidence as manifest references:
+
+    orca orchestration send --type decision_gate --subject "decision <decision id> round <n> evidence" --payload '{"kind":"decision_evidence","dispatchId":"<your dispatch id>","decisionId":"<decision id>","round":<n>,"references":[{"source":"<story|run|task|crew|process|policy|decision|delivery|git_status|revision>","revision":"<revision>","excerpt":"<excerpt>"}]}' --json
+
+    Run the command with the Bash tool. A message with no references is ignored.
+  evidence: |
+    Decision {{decision_id}} round {{round}}. The decider added evidence. Audit this proposal again against the child Evidence manifest.
+
+    Proposal: {{proposal}}
+    Citations: {{citations}}
+    Evidence manifest {{manifest_id}}:
+    {{manifest}}

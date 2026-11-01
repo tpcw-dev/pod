@@ -944,13 +944,20 @@ function makeRepo(x: Executor): Repo {
     },
 
     async updateDecisionState(id, change) {
+      const reopened = openStates.includes(stateText(change.to));
       const rows = await x
         .update(decision)
         .set({
           state: stateText(change.to),
           reason: reasonOf(change.to),
-          ...(change.outcome === null ? {} : { outcome: change.outcome }),
-          ...(change.closed_at === null ? {} : { closedAt: change.closed_at }),
+          ...(reopened
+            ? { outcome: change.outcome, closedAt: null }
+            : {
+                ...(change.outcome === null ? {} : { outcome: change.outcome }),
+                ...(change.closed_at === null
+                  ? {}
+                  : { closedAt: change.closed_at }),
+              }),
         })
         .where(and(eq(decision.id, id), eq(decision.state, change.from)))
         .returning({ id: decision.id });
@@ -959,6 +966,15 @@ function makeRepo(x: Executor): Repo {
 
     async setDecisionSpent(id, spent) {
       await x.update(decision).set({ spent }).where(eq(decision.id, id));
+    },
+
+    async setDecisionManifest(id, from, to) {
+      const rows = await x
+        .update(decision)
+        .set({ manifestId: to })
+        .where(and(eq(decision.id, id), eq(decision.manifestId, from)))
+        .returning({ id: decision.id });
+      return rows.length > 0;
     },
 
     async liveRunsPinningPolicyScope(scope, scopeRef) {

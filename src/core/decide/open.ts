@@ -1,13 +1,19 @@
 import { z } from "zod";
 import type { NewRevision, Revision } from "../domain/config.ts";
-import type {
+import {
   DecisionEffect,
-  DecisionRow,
-  DecisionState,
+  parseDecisionState,
+  type DecisionRow,
+  type DecisionState,
 } from "../domain/decision.ts";
 import { Json } from "../domain/json.ts";
 import type { Run, Task } from "../domain/ledger.ts";
-import { authorizationOf, reservedOf } from "../domain/policy.ts";
+import {
+  authorizationOf,
+  budgetFields,
+  budgetOf,
+  reservedOf,
+} from "../domain/policy.ts";
 import {
   refuse,
   RefusalCode,
@@ -33,7 +39,7 @@ import {
 } from "../manifest/references.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
-import { readProcess } from "../process/project.ts";
+import { readProcess, supersedeOpKey } from "../process/project.ts";
 import { appendDecisionEvent } from "./event.ts";
 import {
   firstUnauthorized,
@@ -42,6 +48,7 @@ import {
 } from "./reserved.ts";
 import { next, type DecisionEvent } from "./table.ts";
 import { failDecision } from "./advance.ts";
+import { spentNow } from "./budget.ts";
 import { changeSpecStates } from "./effects.ts";
 import { optionsText, renderTemplate, Templates } from "./templates.ts";
 
@@ -59,6 +66,7 @@ export interface DecideInput {
   options: readonly string[];
   generation: number;
   opKey: string | null;
+  supersedes?: string | null;
   host: string;
   capacity: number;
   templates: Revision | null;
@@ -130,6 +138,7 @@ export async function openDecision(
       run_id: task.run_id,
       task_id: task.task_id,
       category: input.category,
+      ...(input.supersedes == null ? {} : { supersedes: input.supersedes }),
     });
   const decisionId = decisionIdOf(opKey);
   const request = {
@@ -167,7 +176,12 @@ export async function openDecision(
     if (existing !== null) return replay(existing, opKey, request.task_id);
     const current = await tx.getTask(task.task_id);
     if (current === null) throw new Error(`Task ${task.task_id} vanished`);
-    const found = await precondition(tx, current, input.effect);
+    const old =
+      input.supersedes == null
+        ? null
+        : await supersedable(tx, run, input.supersedes, input.effect);
+    if (old !== null && "code" in old) return record(old);
+    const found = await precondition(tx, current, input.effect, old?.id);
     if (found !== null) return record(found);
     const references = await pinnedReferences(tx, run, current, input.effect);
     if (references === null)
@@ -185,6 +199,8 @@ export async function openDecision(
     });
     const policy = await policyOf(tx, run);
     const limits = input.limits(policy);
+    if (old !== null)
+      await supersede(tx, old, decisionId, { at: now, host: input.host });
     const hits = reservedCheck(reservedOf(policy), {
       category: input.category,
       question: input.question,
@@ -212,9 +228,9 @@ export async function openDecision(
       outcome: null,
       reason: null,
       binding: "run",
-      budget: limits.decision_budget,
+      budget: old === null ? limits.decision_budget : remainingBudget(old, now),
       spent: { wall_clock: 0, relaunches: 0, tool_calls: 0, context_tokens: 0 },
-      supersedes_decision_id: null,
+      supersedes_decision_id: old?.id ?? null,
       adoption: "pending",
       adoption_evidence: [],
       created_at: now,
@@ -519,10 +535,90 @@ function notReady(task: Task, why: string): Refusal {
   };
 }
 
+async function supersedable(
+  tx: Repo,
+  run: Run,
+  id: string,
+  effect: DecisionEffect,
+): Promise<DecisionRow | Refusal> {
+  const old = await tx.getDecision(id);
+  const usage = (why: string): Refusal => ({
+    code: "usage",
+    message: `--supersedes ${id} ${why}`,
+    nextSteps: [
+      "--supersedes names an open accept_plan Decision or an agreed Decision of the same Run",
+    ],
+  });
+  if (effect !== "change_spec") return usage("needs --effect change_spec");
+  if (old === null) return usage("names no Decision");
+  if (old.run_id !== run.run_id) return usage(`is on Run ${old.run_id}`);
+  const state = parseDecisionState(old.state, old.reason, old.outcome);
+  if (
+    next(state, "supersede", 3, {
+      effect: DecisionEffect.parse(old.effect),
+      by: id,
+    }) === null
+  )
+    return usage(`is a ${old.effect} Decision in ${old.state}`);
+  return old;
+}
+
+async function supersede(
+  tx: Repo,
+  old: DecisionRow,
+  by: string,
+  context: { at: Date; host: string },
+): Promise<void> {
+  const state = parseDecisionState(old.state, old.reason, old.outcome);
+  const step = next(state, "supersede", 3, {
+    effect: DecisionEffect.parse(old.effect),
+    by,
+  });
+  if (step === null) throw new Error(`Decision ${old.id} cannot be superseded`);
+  const moved = await tx.updateDecisionState(old.id, {
+    from: old.state,
+    to: step.to,
+    outcome: { result: "superseded", text: `superseded by ${by}`, by },
+    closed_at: context.at,
+  });
+  if (!moved) throw new Error(`Decision ${old.id} moved from ${old.state}`);
+  const effect = await tx.getOperation(supersedeOpKey(old.id));
+  if (effect?.status === "pending")
+    await tx.moveOperation(
+      effect.op_key,
+      "refused",
+      Json.parse({
+        ...(effect.result_ref as Record<string, Json>),
+        code: "failed",
+        message: `Decision ${old.id} is superseded by ${by}; its change_spec effect is not applied`,
+        superseded_by: by,
+      }),
+      context.at,
+    );
+  await appendDecisionEvent(
+    tx,
+    old,
+    step.to,
+    context,
+    { superseded_by: by },
+    "decide",
+  );
+}
+
+function remainingBudget(old: DecisionRow, now: Date): Json {
+  const budget = budgetOf(old.budget);
+  const spent = spentNow(old, now);
+  const left: Record<string, number> = {};
+  for (const field of budgetFields)
+    left[field] = Math.max(0, budget[field] - spent[field]);
+  return left;
+}
+
 async function precondition(
   tx: Repo,
   task: Task,
   effect: DecisionEffect,
+  superseded?: string,
 ): Promise<Refusal | null> {
   if (effect === "accept_plan" && task.state !== "delivered")
     return notReady(task, "is not delivered");
@@ -534,7 +630,7 @@ async function precondition(
   if (effect === "change_spec" && step.type !== "worker")
     return notReady(task, `step ${step.id} is ${step.type}, not a worker step`);
   const open = (await tx.openDecisionsForRun(task.run_id)).find(
-    (row) => row.task_id === task.task_id,
+    (row) => row.task_id === task.task_id && row.id !== superseded,
   );
   if (open === undefined) return null;
   return {

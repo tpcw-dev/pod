@@ -28,6 +28,7 @@ export function decideOpKey(fields: {
   run_id: string;
   task_id: string;
   category: string;
+  supersedes?: string;
 }): string {
   return derivedOpKey("decide", fields);
 }
@@ -41,12 +42,28 @@ export function seatOpKey(
   role: SeatRole,
   decisionId: string,
   fallbackOf: string | null = null,
+  relaunch = 0,
 ) {
   return derivedOpKey("decide_seat", {
     run_id: runId,
     role,
     decision_id: decisionId,
     ...(fallbackOf === null ? {} : { fallback_of: fallbackOf }),
+    ...(relaunch === 0 ? {} : { relaunch: String(relaunch) }),
+  });
+}
+
+export function decisionSendOpKey(fields: {
+  send: string;
+  decision_id: string;
+  round: number;
+  attempt: number;
+}): string {
+  return derivedOpKey("decide", {
+    send: fields.send,
+    decision_id: fields.decision_id,
+    round: String(fields.round),
+    attempt: String(fields.attempt),
   });
 }
 
@@ -123,6 +140,7 @@ export interface SeatInput {
   host: string;
   capacity: number;
   now: () => Date;
+  relaunch?: number;
 }
 
 export type SeatOutcome =
@@ -247,6 +265,7 @@ async function launchSeat(
     input.role,
     input.decisionId,
     fallback?.of ?? null,
+    input.relaunch ?? 0,
   );
   const launch: LaunchArgs = seatLaunch(seat);
   const request = {

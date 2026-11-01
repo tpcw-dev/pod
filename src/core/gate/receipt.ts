@@ -96,6 +96,20 @@ export function gateOf(policy: unknown, gateId: string): GateKeeper | null {
     : null;
 }
 
+export function hqaKeepers(policy: unknown): string[] {
+  const gates = (Fields.safeParse(policy).data ?? {})["gates"];
+  const entries = Array.isArray(gates)
+    ? gates
+    : Object.values(Fields.safeParse(gates).data ?? {});
+  const keepers = new Set<string>();
+  for (const entry of entries) {
+    const parsed = GateEntry.safeParse(entry);
+    if (parsed.success && parsed.data.type === "HQA")
+      keepers.add(parsed.data.keeper);
+  }
+  return [...keepers];
+}
+
 const relayPrincipal = "relay";
 
 export type SourceRefusal =

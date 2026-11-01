@@ -373,6 +373,72 @@ describeDb("pod decide", () => {
     },
   );
 
+  test("--supersedes on an open accept_plan Decision marks it superseded and the new Decision inherits the remaining budget", async () => {
+    const old = await opened(conn, templates);
+    const before = await conn.db.getDecision(old);
+    await conn.db.setDecisionSpent(old, {
+      ...(before?.spent as Record<string, number>),
+      relaunches: 1,
+      tool_calls: 3,
+    });
+    const outcome = await decide([sent(decider)], {
+      effect: "change_spec",
+      spec: null,
+      supersedes: old,
+    });
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    const id = outcome.result.decision_id;
+    expect(id).not.toBe(old);
+    expect(await conn.db.getDecision(old)).toMatchObject({
+      state: "superseded",
+      reason: "superseded",
+      outcome: { by: id },
+      closed_at: expect.any(Date),
+    });
+    const decision = await conn.db.getDecision(id);
+    expect(decision).toMatchObject({
+      state: "round:1",
+      effect: "change_spec",
+      supersedes_decision_id: old,
+      budget: { relaunches: 1, tool_calls: 37, context_tokens: 60_000 },
+    });
+    const wall = (decision?.budget as { wall_clock: number }).wall_clock;
+    expect(wall).toBeGreaterThan(7000);
+    expect(wall).toBeLessThanOrEqual(7200);
+    const [event] = await conn.sql<{ payload: Record<string, unknown> }[]>`
+      select payload from ledger.event
+      where type = 'decision' and payload->>'decision_id' = ${old}`;
+    expect(event?.payload).toMatchObject({
+      outcome: "superseded",
+      reason: "superseded",
+      superseded_by: id,
+    });
+  });
+
+  test("--supersedes on a round:2 change_spec Decision is refused with usage", async () => {
+    const outcome = await decide(
+      [
+        seatTask("decider"),
+        ok("worker-start", seatStarted(decider), ["--task", "orca_decider"]),
+        sent(decider),
+      ],
+      { effect: "change_spec", spec: null },
+    );
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    const old = outcome.result.decision_id;
+    await conn.sql`update ledger.decision set state = 'round:2' where id = ${old}`;
+    const refused = await decide([], {
+      effect: "change_spec",
+      spec: null,
+      supersedes: old,
+    });
+    expect(refused).toMatchObject({
+      ok: false,
+      refusal: { code: "usage" },
+    });
+    expect((await conn.db.getDecision(old))?.state).toBe("round:2");
+  });
+
   test("change_spec on the delivered plan Task opens without needing a decision step", async () => {
     const outcome = await decide(
       [
