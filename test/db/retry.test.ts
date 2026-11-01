@@ -405,5 +405,16 @@ describeDb("pod retry", () => {
     });
     expect(cli.status).toBe(3);
     expect(cli.json.error?.code).toBe("task_not_ready");
+    expect(cli.json.error?.nextSteps).toEqual(["pod dispatch --task task_b2"]);
+    await conn.sql`
+      update ledger.dispatch set requested_launch = '{}'::jsonb
+      where dispatch_id = 'ctx_1'`;
+    expect(await retryPlan(conn.db, "ctx_1", "elsewhere")).toMatchObject({
+      ok: false,
+      refusal: {
+        message: "Task task_b is superseded",
+        nextSteps: ["pod dispatch --task task_b2"],
+      },
+    });
   });
 });

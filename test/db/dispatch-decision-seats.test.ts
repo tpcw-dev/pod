@@ -225,7 +225,7 @@ describeDb("decision Seats fall back", () => {
     ).toBe("round:1");
   });
 
-  test("a quota refusal of the primary tries the fallback Seat", async () => {
+  test("a host-slot quota refusal skips the fallback Seat and moves the Decision to needs_human", async () => {
     const templates = await deliveredPlan(conn, { gates: [] }, fallbackCrew);
     const { log } = replay(conn, []);
     const outcome = await openDecision(
@@ -241,8 +241,61 @@ describeDb("decision Seats fall back", () => {
     const ops = await seatOps();
     expect(ops.map((row) => [row.request["seat"], row.status])).toEqual([
       ["dec-1", "refused"],
+    ]);
+    expect(await conn.sql`select state, reason from ledger.decision`).toEqual([
+      { state: "needs_human", reason: "runtime-failure" },
+    ]);
+  });
+
+  test("a refused fallback Seat moves the Decision to needs_human with runtime-failure", async () => {
+    const templates = await deliveredPlan(conn, { gates: [] }, fallbackCrew);
+    const outcome = await decide(templates, [
+      seatTask("decider"),
+      refusedStart("orca_decider"),
+      ok("task-create", { task: { id: "orca_fb", status: "ready" } }),
+      refusedStart("orca_fb"),
+    ]);
+    expect(outcome).toMatchObject({ ok: false, refusal: { code: "failed" } });
+    const ops = await seatOps();
+    expect(ops.map((row) => [row.request["seat"], row.status])).toEqual([
+      ["dec-1", "refused"],
       ["dec-fb", "refused"],
     ]);
+    expect(await conn.sql`select state, reason from ledger.decision`).toEqual([
+      { state: "needs_human", reason: "runtime-failure" },
+    ]);
+  });
+
+  test("a fallback chain is followed one Seat at a time and stops at a Seat already tried", async () => {
+    const chain = {
+      seats: fallbackCrew.seats.map((seat) =>
+        seat.id === "dec-fb" ? { ...seat, fallback: "dec-fb2" } : seat,
+      ),
+    };
+    chain.seats.push({
+      id: "dec-fb2",
+      roles: ["decider-fallback"],
+      runtime: "claude",
+      model: "m-6",
+    });
+    const templates = await deliveredPlan(conn, { gates: [] }, chain);
+    const outcome = await decide(templates, [
+      seatTask("decider"),
+      refusedStart("orca_decider"),
+      ok("task-create", { task: { id: "orca_fb", status: "ready" } }),
+      refusedStart("orca_fb"),
+      ok("task-create", { task: { id: "orca_fb2", status: "ready" } }),
+      ok("worker-start", startedOn("ctx_fb2", "claude", "m-6")),
+      sent("ctx_fb2"),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { decider_dispatch_id: "ctx_fb2" },
+    });
+    const [start] = (await events(conn, "start")).filter(
+      (row) => row.dispatch_id === "ctx_fb2",
+    );
+    expect(start?.payload).toMatchObject({ fallback_of: "dec-fb" });
   });
 });
 

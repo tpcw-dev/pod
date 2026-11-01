@@ -202,25 +202,35 @@ export async function openDecisionSeat(
       : null;
   const picked = pickSeat(seats, input.role, deciderSeat);
   if ("refusal" in picked) return { ok: false, refusal: picked.refusal };
-  const primary = await launchSeat(db, orca, log, input, picked.seat, null);
-  if (primary.ok || !fallsBack.includes(primary.refusal.code)) return primary;
-  const fallbackId = picked.seat.fallback;
-  if (fallbackId === undefined) return { ...primary, runtimeFailure: true };
-  const fallback = seats.find((seat) => seat.id === fallbackId);
-  if (fallback === undefined)
-    return refuse(
-      "schema_invalid",
-      `Seat ${picked.seat.id} names undefined fallback ${fallbackId}`,
-      [`seats.${picked.seat.id}.fallback`],
-    );
-  if (input.role === "auditor") {
-    const refusal = independence(fallback, deciderSeat);
-    if (refusal !== null) return { ok: false, refusal };
+  let seat = picked.seat;
+  let outcome = await launchSeat(db, orca, log, input, seat, null);
+  const visited = new Set([seat.id]);
+  for (;;) {
+    if (outcome.ok || outcome.refusal.code !== "failed") break;
+    const fallbackId = seat.fallback;
+    if (fallbackId === undefined || visited.has(fallbackId)) break;
+    const index = seats.findIndex((item) => item.id === fallbackId);
+    const fallback = seats[index];
+    if (fallback === undefined)
+      return refuse(
+        "schema_invalid",
+        `Seat ${seat.id} names undefined fallback ${fallbackId}`,
+        [`seats.${seats.findIndex((item) => item.id === seat.id)}.fallback`],
+      );
+    if (input.role === "auditor") {
+      const refusal = independence(fallback, deciderSeat);
+      if (refusal !== null) return { ok: false, refusal, runtimeFailure: true };
+    }
+    visited.add(fallback.id);
+    outcome = await launchSeat(db, orca, log, input, fallback, {
+      of: seat.id,
+      refusal: outcome.refusal,
+    });
+    seat = fallback;
   }
-  return launchSeat(db, orca, log, input, fallback, {
-    of: picked.seat.id,
-    refusal: primary.refusal,
-  });
+  if (!outcome.ok && fallsBack.includes(outcome.refusal.code))
+    return { ...outcome, runtimeFailure: true };
+  return outcome;
 }
 
 async function launchSeat(

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Json } from "../domain/json.ts";
-import type { Dispatch, Operation } from "../domain/ledger.ts";
+import type { Dispatch, Operation, Task } from "../domain/ledger.ts";
 import {
   refuse,
   type Outcome,
@@ -62,6 +62,10 @@ export async function retryPlan(
   const dispatch = await db.getDispatch(dispatchId);
   if (dispatch === null)
     return refuse("task_not_ready", `no Dispatch ${dispatchId}`, ["pod brief"]);
+  const task =
+    dispatch.task_id === null ? null : await db.getTask(dispatch.task_id);
+  const superseded = task === null ? null : await supersededRefusal(db, task);
+  if (superseded !== null) return superseded;
   const worktree = Placement.catch({}).parse(
     dispatch.requested_launch,
   ).worktree;
@@ -81,6 +85,21 @@ export async function retryPlan(
       ["run pod retry on the host that started the Dispatch"],
     );
   return { worktreePath: id.slice(split + 2) };
+}
+
+async function supersededRefusal(
+  db: Repo,
+  task: Task,
+): Promise<Refused | null> {
+  if (task.state !== "superseded") return null;
+  const replacement = (await db.listTasks(task.run_id)).find(
+    (row) => row.rework_of === task.task_id,
+  );
+  return refuse("task_not_ready", `Task ${task.task_id} is superseded`, [
+    replacement === undefined
+      ? "pod brief"
+      : `pod dispatch --task ${replacement.task_id}`,
+  ]);
 }
 
 export async function supersededWorktree(
@@ -167,16 +186,8 @@ export async function retry(
       `Dispatch ${input.dispatch} lost its Task or crew`,
       ["pod brief"],
     );
-  if (task.state === "superseded") {
-    const replacement = (await db.listTasks(task.run_id)).find(
-      (row) => row.rework_of === task.task_id,
-    );
-    return refuse("task_not_ready", `Task ${task.task_id} is superseded`, [
-      replacement === undefined
-        ? "pod brief"
-        : `pod dispatch --task ${replacement.task_id}`,
-    ]);
-  }
+  const superseded = await supersededRefusal(db, task);
+  if (superseded !== null) return superseded;
   let seats: Seat[];
   try {
     seats = readSeats(crew.value);

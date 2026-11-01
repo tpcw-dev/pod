@@ -43,6 +43,7 @@ interface TaskPlan {
   deps: string[];
   reworkOf: string | null;
   state: TaskState;
+  specRevisionId?: string;
 }
 
 const TaskRef = z.looseObject({ task_id: z.string() });
@@ -331,7 +332,7 @@ async function createTask(
       lineage_id: lineageOf(runId, step.id),
       role: step.role ?? step.type,
       deps,
-      spec_revision_id: ctx.process.id,
+      spec_revision_id: plan.specRevisionId ?? ctx.process.id,
       state: plan.state,
       rework_of: plan.reworkOf,
       created_at: at,
@@ -603,6 +604,24 @@ function toProjectStep(step: ProcessStep): ProjectStep {
   };
 }
 
+const TaskSpecValue = z.looseObject({ spec: z.string() });
+
+async function agreedSpec(
+  db: Repo,
+  step: ProjectStep,
+  newestId: string | null,
+): Promise<{ step: ProjectStep; specRevisionId?: string }> {
+  const newest = newestId === null ? null : await db.getTask(newestId);
+  const revision =
+    newest === null ? null : await db.getRevision(newest.spec_revision_id);
+  const value = TaskSpecValue.safeParse(revision?.value);
+  if (revision?.kind !== "task" || !value.success) return { step };
+  return {
+    step: { ...step, spec: value.data.spec },
+    specRevisionId: revision.id,
+  };
+}
+
 async function rework(
   ctx: ProjectContext,
   plan: ReworkPlan,
@@ -631,7 +650,7 @@ async function rework(
     });
   const made = await createTask(ctx, {
     runId,
-    step: toProjectStep(target),
+    ...(await agreedSpec(db, toProjectStep(target), newest(target.id))),
     opKey: key(target.id),
     deps: targetDeps,
     reworkOf: newest(target.id),
@@ -643,7 +662,7 @@ async function rework(
   if (then !== null) {
     const next = await createTask(ctx, {
       runId,
-      step: toProjectStep(then),
+      ...(await agreedSpec(db, toProjectStep(then), newest(then.id))),
       opKey: key(then.id),
       deps: [made.taskId],
       reworkOf: newest(then.id),
