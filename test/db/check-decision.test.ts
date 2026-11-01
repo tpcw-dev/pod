@@ -828,8 +828,9 @@ describeDb("pod check spends a Decision's wall clock", () => {
     });
   });
 
-  test("a proposal that arrives after the wall clock is ignored as settled_decision", async () => {
+  test("a proposal that arrives after the wall clock is ignored as settled_decision and spends nothing", async () => {
     const { id, createdAt } = await openedAt();
+    await passAt(later(createdAt, 7201));
     const { orca, log } = replay(conn, [
       ok("check", batch("delivery_late", [proposal("p_late", id, 1)]), run),
       ok("check", empty("delivery_late"), ack("delivery_late")),
@@ -840,11 +841,14 @@ describeDb("pod check spends a Decision's wall clock", () => {
       orca,
       null,
       log,
-      checkInput({ now: () => later(createdAt, 7300) }),
+      checkInput({ now: () => later(createdAt, 9000) }),
     );
     orca.assertDone();
     expect(outcome).toMatchObject({ ok: true, result: { ignored: 1 } });
-    expect((await conn.db.getDecision(id))?.state).toBe("needs_human");
+    expect(await conn.db.getDecision(id)).toMatchObject({
+      state: "needs_human",
+      spent: { wall_clock: 7201 },
+    });
   });
 
   test("pod check --wait --decision returns when the budget settles the Decision", async () => {
