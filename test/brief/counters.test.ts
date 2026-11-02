@@ -345,14 +345,14 @@ test("the pair carries each Seat's prompt bytes and its cold start from the oper
         prompt_bytes: 812,
         created_at: new Date("2026-10-31T00:00:02.500Z"),
       }),
-      seat("ctx-aud-old", "auditor", {
-        seat: "aud-old",
-        created_at: new Date("2026-10-31T00:00:01.000Z"),
-      }),
       seat("ctx-aud", "auditor", {
         seat: "aud-1",
         prompt_bytes: 640,
         created_at: new Date("2026-10-31T00:00:04.000Z"),
+      }),
+      seat("ctx-aud-old", "auditor", {
+        seat: "aud-old",
+        created_at: new Date("2026-10-31T00:00:01.000Z"),
       }),
       seat("ctx-per-decision", "auditor", {
         decision_id: "dec-x",
