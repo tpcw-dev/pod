@@ -1,18 +1,8 @@
 import { z } from "zod";
 import type { Json } from "../domain/json.ts";
-import type { Run } from "../domain/ledger.ts";
 import type { Repo } from "../ports/db.ts";
 
 const Waiting = z.looseObject({ coordinator_waiting: z.string() });
-
-export async function yieldSlot(
-  tx: Repo,
-  run: Run,
-  host: string,
-): Promise<string | null> {
-  if (run.coordinator_dispatch_id === null || run.host !== host) return null;
-  return yieldDispatch(tx, run.coordinator_dispatch_id);
-}
 
 export async function yieldDispatch(
   tx: Repo,
