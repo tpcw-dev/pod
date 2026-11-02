@@ -6,6 +6,7 @@ import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { noCalls } from "../orca/temp-fixtures.ts";
 import { deliveredPlan, planTask } from "./decision-fixture.ts";
 import { gatedRun, headSha } from "./gate-fixture.ts";
+import { residentSeat } from "./resident-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
 import { taskState } from "./run-fixture.ts";
 
@@ -129,6 +130,39 @@ describeDb("pod verdict post", () => {
         code: "reviewer_not_independent",
         message: expect.stringMatching(/both-1.*Dispatch ctx_1/),
       },
+    });
+    expect(await receipts()).toHaveLength(0);
+  });
+
+  test("a reviewer equal to the Run's decider seat is receipt_keeper_is_decision_seat, with no write", async () => {
+    await gatedRun(conn, { gates: aqa });
+    await residentSeat(conn, "ctx_dec", "decider", "waiting", {
+      seat: "rev-1",
+    });
+    expect(await post()).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "receipt_keeper_is_decision_seat",
+        message:
+          "reviewer rev-1 is the decider Seat of Dispatch ctx_dec in Run run_1",
+        nextSteps: [
+          "post the verdict from a reviewer seat that is not a Decision Seat",
+        ],
+      },
+    });
+    expect(await receipts()).toHaveLength(0);
+    expect(await outbox()).toHaveLength(0);
+    expect(await taskState(conn, "task_r")).toBe("delivered");
+  });
+
+  test("a FAIL from the Run's auditor seat is receipt_keeper_is_decision_seat too", async () => {
+    await gatedRun(conn, { gates: aqa });
+    await residentSeat(conn, "ctx_aud", "auditor", "waiting", {
+      seat: "rev-1",
+    });
+    expect(await post({ outcome: "FAIL" })).toMatchObject({
+      ok: false,
+      refusal: { code: "receipt_keeper_is_decision_seat" },
     });
     expect(await receipts()).toHaveLength(0);
   });

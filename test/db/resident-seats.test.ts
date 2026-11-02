@@ -123,6 +123,7 @@ describeDb("resident decision Seats", () => {
           fallback_of: null,
           op_key: "seat-none",
           manifest_id: null,
+          prompt_bytes: null,
           verb: "decide",
           late: false,
           at: new Date(),

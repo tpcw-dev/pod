@@ -56,6 +56,7 @@ export interface StartedInput {
   manifestId: string;
   generation: number;
   launched: Launched;
+  promptBytes: number | null;
   verb: string;
   at: Date;
 }
@@ -176,6 +177,7 @@ export interface StartRow {
   fallback_of?: string | null;
   op_key: string;
   manifest_id: string | null;
+  prompt_bytes: number | null;
   verb: string;
   late: boolean;
   at: Date;
@@ -207,6 +209,7 @@ export async function insertStart(tx: Repo, start: StartRow): Promise<void> {
     settled_at: null,
     activity: "running",
     manifest_id: start.manifest_id,
+    prompt_bytes: start.prompt_bytes,
   };
   await tx.insertDispatch(row);
   const event = (type: "start" | "retry") =>
@@ -255,6 +258,7 @@ async function insertTaskStart(
     retry_of: input.request.retry_of ?? null,
     op_key: input.opKey,
     manifest_id: input.manifestId,
+    prompt_bytes: input.promptBytes,
     verb: input.verb,
     late,
     at: input.at,

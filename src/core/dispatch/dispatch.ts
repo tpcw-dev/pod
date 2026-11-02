@@ -307,6 +307,7 @@ export async function dispatch(
     task,
     manifestId: gate.manifestId,
     generation: input.generation,
+    promptBytes: null,
     verb: "dispatch",
     at: input.now(),
     receipt,

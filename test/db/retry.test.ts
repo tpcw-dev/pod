@@ -113,6 +113,9 @@ describeDb("pod retry", () => {
     });
     if (!outcome.ok) return;
     expect(outcome.result.task_view.startsWith(gitStatus)).toBe(true);
+    expect((await conn.db.getDispatch("ctx_2"))?.prompt_bytes).toBe(
+      Buffer.byteLength(outcome.result.task_view, "utf8"),
+    );
     expect(await conn.db.getDispatch("ctx_2")).toMatchObject({
       retry_of: "ctx_1",
       settlement: "open",

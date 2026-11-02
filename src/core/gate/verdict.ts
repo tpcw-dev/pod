@@ -93,6 +93,24 @@ async function independence(
   );
 }
 
+const decisionRoles: readonly string[] = ["decider", "auditor"];
+
+async function decisionSeat(
+  tx: Repo,
+  runId: string,
+  reviewer: string,
+): Promise<Refused | null> {
+  const seat = (await tx.listDispatches(runId)).find(
+    (row) => decisionRoles.includes(row.role) && row.seat === reviewer,
+  );
+  if (seat === undefined) return null;
+  return refuse(
+    "receipt_keeper_is_decision_seat",
+    `reviewer ${reviewer} is the ${seat.role} Seat of Dispatch ${seat.dispatch_id} in Run ${runId}`,
+    ["post the verdict from a reviewer seat that is not a Decision Seat"],
+  );
+}
+
 async function evidence(
   tx: Repo,
   run: Run,
@@ -139,7 +157,9 @@ async function evidence(
       `reviewer ${file.reviewer} is not a seat with role ${task.role} in the Run's crew`,
       [`name a seat that holds role ${task.role}`],
     );
-  const refused = await independence(tx, task, step.needs, file.reviewer);
+  const refused =
+    (await independence(tx, task, step.needs, file.reviewer)) ??
+    (await decisionSeat(tx, run.run_id, file.reviewer));
   if (refused !== null) return refused;
   const gate = gateOf(pinned?.policy, file.gate);
   if (gate === null)

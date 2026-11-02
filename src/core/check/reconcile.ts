@@ -335,6 +335,7 @@ async function started(
       manifestId: ref.manifest_id,
       generation: operation.owner_generation,
       launched,
+      promptBytes: null,
       verb: "check",
       at: input.now(),
     });

@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && depcruise src --config .dependency-cruiser.cjs",
     "test": "vitest run",
-    "build": "tsup"
+    "build": "tsup",
+    "deploy:local": "bash scripts/deploy-local.sh"
   },
   "dependencies": {
     "drizzle-orm": "0.45.4",

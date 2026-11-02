@@ -1,4 +1,9 @@
-import { countRun, fallbackOf, sumCounters } from "../brief/counters.ts";
+import {
+  countRun,
+  fallbackOf,
+  measureRun,
+  sumCounters,
+} from "../brief/counters.ts";
 import type { Revision } from "./config.ts";
 import type { DecisionRow } from "./decision.ts";
 import type {
@@ -17,6 +22,34 @@ export interface BriefCounters {
   hand_filled: number;
   fallback_launches: number;
   model_mismatches: number;
+}
+
+export interface SeatMeasure {
+  seat: string;
+  prompt_bytes: number | null;
+  cold_start_ms: number | null;
+}
+
+export type DecisionOutcome = "adopted" | "reworked" | "reversed" | "open";
+
+export interface BriefMeasurement {
+  pair: { decider: SeatMeasure; auditor: SeatMeasure | null } | null;
+  decisions: {
+    decision_id: string;
+    state: string;
+    reason: string | null;
+    effect: string | null;
+    outcome: DecisionOutcome;
+  }[];
+  escalations: {
+    "policy-required": number;
+    disagreement: number;
+    "context-missing": number;
+    "runtime-failure": number;
+    worker: number;
+    sample: number;
+    target: number;
+  };
 }
 
 export interface BriefSnapshot {
@@ -42,6 +75,7 @@ export interface BriefRun {
   dispatches: readonly BriefDispatch[];
   decisions: readonly Pick<DecisionRow, "id" | "task_id" | "state">[];
   counters: BriefCounters;
+  measurement: BriefMeasurement;
 }
 
 export interface BriefStory {
@@ -58,6 +92,12 @@ export function countBriefRun(
   ...args: Parameters<typeof countRun>
 ): BriefCounters {
   return countRun(...args);
+}
+
+export function measureBriefRun(
+  ...args: Parameters<typeof measureRun>
+): BriefMeasurement {
+  return measureRun(...args);
 }
 
 export function sumBriefCounters(

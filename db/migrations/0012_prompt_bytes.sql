@@ -1,0 +1,1 @@
+ALTER TABLE "ledger"."dispatch" ADD COLUMN "prompt_bytes" integer;

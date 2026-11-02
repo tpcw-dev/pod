@@ -125,6 +125,7 @@ describeDb("ledger repositories", () => {
       settled_at: null,
       activity: "running",
       manifest_id: null,
+      prompt_bytes: 412,
     };
     await conn.db.insertDispatch(dispatch);
     expect(await conn.db.getDispatch("ctx-1")).toEqual(dispatch);

@@ -545,6 +545,7 @@ export async function recordSeatStarted(
     fallback_of: ref.request.fallback_of ?? null,
     op_key: input.opKey,
     manifest_id: ref.manifest_id,
+    prompt_bytes: Buffer.byteLength(ref.spec, "utf8"),
     verb: "decide",
     late: false,
     at: input.at,

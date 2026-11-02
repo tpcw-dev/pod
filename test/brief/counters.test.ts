@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
-import { countRun } from "../../src/core/brief/counters.ts";
+import { countRun, measureRun } from "../../src/core/brief/counters.ts";
 import type { Story, Run, Task } from "../../src/core/domain/ledger.ts";
+import type { TaskState } from "../../src/core/domain/task-state.ts";
 import { envelope, storeRevision } from "../db/fixtures.ts";
 import { describeDb, openDb, resetDb, runCli } from "../db/helpers.ts";
 
@@ -256,4 +257,272 @@ describeDb("brief counters", () => {
       ],
     });
   });
+});
+
+const pairRun = { run_id: "run-a", coordinator_dispatch_id: "ctx-dec" };
+
+function seat(
+  dispatch_id: string,
+  role: string,
+  over: Partial<{
+    seat: string;
+    prompt_bytes: number | null;
+    created_at: Date;
+    decision_id: string | null;
+    op_key: string;
+  }> = {},
+) {
+  return {
+    dispatch_id,
+    run_id: "run-a",
+    seat: over.seat ?? `${role}-1`,
+    role,
+    decision_id: over.decision_id ?? null,
+    op_key: over.op_key ?? `op-${dispatch_id}`,
+    prompt_bytes: over.prompt_bytes ?? null,
+    created_at: over.created_at ?? later,
+  };
+}
+
+function decision(
+  id: string,
+  state: string,
+  over: Partial<{
+    task_id: string | null;
+    reason: string | null;
+    effect: string;
+    supersedes_decision_id: string | null;
+  }> = {},
+) {
+  return {
+    id,
+    task_id: over.task_id ?? null,
+    state,
+    reason: over.reason ?? null,
+    effect: over.effect ?? "accept_plan",
+    supersedes_decision_id: over.supersedes_decision_id ?? null,
+  };
+}
+
+function task(
+  task_id: string,
+  state: TaskState = "done",
+  rework_of: string | null = null,
+) {
+  return { task_id, state, rework_of };
+}
+
+function outcomes(
+  decisions: ReturnType<typeof decision>[],
+  tasks: ReturnType<typeof task>[] = [],
+) {
+  return measureRun(pairRun, tasks, [], [], [], decisions).decisions.map(
+    (row) => [row.decision_id, row.outcome],
+  );
+}
+
+test("a Run with no coordinator Dispatch has no pair measurement", () => {
+  expect(
+    measureRun(
+      { run_id: "run-a", coordinator_dispatch_id: null },
+      [],
+      [seat("ctx-dec", "decider")],
+      [],
+      [],
+      [],
+    ).pair,
+  ).toBeNull();
+});
+
+test("the pair carries each Seat's prompt bytes and its cold start from the operation to the Dispatch row", () => {
+  const opened = new Date("2026-10-31T00:00:00.000Z");
+  const measured = measureRun(
+    pairRun,
+    [],
+    [
+      seat("ctx-dec", "decider", {
+        seat: "dec-1",
+        prompt_bytes: 812,
+        created_at: new Date("2026-10-31T00:00:02.500Z"),
+      }),
+      seat("ctx-aud", "auditor", {
+        seat: "aud-1",
+        prompt_bytes: 640,
+        created_at: new Date("2026-10-31T00:00:04.000Z"),
+      }),
+      seat("ctx-aud-old", "auditor", {
+        seat: "aud-old",
+        created_at: new Date("2026-10-31T00:00:01.000Z"),
+      }),
+      seat("ctx-per-decision", "auditor", {
+        decision_id: "dec-x",
+        created_at: new Date("2026-10-31T00:00:09.000Z"),
+      }),
+    ],
+    [],
+    [
+      { op_key: "op-ctx-dec", created_at: opened },
+      { op_key: "op-ctx-aud", created_at: opened },
+    ],
+    [],
+  );
+  expect(measured.pair).toEqual({
+    decider: { seat: "dec-1", prompt_bytes: 812, cold_start_ms: 2500 },
+    auditor: { seat: "aud-1", prompt_bytes: 640, cold_start_ms: 4000 },
+  });
+});
+
+test("a Seat whose operation row is missing has a null cold start", () => {
+  const measured = measureRun(
+    pairRun,
+    [],
+    [seat("ctx-dec", "decider")],
+    [],
+    [],
+    [],
+  );
+  expect(measured.pair).toEqual({
+    decider: { seat: "decider-1", prompt_bytes: null, cold_start_ms: null },
+    auditor: null,
+  });
+});
+
+test("an agreed Decision whose Task has no rework Task is adopted", () => {
+  expect(
+    outcomes(
+      [decision("d1", "agreed", { task_id: "t1", reason: "agreed" })],
+      [task("t1")],
+    ),
+  ).toEqual([["d1", "adopted"]]);
+});
+
+test("an agreed Decision whose Task gained a rework Task after a review FAIL is reworked", () => {
+  expect(
+    outcomes(
+      [decision("d1", "agreed", { task_id: "t1" })],
+      [task("t1", "failed"), task("t1-rework", "ready", "t1")],
+    ),
+  ).toEqual([["d1", "reworked"]]);
+});
+
+test("an agreed change_spec Decision's replacement Task is not rework, and rework of the replacement is", () => {
+  const agreed = decision("d1", "agreed", {
+    task_id: "t1",
+    effect: "change_spec",
+  });
+  expect(
+    outcomes([agreed], [task("t1", "superseded"), task("t2", "ready", "t1")]),
+  ).toEqual([["d1", "adopted"]]);
+  expect(
+    outcomes(
+      [agreed],
+      [
+        task("t1", "superseded"),
+        task("t2", "failed", "t1"),
+        task("t3", "ready", "t2"),
+      ],
+    ),
+  ).toEqual([["d1", "reworked"]]);
+});
+
+test("a Decision superseded by a later change_spec Decision is reversed", () => {
+  expect(
+    outcomes([
+      decision("d1", "superseded", { reason: "superseded" }),
+      decision("d2", "agreed", {
+        effect: "change_spec",
+        supersedes_decision_id: "d1",
+      }),
+    ]),
+  ).toEqual([
+    ["d1", "reversed"],
+    ["d2", "adopted"],
+  ]);
+});
+
+test("a Decision superseded by an accept_plan Decision is open, as is any state other than agreed", () => {
+  expect(
+    outcomes([
+      decision("d1", "superseded"),
+      decision("d2", "round:1", { supersedes_decision_id: "d1" }),
+      decision("d3", "needs_human", { reason: "disagreement" }),
+    ]),
+  ).toEqual([
+    ["d1", "open"],
+    ["d2", "open"],
+    ["d3", "open"],
+  ]);
+});
+
+test("a rework_of cycle ends the replacement walk", () => {
+  expect(
+    outcomes(
+      [decision("d1", "agreed", { task_id: "t1" })],
+      [task("t1", "superseded", "t2"), task("t2", "superseded", "t1")],
+    ),
+  ).toEqual([["d1", "reworked"]]);
+});
+
+test("each needs_human reason counts in its bucket, escalate events count as worker, and the sample is the Decision count", () => {
+  const reasons = [
+    "policy-required",
+    "disagreement",
+    "context-missing",
+    "runtime-failure",
+  ];
+  const measured = measureRun(
+    pairRun,
+    [],
+    [],
+    [
+      { run_id: "run-a", type: "escalate" },
+      { run_id: "run-a", type: "escalate" },
+      { run_id: "run-b", type: "escalate" },
+      { run_id: "run-a", type: "decision" },
+    ],
+    [],
+    [
+      ...reasons.map((reason, index) =>
+        decision(`n${index}`, "needs_human", { reason }),
+      ),
+      decision("n-extra", "needs_human", { reason: "disagreement" }),
+      decision("n-none", "needs_human"),
+      decision("cancelled", "cancelled", { reason: "policy-required" }),
+    ],
+  );
+  expect(measured.escalations).toEqual({
+    "policy-required": 1,
+    disagreement: 2,
+    "context-missing": 1,
+    "runtime-failure": 1,
+    worker: 2,
+    sample: 7,
+    target: 10,
+  });
+});
+
+test("each Decision row carries its id, state, reason, and effect", () => {
+  expect(
+    measureRun(
+      pairRun,
+      [],
+      [],
+      [],
+      [],
+      [
+        decision("d1", "needs_human", {
+          reason: "context-missing",
+          effect: "change_spec",
+        }),
+      ],
+    ).decisions,
+  ).toEqual([
+    {
+      decision_id: "d1",
+      state: "needs_human",
+      reason: "context-missing",
+      effect: "change_spec",
+      outcome: "open",
+    },
+  ]);
 });

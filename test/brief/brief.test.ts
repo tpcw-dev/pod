@@ -133,6 +133,7 @@ describeDb("pod brief", () => {
       settled_at: null,
       activity: "running",
       manifest_id: null,
+      prompt_bytes: null,
     });
     mkdirSync(join(cwd, "specs/crew"), { recursive: true });
     mkdirSync(join(cwd, "specs/process"), { recursive: true });
@@ -262,6 +263,105 @@ describeDb("pod brief", () => {
     expect(table?.[0]).toContain("<td>pnpm test</td><td>0</td><td>1</td><td></td>");
     expect(table?.[0]).toContain(
       "<td>timeout 60 pnpm test</td><td>1</td><td>2.5</td><td>60</td>",
+    );
+  });
+
+  test("brief measures the pair, each Decision, and the escalations per Run, as JSON and as a table", async () => {
+    const opened = new Date("2026-10-26T00:00:01.000Z");
+    for (const [id, role, bytes, startedAt] of [
+      ["ctx-dec", "decider", 812, "2026-10-26T00:00:03.500Z"],
+      ["ctx-aud", "auditor", 640, "2026-10-26T00:00:05.000Z"],
+    ] as const) {
+      await conn.db.insertOperation({
+        op_key: `op-${id}`,
+        intent: "decide_seat",
+        owner_generation: 1,
+        at: opened,
+      });
+      await conn.db.insertDispatch({
+        dispatch_id: id,
+        task_id: null,
+        decision_id: null,
+        run_id: "run-1",
+        seat: `${role}-seat`,
+        role,
+        requested_launch: {},
+        effective_launch: null,
+        model_attribution: "unknown",
+        retry_of: null,
+        op_key: `op-${id}`,
+        settlement: "open",
+        terminal_handle: null,
+        created_at: new Date(startedAt),
+        settled_at: null,
+        activity: "waiting",
+        manifest_id: null,
+        prompt_bytes: bytes,
+      });
+    }
+    await conn.sql`
+      update ledger.run set coordinator_dispatch_id = 'ctx-dec' where run_id = 'run-1'`;
+    await conn.db.insertManifest({
+      id: "manifest-decision",
+      run_id: "run-1",
+      task_id: "task-1",
+      decision_id: null,
+      parent_id: null,
+      references: [],
+      tests: [],
+      created_at: at,
+    });
+    await conn.sql`
+      insert into ledger.decision
+        (id, run_id, task_id, category, effect, question, options, manifest_id,
+         state, reason, binding, budget, spent, created_at)
+      values
+        ('dec-1', 'run-1', 'task-1', 'plan', 'change_spec', 'Which plan?', '[]'::jsonb,
+         'manifest-decision', 'needs_human', 'disagreement', 'run', '{}'::jsonb,
+         '{}'::jsonb, ${at.toISOString()})`;
+    const html = join(cwd, "measurement.html");
+    const result = runBrief(cwd, ["brief", "story:S-1", "--html", html]);
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.result.stories[0].runs[0].measurement).toEqual({
+      pair: {
+        decider: { seat: "decider-seat", prompt_bytes: 812, cold_start_ms: 2500 },
+        auditor: { seat: "auditor-seat", prompt_bytes: 640, cold_start_ms: 4000 },
+      },
+      decisions: [
+        {
+          decision_id: "dec-1",
+          state: "needs_human",
+          reason: "disagreement",
+          effect: "change_spec",
+          outcome: "open",
+        },
+      ],
+      escalations: {
+        "policy-required": 0,
+        disagreement: 1,
+        "context-missing": 0,
+        "runtime-failure": 0,
+        worker: 0,
+        sample: 1,
+        target: 10,
+      },
+    });
+    const file = readFileSync(html, "utf8");
+    const table = file.match(
+      /<table id="measurement-run-1">([\s\S]*?)<\/table>/,
+    );
+    expect(table?.[0]).toContain(
+      "<td>decider</td><td>decider-seat</td><td>812</td><td>2500</td>",
+    );
+    expect(table?.[0]).toContain(
+      "<td>auditor</td><td>auditor-seat</td><td>640</td><td>4000</td>",
+    );
+    expect(table?.[0]).toContain(
+      "<td>dec-1</td><td>needs_human</td><td>disagreement</td><td>change_spec</td><td>open</td>",
+    );
+    expect(table?.[0]).toContain(
+      "<td>0</td><td>1</td><td>0</td><td>0</td><td>0</td><td>1/10</td>",
     );
   });
 

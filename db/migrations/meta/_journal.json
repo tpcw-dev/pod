@@ -85,6 +85,13 @@
       "when": 1794096000000,
       "tag": "0011_coordinator_dispatch",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794182400000,
+      "tag": "0012_prompt_bytes",
+      "breakpoints": true
     }
   ]
 }

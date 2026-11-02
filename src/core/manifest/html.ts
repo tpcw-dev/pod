@@ -52,6 +52,47 @@ const BriefTables = z.object({
   ),
 });
 
+const SeatRow = z.object({
+  seat: z.string(),
+  prompt_bytes: z.number().nullable(),
+  cold_start_ms: z.number().nullable(),
+});
+
+const BriefMeasurements = z.object({
+  stories: z.array(
+    z.object({
+      runs: z.array(
+        z.object({
+          run_id: z.string(),
+          measurement: z.object({
+            pair: z
+              .object({ decider: SeatRow, auditor: SeatRow.nullable() })
+              .nullable(),
+            decisions: z.array(
+              z.object({
+                decision_id: z.string(),
+                state: z.string(),
+                reason: z.string().nullable(),
+                effect: z.string().nullable(),
+                outcome: z.string(),
+              }),
+            ),
+            escalations: z.object({
+              "policy-required": z.number(),
+              disagreement: z.number(),
+              "context-missing": z.number(),
+              "runtime-failure": z.number(),
+              worker: z.number(),
+              sample: z.number(),
+              target: z.number(),
+            }),
+          }),
+        }),
+      ),
+    }),
+  ),
+});
+
 function cell(value: string): string {
   return `<td>${escapeHtml(value)}</td>`;
 }
@@ -60,13 +101,84 @@ function parseJson(text: string): unknown {
   return JSON.parse(text);
 }
 
-function testTables(resultJson: string): string {
-  let parsed: unknown;
+function parsedJson(resultJson: string): unknown {
   try {
-    parsed = parseJson(resultJson);
+    return parseJson(resultJson);
   } catch {
-    return "";
+    return null;
   }
+}
+
+function row(values: readonly string[]): string {
+  return `<tr>${values.map(cell).join("")}</tr>`;
+}
+
+function optional(value: number | string | null): string {
+  return value === null ? "" : String(value);
+}
+
+function measurementTables(parsed: unknown): string {
+  const brief = BriefMeasurements.safeParse(parsed);
+  if (!brief.success) return "";
+  const tables: string[] = [];
+  for (const story of brief.data.stories) {
+    for (const run of story.runs) {
+      const { pair, decisions, escalations } = run.measurement;
+      const seats =
+        pair === null
+          ? []
+          : [
+              ["decider", pair.decider] as const,
+              ...(pair.auditor === null
+                ? []
+                : [["auditor", pair.auditor] as const]),
+            ];
+      const rows = [
+        row(["seat", "id", "prompt bytes", "cold start ms"]),
+        ...seats.map(([role, seat]) =>
+          row([
+            role,
+            seat.seat,
+            optional(seat.prompt_bytes),
+            optional(seat.cold_start_ms),
+          ]),
+        ),
+        row(["decision", "state", "reason", "effect", "outcome"]),
+        ...decisions.map((decision) =>
+          row([
+            decision.decision_id,
+            decision.state,
+            optional(decision.reason),
+            optional(decision.effect),
+            decision.outcome,
+          ]),
+        ),
+        row([
+          "policy-required",
+          "disagreement",
+          "context-missing",
+          "runtime-failure",
+          "worker",
+          "sample",
+        ]),
+        row([
+          String(escalations["policy-required"]),
+          String(escalations.disagreement),
+          String(escalations["context-missing"]),
+          String(escalations["runtime-failure"]),
+          String(escalations.worker),
+          `${escalations.sample}/${escalations.target}`,
+        ]),
+      ];
+      tables.push(
+        `<table id="measurement-${escapeHtml(run.run_id)}">\n${rows.join("\n")}\n</table>`,
+      );
+    }
+  }
+  return tables.join("\n");
+}
+
+function testTables(parsed: unknown): string {
   const brief = BriefTables.safeParse(parsed);
   if (!brief.success) return "";
   const tables: string[] = [];
@@ -81,7 +193,9 @@ function testTables(resultJson: string): string {
             cell(row.command) +
             cell(String(row.exit_code)) +
             cell(String(row.seconds)) +
-            cell(row.timeout_seconds === null ? "" : String(row.timeout_seconds)) +
+            cell(
+              row.timeout_seconds === null ? "" : String(row.timeout_seconds),
+            ) +
             "</tr>",
         );
         tables.push(
@@ -94,12 +208,11 @@ function testTables(resultJson: string): string {
 }
 
 export function renderBriefHtml(resultJson: string): string {
-  const tables = testTables(resultJson);
-  return page(
-    "Brief",
-    [["brief-json", resultJson]],
-    tables === "" ? "" : tables,
-  );
+  const parsed = parsedJson(resultJson);
+  const tables = [testTables(parsed), measurementTables(parsed)]
+    .filter((table) => table !== "")
+    .join("\n");
+  return page("Brief", [["brief-json", resultJson]], tables);
 }
 
 export function renderRestoreHtml(viewText: string): string {
