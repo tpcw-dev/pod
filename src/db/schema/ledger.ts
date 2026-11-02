@@ -181,6 +181,7 @@ export const dispatch = ledger.table(
     settledAt: timestamp("settled_at", { withTimezone: true }),
     activity: text("activity").notNull(),
     manifestId: text("manifest_id").references(() => evidenceManifest.id),
+    promptBytes: integer("prompt_bytes"),
     executionBackend: text("execution_backend"),
     ownerHost: text("owner_host"),
     externalExecutionId: text("external_execution_id"),

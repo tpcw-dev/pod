@@ -34,5 +34,6 @@ export async function residentSeat(
     settled_at: settlement === "open" ? null : new Date(),
     activity: settlement === "open" ? activity : "settled",
     manifest_id: null,
+    prompt_bytes: null,
   });
 }

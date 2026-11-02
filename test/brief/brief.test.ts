@@ -133,6 +133,7 @@ describeDb("pod brief", () => {
       settled_at: null,
       activity: "running",
       manifest_id: null,
+      prompt_bytes: null,
     });
     mkdirSync(join(cwd, "specs/crew"), { recursive: true });
     mkdirSync(join(cwd, "specs/process"), { recursive: true });

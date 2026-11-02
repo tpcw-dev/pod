@@ -205,6 +205,7 @@ export interface Dispatch {
   settled_at: Date | null;
   activity: Activity;
   manifest_id: string | null;
+  prompt_bytes: number | null;
 }
 
 export const TestResult = z.object({

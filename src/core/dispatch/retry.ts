@@ -366,10 +366,10 @@ export async function retry(
     };
   });
 
-  const finish = (done: DispatchResult, references: unknown): RetryResult => ({
+  const finish = (done: DispatchResult, taskView: string): RetryResult => ({
     ...done,
     retry_of: original.dispatch_id,
-    task_view: taskViewOf(references),
+    task_view: taskView,
   });
 
   if (gate.kind === "refused") return { ok: false, refusal: gate.refusal };
@@ -385,10 +385,14 @@ export async function retry(
     });
     if (!again.ok) return again;
     const manifest = await db.getManifest(again.result.manifest_id);
-    return { ...again, result: finish(again.result, manifest?.references) };
+    return {
+      ...again,
+      result: finish(again.result, taskViewOf(manifest?.references)),
+    };
   }
 
   const { launch } = gate;
+  const taskView = taskViewOf(gate.references);
   log.at({ run_id: task.run_id, task_id: task.task_id, op_key: opKey });
   const receipt = await orca.workerStart({
     task: task.task_id,
@@ -402,6 +406,7 @@ export async function retry(
     task,
     manifestId: gate.manifestId,
     generation: input.generation,
+    promptBytes: Buffer.byteLength(taskView, "utf8"),
     verb: "retry",
     at: input.now(),
     receipt,
@@ -409,7 +414,7 @@ export async function retry(
   if (recorded.kind === "started")
     return {
       ok: true,
-      result: finish(recorded.done, gate.references),
+      result: finish(recorded.done, taskView),
       opKey,
       orca: version,
     };

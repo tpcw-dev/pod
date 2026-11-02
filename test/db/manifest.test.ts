@@ -126,6 +126,7 @@ describeDb("evidence manifest", () => {
       settled_at: null,
       activity: "running",
       manifest_id: manifest.id,
+      prompt_bytes: null,
     };
     await conn.db.insertDispatch(dispatch);
     expect(await conn.db.getDispatch("ctx-manifest")).toEqual(dispatch);

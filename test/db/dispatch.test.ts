@@ -158,6 +158,7 @@ describeDb("pod dispatch", () => {
       requested_launch: { model: "m-1" },
       effective_launch: { model: "m-1" },
       op_key: outcome.opKey,
+      prompt_bytes: null,
     });
     expect(
       await conn.db.getManifest(outcome.result.manifest_id),

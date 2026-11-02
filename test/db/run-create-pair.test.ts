@@ -136,6 +136,13 @@ describeDb("pod run create opens the coordinator pair for xl", () => {
     expect((await conn.db.getDispatch("ctx_decider"))?.activity).toBe(
       "running",
     );
+    for (const [index, id] of ["ctx_decider", "ctx_auditor"].entries())
+      expect((await conn.db.getDispatch(id))?.prompt_bytes).toBe(
+        Buffer.byteLength(ops[index]?.spec ?? "", "utf8"),
+      );
+    expect(
+      (await conn.db.getDispatch("ctx_decider"))?.prompt_bytes,
+    ).toBeGreaterThan(0);
     const [created] = await conn.sql<{ result_ref: unknown }[]>`
       select result_ref from ledger.operation where intent = 'run_create'`;
     expect(created?.result_ref).toEqual({

@@ -223,6 +223,7 @@ function toDispatch(row: typeof dispatch.$inferSelect): Dispatch {
     settled_at: row.settledAt,
     activity: Activity.parse(row.activity),
     manifest_id: row.manifestId,
+    prompt_bytes: row.promptBytes,
   };
 }
 
@@ -775,6 +776,7 @@ function makeRepo(x: Executor): Repo {
         settledAt: row.settled_at,
         activity: row.activity,
         manifestId: row.manifest_id,
+        promptBytes: row.prompt_bytes,
       });
     },
 
