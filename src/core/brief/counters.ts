@@ -1,4 +1,5 @@
-import type { BriefCounters } from "../domain/brief.ts";
+import type { BriefCounters, BriefMeasurement, SeatMeasure } from "../domain/brief.ts";
+import type { DecisionRow } from "../domain/decision.ts";
 import type { Json } from "../domain/json.ts";
 import type { Dispatch, Event, Operation, Run, Task } from "../domain/ledger.ts";
 
@@ -132,4 +133,131 @@ function modelMismatch(
   const requested = modelOf(row.requested_launch);
   const effective = modelOf(row.effective_launch);
   return requested !== null && effective !== null && requested !== effective;
+}
+
+const escalationReasons = [
+  "policy-required",
+  "disagreement",
+  "context-missing",
+  "runtime-failure",
+] as const;
+
+type MeasuredDispatch = Pick<
+  Dispatch,
+  | "dispatch_id"
+  | "run_id"
+  | "seat"
+  | "role"
+  | "decision_id"
+  | "op_key"
+  | "prompt_bytes"
+  | "created_at"
+>;
+
+type MeasuredDecision = Pick<
+  DecisionRow,
+  "id" | "task_id" | "state" | "reason" | "effect" | "supersedes_decision_id"
+>;
+
+function seatMeasure(
+  row: MeasuredDispatch,
+  opened: ReadonlyMap<string, Date>,
+): SeatMeasure {
+  const at = opened.get(row.op_key);
+  return {
+    seat: row.seat,
+    prompt_bytes: row.prompt_bytes,
+    cold_start_ms:
+      at === undefined ? null : row.created_at.getTime() - at.getTime(),
+  };
+}
+
+function residentAuditor(
+  rows: readonly MeasuredDispatch[],
+): MeasuredDispatch | null {
+  let newest: MeasuredDispatch | null = null;
+  for (const row of rows) {
+    if (row.role !== "auditor" || row.decision_id !== null) continue;
+    if (
+      newest === null ||
+      row.created_at.getTime() > newest.created_at.getTime() ||
+      (row.created_at.getTime() === newest.created_at.getTime() &&
+        row.dispatch_id > newest.dispatch_id)
+    )
+      newest = row;
+  }
+  return newest;
+}
+
+function reworked(
+  taskId: string,
+  tasks: readonly Pick<Task, "task_id" | "state" | "rework_of">[],
+): boolean {
+  const byId = new Map(tasks.map((row) => [row.task_id, row]));
+  const after = (id: string) => tasks.find((row) => row.rework_of === id);
+  const seen = new Set<string>();
+  let current = taskId;
+  while (byId.get(current)?.state === "superseded" && !seen.has(current)) {
+    seen.add(current);
+    const replacement = after(current);
+    if (replacement === undefined || seen.has(replacement.task_id)) break;
+    current = replacement.task_id;
+  }
+  return after(current) !== undefined;
+}
+
+export function measureRun(
+  run: Pick<Run, "run_id" | "coordinator_dispatch_id">,
+  tasks: readonly Pick<Task, "task_id" | "state" | "rework_of">[],
+  dispatches: readonly MeasuredDispatch[],
+  events: readonly Pick<Event, "run_id" | "type">[],
+  operations: readonly Pick<Operation, "op_key" | "created_at">[],
+  decisions: readonly MeasuredDecision[],
+): BriefMeasurement {
+  const runDispatches = dispatches.filter((row) => row.run_id === run.run_id);
+  const opened = new Map(operations.map((row) => [row.op_key, row.created_at]));
+  const decider = runDispatches.find(
+    (row) => row.dispatch_id === run.coordinator_dispatch_id,
+  );
+  const auditor = residentAuditor(runDispatches);
+  const reversed = new Set(
+    decisions
+      .filter((row) => row.effect === "change_spec")
+      .flatMap((row) => row.supersedes_decision_id ?? []),
+  );
+  const needsHuman = decisions.filter((row) => row.state === "needs_human");
+  const bucket = (reason: string) =>
+    needsHuman.filter((row) => row.reason === reason).length;
+  return {
+    pair:
+      decider === undefined
+        ? null
+        : {
+            decider: seatMeasure(decider, opened),
+            auditor: auditor === null ? null : seatMeasure(auditor, opened),
+          },
+    decisions: decisions.map((row) => ({
+      decision_id: row.id,
+      state: row.state,
+      reason: row.reason,
+      effect: row.effect,
+      outcome: reversed.has(row.id)
+        ? "reversed"
+        : row.state !== "agreed"
+          ? "open"
+          : row.task_id !== null && reworked(row.task_id, tasks)
+            ? "reworked"
+            : "adopted",
+    })),
+    escalations: {
+      ...(Object.fromEntries(
+        escalationReasons.map((reason) => [reason, bucket(reason)]),
+      ) as Record<(typeof escalationReasons)[number], number>),
+      worker: events.filter(
+        (row) => row.run_id === run.run_id && row.type === "escalate",
+      ).length,
+      sample: decisions.length,
+      target: 10,
+    },
+  };
 }

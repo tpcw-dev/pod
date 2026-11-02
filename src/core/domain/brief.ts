@@ -19,6 +19,34 @@ export interface BriefCounters {
   model_mismatches: number;
 }
 
+export interface SeatMeasure {
+  seat: string;
+  prompt_bytes: number | null;
+  cold_start_ms: number | null;
+}
+
+export type DecisionOutcome = "adopted" | "reworked" | "reversed" | "open";
+
+export interface BriefMeasurement {
+  pair: { decider: SeatMeasure; auditor: SeatMeasure | null } | null;
+  decisions: {
+    decision_id: string;
+    state: string;
+    reason: string | null;
+    effect: string | null;
+    outcome: DecisionOutcome;
+  }[];
+  escalations: {
+    "policy-required": number;
+    disagreement: number;
+    "context-missing": number;
+    "runtime-failure": number;
+    worker: number;
+    sample: number;
+    target: number;
+  };
+}
+
 export interface BriefSnapshot {
   hash: string;
   pinned_at: Date;
