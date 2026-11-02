@@ -1,0 +1,14 @@
+kind: crew
+name: xl-coordinator-pair
+schema_version: 1
+value:
+  seats:
+    - { id: plan-1, roles: [planner], runtime: claude, model: m-1 }
+    - { id: dev-1, roles: [developer], runtime: claude, model: m-1 }
+    - { id: rev-1, roles: [reviewer], runtime: codex, model: m-3 }
+    - { id: dec-1, roles: [decider], runtime: claude, model: m-2 }
+    - id: aud-1
+      roles: [auditor]
+      runtime: codex
+      model: m-3
+      independent_of: [dec-1]

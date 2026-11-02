@@ -510,3 +510,75 @@ export function delivery(
     ok("worker-list", workers([]), run),
   ];
 }
+
+export function oneSlotHome(): string {
+  const home = mkdtempSync(join(tmpdir(), "pod-home-"));
+  writeFileSync(join(home, "host.yaml"), "capacity: 1\n");
+  return home;
+}
+
+export const seatOpens = (
+  role: "decider" | "auditor",
+  dispatchId: string,
+  model: string,
+): TempEntry[] => [
+  ok("task-create", { task: { id: `orca_${dispatchId}`, status: "ready" } }, [
+    "--run",
+    "run_1",
+    "--task-title",
+    `decision ${role}`,
+  ]),
+  ok("worker-start", seatStarted(dispatchId, model), [
+    "--task",
+    `orca_${dispatchId}`,
+  ]),
+];
+
+const xlSteps = [
+  "plan",
+  "implement",
+  "review",
+  "integration_review",
+  "pr",
+  "merge",
+  "deploy",
+  "hqa",
+];
+
+export async function cliXlRun(
+  conn: Connection,
+  story: string,
+  env: Record<string, string>,
+): Promise<Record<string, unknown>> {
+  const created = await cliReplay(
+    conn,
+    [
+      "run",
+      "create",
+      `story:${story}`,
+      "--process",
+      "impl-xlarge@1",
+      "--size",
+      "xl",
+      "--stage",
+      "impl",
+    ],
+    [
+      ok("run-create", { run: { id: "run_1" } }),
+      ...xlSteps.map((step, i) =>
+        ok(
+          "task-create",
+          {
+            task: { id: `task_${step}`, status: i === 0 ? "ready" : "pending" },
+          },
+          ["--run", "run_1"],
+        ),
+      ),
+      ...seatOpens("decider", decider, "m-2"),
+      ...seatOpens("auditor", auditor, "m-3"),
+    ],
+    env,
+  );
+  expect(created.status, created.json.error?.message).toBe(0);
+  return created.json.result ?? {};
+}

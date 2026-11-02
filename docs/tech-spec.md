@@ -960,6 +960,8 @@ Capacity 1 does not deadlock, because a waiting Seat holds no slot and the coord
 3. The auditor wakes in the free slot in the same transaction that recorded the worker's delivery, audits the result, and goes `waiting`.
 4. The coordinator wakes in the free slot to act on the audit.
 
+Spec clarification: S15b. The auditor wake on delivery in step 3 is deferred to the per-Task audit ticket, which S14 dogfood decides; until it lands, the worker's delivery leaves the auditor `waiting` with no wake message.
+
 Sizes other than xl keep the Decision Seats opened on first need, as "What `pod decide` does" describes.
 
 Spec clarification: S15a. `ledger.run.coordinator_dispatch_id` names the decider Dispatch of an xl Run; `ledger.run.coordinator` keeps that Dispatch's terminal handle, and the column is null on every other Run.
@@ -1210,7 +1212,7 @@ The order is S1, then S2, then S3 with S4, then S5 with S6, then S7 with S8, the
 | 7 | S11 State view | TPC-1123 | xs | `src/adapters/notion`, `ledger.usage_observation`, verb `state` with the seven state view sections, each with `source_revision` and `observed_at`, the 30-day in-force Decision rule, and the 3k word budget | `docs-section-read` | S4, S10 |
 | 7 | S12 Minimal decision loop | TPC-1124 | m | `src/core/decide`, `ledger.decision`, `ledger.decision_round`, verb `decide` | `decision-happy-path`, `decision-fallback` | S3, S4, S11 |
 | 8 | S13 Decision failures and authorization | TPC-1125 | m | Reserved checks, the policy schema with `profiles`, Decision recovery through needs-human, every Flow 2 transition replayed, the mixed auditor case set (correct proposal, wrong citation, stale roadmap, out-of-scope proposal, true citation with wrong inference) with misses and false refusals recorded per case, a dependency change between rounds, gate-lift refusals, and a budget kept across relaunch | one scenario per Decision state table row, `gate-lift-refused` | S12 |
-| 9 | S15 Coordinator pair for xl | to be filed | m | the xl branch of `pod run create` and `pod takeover`, the resident auditor, `impl-xlarge@1` driven by the pair | `xl-coordinator-pair`, `xl-takeover` | S12, S13 |
+| 9 | S15 Coordinator pair for xl | TPC-1205 | m | the xl branch of `pod run create` and `pod takeover`, the resident auditor, `impl-xlarge@1` driven by the pair | `xl-coordinator-pair`, `xl-takeover` | S12, S13 |
 | 10 | S14 Dogfood B, decision measurement | TPC-1126 | s | one real xl Story through `impl-xlarge@1` with the coordinator pair, escalations reported by reason with a natural sample reported as such, adoption, rework, and reversal per Decision, the pair's context size and cold-start time per Run, and the reviewer and human receipts bound to the final candidate SHA and the deployed revision with keepers that are not the Decision Seats | `dogfood-b` | S9, S13, S15 |
 
 There are fifteen stories, 2 of size xs, 5 of size s, 7 of size m, and 1 of size l. In position 7, S11 merges before S12 because the Decision manifest reads the state view.
