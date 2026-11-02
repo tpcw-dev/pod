@@ -113,9 +113,7 @@ export async function reconcileLaunches(
       continue;
     }
     const owner =
-      decisionId === null
-        ? runId
-        : (await db.getDecision(decisionId))?.run_id;
+      decisionId === null ? runId : (await db.getDecision(decisionId))?.run_id;
     if (owner !== input.run.run_id) continue;
     const outcome = await reconcileSeat(
       db,

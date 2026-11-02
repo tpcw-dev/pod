@@ -51,7 +51,7 @@ export const decisionCrew = {
 
 export const planProcess = {
   summary: "a plan agreed by the decision pair, then the build",
-  selector: { stage: "impl", size: ["xl"] },
+  selector: { stage: "impl", size: ["l"] },
   roles: ["planner", "developer"],
   steps: [
     {
@@ -125,7 +125,7 @@ export async function dispatchedPlan(
   const made = await runCreate(conn.db, created.orca, null, created.log, {
     story: "S-9",
     process: { name: "plan", rev: 1 },
-    size: "xl",
+    size: "l",
     stage: "impl",
     coordinator: "session-1",
     host: "local",
@@ -189,7 +189,7 @@ export async function deliveredPlan(
   const made = await runCreate(conn.db, created.orca, null, created.log, {
     story: "S-9",
     process: { name: "plan", rev: 1 },
-    size: "xl",
+    size: "l",
     stage: "impl",
     coordinator: "session-1",
     host: "local",
@@ -422,7 +422,7 @@ export async function cliDeliveredPlan(
       "--process",
       processRef,
       "--size",
-      "xl",
+      "l",
       "--stage",
       "impl",
     ],

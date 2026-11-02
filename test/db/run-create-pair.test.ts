@@ -80,7 +80,12 @@ describeDb("pod run create opens the coordinator pair for xl", () => {
 
   async function seatOps() {
     return conn.sql<
-      { status: string; role: string; decision_id: string | null; spec: string }[]
+      {
+        status: string;
+        role: string;
+        decision_id: string | null;
+        spec: string;
+      }[]
     >`
       select status, result_ref -> 'request' ->> 'role' as role,
         result_ref -> 'request' ->> 'decision_id' as decision_id,
@@ -174,7 +179,10 @@ describeDb("pod run create opens the coordinator pair for xl", () => {
     const { orca } = replay(conn, [
       ...runStart,
       seatEntries("decider")[0]!,
-      refusedReply("worker-start", "agent_not_found", ["--task", "orca_decider"]),
+      refusedReply("worker-start", "agent_not_found", [
+        "--task",
+        "orca_decider",
+      ]),
     ]);
     const outcome = await create(orca);
     orca.assertDone();
@@ -202,7 +210,10 @@ describeDb("pod run create opens the coordinator pair for xl", () => {
       ...runStart,
       ...seatEntries("decider"),
       seatEntries("auditor")[0]!,
-      refusedReply("worker-start", "agent_not_found", ["--task", "orca_auditor"]),
+      refusedReply("worker-start", "agent_not_found", [
+        "--task",
+        "orca_auditor",
+      ]),
     ]);
     const outcome = await create(orca);
     orca.assertDone();

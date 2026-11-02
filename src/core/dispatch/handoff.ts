@@ -25,9 +25,9 @@ export async function yieldDispatch(
   return dispatchId;
 }
 
-export function handoffOf(
-  ref: Json | null | undefined,
-): { coordinator_waiting?: string } {
+export function handoffOf(ref: Json | null | undefined): {
+  coordinator_waiting?: string;
+} {
   const waiting = Waiting.safeParse(ref);
   return waiting.success
     ? { coordinator_waiting: waiting.data.coordinator_waiting }

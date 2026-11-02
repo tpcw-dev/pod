@@ -101,7 +101,7 @@ describeDb("decision-fallback", () => {
       const created = await runCreate(conn.db, orca, tracker, log, {
         story,
         process: { name: "decision-fallback", rev: 1 },
-        size: "xl",
+        size: "l",
         stage: "impl",
         coordinator: "record",
         host: "rec",

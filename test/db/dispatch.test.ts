@@ -455,9 +455,7 @@ describeDb("pod dispatch", () => {
       ...orca,
       workerStart: async (req) => {
         seen.push(await activity("ctx_dec"));
-        seen.push(
-          (await conn.db.launchReservations(launchIntents))[0]?.status,
-        );
+        seen.push((await conn.db.launchReservations(launchIntents))[0]?.status);
         return orca.workerStart(req);
       },
     };
@@ -524,7 +522,9 @@ describeDb("pod dispatch", () => {
 
   test("a dispatch to a host other than the Run's host does not yield the coordinator's slot", async () => {
     await residentDecider();
-    const { orca, log } = replay([ok("worker-start", started("ctx_far", null))]);
+    const { orca, log } = replay([
+      ok("worker-start", started("ctx_far", null)),
+    ]);
     const outcome = await dispatch(
       conn.db,
       orca,

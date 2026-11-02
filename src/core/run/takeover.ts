@@ -24,7 +24,11 @@ import {
 import { renderRestoreView, restoreView } from "../manifest/restore-view.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort, Receipt, TerminalShowResult } from "../ports/orca.ts";
-import { openCoordinator, seatRefusal, type SeatRefusal } from "./coordinator.ts";
+import {
+  openCoordinator,
+  seatRefusal,
+  type SeatRefusal,
+} from "./coordinator.ts";
 
 export interface TakeoverInput {
   story: string;
@@ -176,8 +180,7 @@ function unsafe(live: readonly string[], readable: boolean): Refusal {
 const acceptedWorkerStates: readonly string[] = ["stopped", "failed"];
 
 type ResidentEvidence =
-  | { consumer: number; stop: string }
-  | { refusal: Refusal };
+  { consumer: number; stop: string } | { refusal: Refusal };
 
 function residentUnsafe(
   dispatchId: string,
@@ -296,7 +299,8 @@ async function recordTaken(
     const moved = await tx.advanceOwner(request.run_id, {
       from: request.generation,
       to: next,
-      coordinator: resident === undefined ? request.to_handle : before.coordinator,
+      coordinator:
+        resident === undefined ? request.to_handle : before.coordinator,
     });
     const run = await tx.getRun(request.run_id);
     if (run === null) throw new Error(`Run ${request.run_id} vanished`);
@@ -419,10 +423,7 @@ async function finished(
       ...taken,
       ...pair,
       restore_view: renderRestoreHtml(renderRestoreView(view)),
-      nextSteps: [
-        ...nextSteps,
-        ...(pair.seat_refusal?.nextSteps ?? []),
-      ],
+      nextSteps: [...nextSteps, ...(pair.seat_refusal?.nextSteps ?? [])],
     },
     opKey,
     orca: version,
@@ -473,7 +474,12 @@ async function finishResident(
 
 async function recordRefused(
   tx: Repo,
-  insert: { opKey: string; generation: number; request: TakeoverRequest; at: Date },
+  insert: {
+    opKey: string;
+    generation: number;
+    request: TakeoverRequest;
+    at: Date;
+  },
   refusal: Refusal,
 ): Promise<Refusal> {
   const { opKey, request, at } = insert;
@@ -593,15 +599,7 @@ export async function takeover(
     if (ref.data.result !== undefined)
       return ref.data.owes === undefined
         ? finished(db, ref.data.result, opKey, version)
-        : finishResident(
-            db,
-            orca,
-            log,
-            input,
-            ref.data.result,
-            opKey,
-            version,
-          );
+        : finishResident(db, orca, log, input, ref.data.result, opKey, version);
     if (existing.status === "refused")
       return refuse(
         ref.data.code ?? "failed",
