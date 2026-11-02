@@ -544,6 +544,10 @@ export async function takeover(
     return refuse("story_not_found", `no Run for story:${input.story}`, [
       "pod brief",
     ]);
+  if (run.coordinator_dispatch_id === null && input.coordinator === "")
+    return refuse("usage", "POD_COORDINATOR is not set", [
+      "set POD_COORDINATOR to the new coordinator's Orca terminal handle",
+    ]);
   const { version } = await orca.version();
   const opKey =
     input.opKey ?? (await takeoverKey(db, run.run_id, input.generation));
@@ -588,10 +592,6 @@ export async function takeover(
       opKey,
       version,
     );
-  if (input.coordinator === "")
-    return refuse("usage", "POD_COORDINATOR is not set", [
-      "set POD_COORDINATOR to the new coordinator's Orca terminal handle",
-    ]);
   const evidence = await readEvidence(orca, run, input.coordinator);
   const request: TakeoverRequest = {
     run_id: run.run_id,

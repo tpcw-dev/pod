@@ -8,6 +8,7 @@ import { checkPass } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import type { Revision } from "../../src/core/domain/config.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
+import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import {
   recordTakeover,
   takeover,
@@ -587,6 +588,21 @@ describeDb("pod takeover", () => {
       },
     });
     expect(await owner()).toEqual({ generation: 2, coordinator: newHandle });
+  });
+
+  test("with no coordinator handle a Run without a coordinator Dispatch refuses usage before any Orca call", async () => {
+    const unreachable: OrcaPort = {
+      ...noCalls(),
+      version: () => Promise.reject(new Error("orca is not installed")),
+    };
+    const outcome = await takeover(
+      conn.db,
+      unreachable,
+      receiptLog(conn.db, "local"),
+      input({ coordinator: "" }),
+    );
+    expect(outcome).toMatchObject({ ok: false, refusal: { code: "usage" } });
+    expect(await operations()).toEqual([]);
   });
 
   test("the CLI needs POD_COORDINATOR and writes the view at --out and at the default path", () => {
