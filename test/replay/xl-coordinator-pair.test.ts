@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { ok } from "../orca/temp-fixtures.ts";
 import {
+  ack,
   applyConfig,
   audit,
   auditor,
@@ -43,10 +44,11 @@ describeDb("xl-coordinator-pair", () => {
     return (await conn.db.getDispatch(dispatchId))?.activity;
   }
 
-  async function sends() {
-    return conn.sql`
-      select payload from ledger.event
-      where type = 'receipt' and payload ->> 'verb' = 'send'`;
+  async function sendTargets() {
+    const rows = await conn.sql<{ argv: string[] }[]>`
+      select payload -> 'argv' as argv from ledger.event
+      where type = 'receipt' and payload ->> 'verb' = 'send' order by id`;
+    return rows.map(({ argv }) => argv[argv.indexOf("--to") + 1]);
   }
 
   async function seatOps() {
@@ -99,7 +101,7 @@ describeDb("xl-coordinator-pair", () => {
           ]),
           run,
         ),
-        ok("check", empty("delivery_plan"), ["--ack", "delivery_plan"]),
+        ok("check", empty("delivery_plan"), ack("delivery_plan")),
         ok(
           "worker-list",
           workers([
@@ -116,7 +118,7 @@ describeDb("xl-coordinator-pair", () => {
       "settled",
       "waiting",
     ]);
-    expect(await sends()).toEqual([]);
+    expect(await sendTargets()).toEqual([]);
 
     const decided = await cliReplay(
       conn,
@@ -180,11 +182,10 @@ describeDb("xl-coordinator-pair", () => {
       select count(*)::int as n from ledger.gate_receipt`;
     expect(receipts?.n).toBe(0);
     expect(await seatOps()).toBe(2);
-    expect(
-      (await sends()).map(
-        (row) => (row["payload"] as { argv: string[] }).argv[3],
-      ),
-    ).toEqual([`dispatch:${decider}`, `dispatch:${auditor}`]);
+    expect(await sendTargets()).toEqual([
+      `dispatch:${decider}`,
+      `dispatch:${auditor}`,
+    ]);
     expect((await conn.db.getTask(planTask))?.state).toBe("done");
     expect((await conn.db.getTask("task_implement"))?.state).toBe("ready");
   });
