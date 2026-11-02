@@ -1,4 +1,9 @@
-import { countRun, fallbackOf, sumCounters } from "../brief/counters.ts";
+import {
+  countRun,
+  fallbackOf,
+  measureRun,
+  sumCounters,
+} from "../brief/counters.ts";
 import type { Revision } from "./config.ts";
 import type { DecisionRow } from "./decision.ts";
 import type {
@@ -70,6 +75,7 @@ export interface BriefRun {
   dispatches: readonly BriefDispatch[];
   decisions: readonly Pick<DecisionRow, "id" | "task_id" | "state">[];
   counters: BriefCounters;
+  measurement: BriefMeasurement;
 }
 
 export interface BriefStory {
@@ -86,6 +92,12 @@ export function countBriefRun(
   ...args: Parameters<typeof countRun>
 ): BriefCounters {
   return countRun(...args);
+}
+
+export function measureBriefRun(
+  ...args: Parameters<typeof measureRun>
+): BriefMeasurement {
+  return measureRun(...args);
 }
 
 export function sumBriefCounters(

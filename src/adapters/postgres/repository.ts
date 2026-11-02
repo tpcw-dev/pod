@@ -25,6 +25,7 @@ import {
 } from "../../core/domain/config.ts";
 import {
   countBriefRun,
+  measureBriefRun,
   startFallbackOf,
   sumBriefCounters,
   type BriefDispatch,
@@ -1180,6 +1181,7 @@ function makeRepo(x: Executor): Repo {
                   .select()
                   .from(operation)
                   .where(inArray(operation.opKey, [...keys]));
+          const runOperations = operationRows.map(toOperation);
           const dispatches: BriefDispatch[] = [];
           for (const row of runDispatches) {
             const manifest =
@@ -1197,19 +1199,20 @@ function makeRepo(x: Executor): Repo {
                 start === undefined ? null : startFallbackOf(start.payload),
             });
           }
+          const runRecord: Run = {
+            run_id: runRow.runId,
+            story_provider: runRow.storyProvider,
+            story_external_id: runRow.storyExternalId,
+            host: runRow.host,
+            coordinator: runRow.coordinator,
+            owner_generation: runRow.ownerGeneration,
+            snapshot_hash: runRow.snapshotHash,
+            state: RunState.parse(runRow.state),
+            created_at: runRow.createdAt,
+            coordinator_dispatch_id: runRow.coordinatorDispatchId,
+          };
           runs.push({
-            run: {
-              run_id: runRow.runId,
-              story_provider: runRow.storyProvider,
-              story_external_id: runRow.storyExternalId,
-              host: runRow.host,
-              coordinator: runRow.coordinator,
-              owner_generation: runRow.ownerGeneration,
-              snapshot_hash: runRow.snapshotHash,
-              state: RunState.parse(runRow.state),
-              created_at: runRow.createdAt,
-              coordinator_dispatch_id: runRow.coordinatorDispatchId,
-            },
+            run: runRecord,
             snapshot:
               snap === null
                 ? null
@@ -1231,7 +1234,15 @@ function makeRepo(x: Executor): Repo {
               runTasks,
               runDispatches,
               runEvents,
-              operationRows.map(toOperation),
+              runOperations,
+            ),
+            measurement: measureBriefRun(
+              runRecord,
+              runTasks,
+              runDispatches,
+              runEvents,
+              runOperations,
+              await repo.listRunDecisions(runRow.runId),
             ),
           });
         }

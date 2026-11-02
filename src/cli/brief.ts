@@ -45,6 +45,36 @@ const CountersJson = z.object({
   model_mismatches: z.number(),
 });
 
+const SeatMeasureJson = z.object({
+  seat: z.string(),
+  prompt_bytes: z.number().nullable(),
+  cold_start_ms: z.number().nullable(),
+});
+
+const MeasurementJson = z.object({
+  pair: z
+    .object({ decider: SeatMeasureJson, auditor: SeatMeasureJson.nullable() })
+    .nullable(),
+  decisions: z.array(
+    z.object({
+      decision_id: z.string(),
+      state: z.string(),
+      reason: z.string().nullable(),
+      effect: z.string().nullable(),
+      outcome: z.enum(["adopted", "reworked", "reversed", "open"]),
+    }),
+  ),
+  escalations: z.object({
+    "policy-required": z.number(),
+    disagreement: z.number(),
+    "context-missing": z.number(),
+    "runtime-failure": z.number(),
+    worker: z.number(),
+    sample: z.number(),
+    target: z.number(),
+  }),
+});
+
 const TestJson = z.object({
   command: z.string(),
   exit_code: z.number(),
@@ -101,6 +131,7 @@ export const BriefOutput = z.object({
             }),
           ),
           counters: CountersJson,
+          measurement: MeasurementJson,
         }),
       ),
       drift: z.array(DriftJson),
@@ -248,6 +279,7 @@ function toBriefResult(tree: BriefTree): BriefResult {
           })),
         })),
         counters: run.counters,
+        measurement: run.measurement,
       })),
       drift:
         drift.get(`${item.story.provider}\n${item.story.external_id}`) ?? [],
