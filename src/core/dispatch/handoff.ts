@@ -39,5 +39,5 @@ export async function returnSlot(tx: Repo, ref: Json | null): Promise<void> {
   if (id === undefined) return;
   const coordinator = await tx.getDispatch(id);
   if (coordinator?.activity !== "waiting") return;
-  await tx.setDispatchActivity(coordinator.dispatch_id, "running");
+  await tx.setDispatchActivity(id, "running");
 }

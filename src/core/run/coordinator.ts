@@ -75,7 +75,7 @@ export async function openCoordinator(
   },
 ): Promise<SeatOutcome> {
   const templates = Templates.safeParse(input.templates?.value);
-  if (input.templates === null || !templates.success) return noTemplates();
+  if (!templates.success) return noTemplates();
   const fields = {
     ...(await runFields(db, input.run, input.generation)),
     view_path: input.viewPath,
@@ -115,7 +115,7 @@ export async function openResidentAuditor(
   },
 ): Promise<SeatOutcome> {
   const templates = Templates.safeParse(input.templates?.value);
-  if (input.templates === null || !templates.success) return noTemplates();
+  if (!templates.success) return noTemplates();
   const fields = await runFields(db, input.run, input.run.owner_generation);
   return openDecisionSeat(db, orca, log, {
     run: input.run,

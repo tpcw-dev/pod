@@ -14,13 +14,7 @@ import { seatOpKey } from "../dispatch/decision-seats.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import { renderRestoreHtml } from "../manifest/html.ts";
-import { recordManifest } from "../manifest/record.ts";
-import {
-  revisionReference,
-  runReference,
-  storyReference,
-  taskReference,
-} from "../manifest/references.ts";
+import { recordRunManifest } from "../manifest/run-manifest.ts";
 import { renderRestoreView, restoreView } from "../manifest/restore-view.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort, Receipt, TerminalShowResult } from "../ports/orca.ts";
@@ -322,34 +316,7 @@ async function recordTaken(
     }
     if (resident !== undefined)
       await settleOldCoordinator(tx, run, record, resident);
-    const story = await tx.getStory(run.story_provider, run.story_external_id);
-    const snapshot = await tx.getSnapshot(run.run_id);
-    if (story === null || snapshot === null)
-      throw new Error(`Run ${run.run_id} lost its Story or Snapshot`);
-    const revisions = [];
-    for (const id of [
-      snapshot.crew_revision_id,
-      snapshot.process_revision_id,
-      snapshot.policy_revision_id,
-    ]) {
-      const revision = await tx.getRevision(id);
-      if (revision === null)
-        throw new Error(`Run ${run.run_id} lost a pinned Revision`);
-      revisions.push(revisionReference(revision));
-    }
-    const { manifest } = await recordManifest(tx, {
-      run_id: run.run_id,
-      task_id: null,
-      decision_id: null,
-      parent_id: null,
-      created_at: at,
-      references: [
-        storyReference(story),
-        runReference(run),
-        ...(await tx.listTasks(run.run_id)).map(taskReference),
-        ...revisions,
-      ],
-    });
+    const manifest = await recordRunManifest(tx, run, at);
     const taken: Taken = {
       run_id: run.run_id,
       story: request.story,

@@ -182,20 +182,10 @@ const Done = z.looseObject({
   nextSteps: z.array(z.string()).optional(),
 });
 
-function own(
-  dispatches: readonly Dispatch[],
-  role: SeatRole,
-  decisionId: string | null,
-): Dispatch | undefined {
-  const open = dispatches.filter(
+function openSeats(dispatches: readonly Dispatch[], role: SeatRole) {
+  return dispatches.filter(
     (row) =>
       row.task_id === null && row.role === role && row.settlement === "open",
-  );
-  return (
-    (decisionId === null
-      ? undefined
-      : open.find((row) => row.decision_id === decisionId)) ??
-    open.find((row) => row.decision_id === null)
   );
 }
 
@@ -205,13 +195,14 @@ export function residentOrOwn(
   role: SeatRole,
   decisionId: string | null,
 ): Dispatch | undefined {
-  const found = own(dispatches, role, decisionId);
+  const open = openSeats(dispatches, role);
+  const found =
+    (decisionId === null
+      ? undefined
+      : open.find((row) => row.decision_id === decisionId)) ??
+    open.find((row) => row.decision_id === null);
   if (found !== undefined || decisionId === null) return found;
-  if (run.coordinator_dispatch_id !== null) return undefined;
-  return dispatches.find(
-    (row) =>
-      row.task_id === null && row.role === role && row.settlement === "open",
-  );
+  return run.coordinator_dispatch_id === null ? open[0] : undefined;
 }
 
 function settledCoordinator(run: Run, input: SeatInput): Refusal | null {
@@ -264,7 +255,10 @@ export async function openDecisionSeat(
               input.decisionId !== null &&
               row.decision_id === input.decisionId &&
               row.role === "decider",
-          ) ?? own(dispatches, "decider", null)
+          ) ??
+          openSeats(dispatches, "decider").find(
+            (row) => row.decision_id === null,
+          )
         )?.seat ?? null)
       : null;
   const picked = pickSeat(seats, input.role, deciderSeat);

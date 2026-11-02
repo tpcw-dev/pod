@@ -13,13 +13,7 @@ import { refuse, type Outcome, type Refused } from "../domain/outcome.ts";
 import { failure, launchOutcome, stopOnOpen } from "../ledger/launch.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
-import { recordManifest } from "../manifest/record.ts";
-import {
-  revisionReference,
-  runReference,
-  storyReference,
-  taskReference,
-} from "../manifest/references.ts";
+import { recordRunManifest } from "../manifest/run-manifest.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { projectSteps } from "../process/project.ts";
@@ -463,40 +457,6 @@ interface Pair {
   refusal: SeatRefusal | null;
 }
 
-async function runStartManifest(db: Db, run: Run, at: Date): Promise<string> {
-  return db.transaction(async (tx) => {
-    const story = await tx.getStory(run.story_provider, run.story_external_id);
-    const snapshot = await tx.getSnapshot(run.run_id);
-    if (story === null || snapshot === null)
-      throw new Error(`Run ${run.run_id} lost its Story or Snapshot`);
-    const revisions = [];
-    for (const id of [
-      snapshot.crew_revision_id,
-      snapshot.process_revision_id,
-      snapshot.policy_revision_id,
-    ]) {
-      const revision = await tx.getRevision(id);
-      if (revision === null)
-        throw new Error(`Run ${run.run_id} lost a pinned Revision`);
-      revisions.push(revisionReference(revision));
-    }
-    const { manifest } = await recordManifest(tx, {
-      run_id: run.run_id,
-      task_id: null,
-      decision_id: null,
-      parent_id: null,
-      created_at: at,
-      references: [
-        storyReference(story),
-        runReference(run),
-        ...(await tx.listTasks(run.run_id)).map(taskReference),
-        ...revisions,
-      ],
-    });
-    return manifest.id;
-  });
-}
-
 async function holdPair(
   ctx: Context,
   run: Run,
@@ -543,7 +503,9 @@ async function openPair(ctx: Context, runId: string): Promise<Pair> {
     host: input.host,
     now: input.now,
   };
-  const manifestId = await runStartManifest(db, run, input.now());
+  const manifestId = (
+    await db.transaction((tx) => recordRunManifest(tx, run, input.now()))
+  ).id;
   const decider = await openCoordinator(db, orca, log, {
     ...seats,
     run,
