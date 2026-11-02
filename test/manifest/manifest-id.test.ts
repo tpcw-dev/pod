@@ -35,6 +35,7 @@ const run: Run = {
   snapshot_hash: "hash-1",
   state: "active",
   created_at: at,
+  coordinator_dispatch_id: null,
 };
 
 const task: Task = {

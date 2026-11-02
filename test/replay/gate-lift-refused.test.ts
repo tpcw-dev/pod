@@ -68,7 +68,7 @@ describeDb("gate-lift-refused", () => {
         "--process",
         "decision-states@1",
         "--size",
-        "xl",
+        "l",
         "--stage",
         "impl",
       ],

@@ -9,6 +9,7 @@ import {
   type Launched,
 } from "../dispatch/launch-record.ts";
 import { recordSeatStarted, SeatRef } from "../dispatch/decision-seats.ts";
+import { returnSlot } from "../dispatch/handoff.ts";
 import { launchOutcome } from "../ledger/launch.ts";
 import { moveTask } from "../ledger/move-task.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
@@ -104,8 +105,16 @@ export async function reconcileLaunches(
       nextSteps.push(unreadableLine(operation, ref.error));
       continue;
     }
-    const decision = await db.getDecision(ref.data.request.decision_id);
-    if (decision?.run_id !== input.run.run_id) continue;
+    const { decision_id: decisionId, run_id: runId } = ref.data.request;
+    if (decisionId === null && runId === undefined) {
+      nextSteps.push(
+        `pod check: launch ${operation.op_key} has an unreadable request (request.run_id) and holds a slot; inspect ledger.operation ${operation.op_key}`,
+      );
+      continue;
+    }
+    const owner =
+      decisionId === null ? runId : (await db.getDecision(decisionId))?.run_id;
+    if (owner !== input.run.run_id) continue;
     const outcome = await reconcileSeat(
       db,
       orca,
@@ -240,6 +249,7 @@ async function reconcileOne(
   const at = input.now();
   const closed = await db.transaction(async (tx) => {
     if (!(await claim(tx, input, operation, ref))) return null;
+    await returnSlot(tx, operation.result_ref);
     await tx.moveOperation(
       operation.op_key,
       "done",

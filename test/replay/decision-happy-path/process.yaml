@@ -3,7 +3,7 @@ name: decision-happy-path
 schema_version: 1
 value:
   summary: decision-happy-path replay scenario, a plan agreed by the decision pair, then the build
-  selector: { stage: impl, size: [xl] }
+  selector: { stage: impl, size: [l] }
   roles: [planner, developer]
   steps:
     - id: plan

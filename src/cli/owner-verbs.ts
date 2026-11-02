@@ -2,8 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { drain, DrainResult } from "../core/run/drain.ts";
+import { singleActive } from "../core/config/active.ts";
 import { takeover } from "../core/run/takeover.ts";
-import { usageError } from "./errors.ts";
 import { podHome } from "./host-profile.ts";
 import { Generation, quote, withOrca } from "./run-verbs.ts";
 
@@ -51,6 +51,15 @@ export const TakeoverOutput = z.object({
   owner_generation: z.int(),
   coordinator: z.string(),
   previous_coordinator: z.string(),
+  coordinator_dispatch_id: z.string().nullable(),
+  seat_refusal: z
+    .object({
+      role: z.string(),
+      code: z.string(),
+      message: z.string(),
+      nextSteps: z.array(z.string()),
+    })
+    .optional(),
   consumer_generation: z.int(),
   manifest_id: z.string(),
   view_path: z.string(),
@@ -64,11 +73,7 @@ type TakeoverOutput = z.infer<typeof TakeoverOutput>;
 export async function takeoverVerb(
   input: TakeoverInput,
 ): Promise<TakeoverOutput> {
-  const coordinator = process.env["POD_COORDINATOR"];
-  if (coordinator === undefined || coordinator === "")
-    throw usageError("POD_COORDINATOR is not set", [
-      "set POD_COORDINATOR to the new coordinator's Orca terminal handle",
-    ]);
+  const coordinator = process.env["POD_COORDINATOR"] ?? "";
   const [story] = input.args;
   const command = (opKey: string) =>
     [
@@ -84,7 +89,7 @@ export async function takeoverVerb(
       .map(quote)
       .join(" ");
   const { result, opKey, orca } = await withOrca(
-    ({ db, orca: port, log, host }) =>
+    async ({ db, orca: port, log, host }) =>
       takeover(db, port, log, {
         story: story.slice("story:".length),
         provider: host.trackerKind,
@@ -95,6 +100,10 @@ export async function takeoverVerb(
           input.out ??
           join(podHome(), "restore", `${runId}-${generation}.html`),
         host: host.hostId,
+        seats: {
+          templates: await singleActive(db, "decision", "global", ""),
+          capacity: host.capacity,
+        },
         command,
         now: () => new Date(),
       }),

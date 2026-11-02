@@ -16,7 +16,9 @@ import {
 } from "../orca/temp-fixtures.ts";
 import { fakeTracker, trackerStory } from "./fake-tracker.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
-import { activeRevision, processValue, seedConfig } from "./seed.ts";
+import { defaultTemplates } from "./decision-fixture.ts";
+import { envelope, storeRevision } from "./fixtures.ts";
+import { activeRevision, crewValue, processValue, seedConfig } from "./seed.ts";
 
 const requestId = "33333333-3333-4333-8333-333333333333";
 
@@ -72,6 +74,33 @@ describeDb("pod run create", () => {
     over: Partial<RunCreateInput> = {},
   ) {
     return runCreate(conn.db, orca, null, log, { ...input, ...over });
+  }
+
+  async function pairSeats() {
+    const current = await conn.db.listActivations("crew", "global", "");
+    const crew = await storeRevision(
+      conn.db,
+      envelope("crew", "default", {
+        seats: [
+          ...crewValue.seats,
+          { id: "dec-1", roles: ["decider"], runtime: "claude" },
+          { id: "aud-1", roles: ["auditor"], runtime: "codex" },
+        ],
+      }),
+    );
+    const moved = await conn.db.activate({
+      scope: "global",
+      scope_ref: "",
+      kind: "crew",
+      name: "default",
+      expected: current[0]?.revision_id ?? null,
+      revision_id: crew.id,
+      bundle_id: null,
+      activated_by: "operator",
+      activated_at: new Date(),
+    });
+    if (!moved.ok) throw new Error("crew.default did not move");
+    return activeRevision(conn.db, "decision", "default", defaultTemplates());
   }
 
   async function events(type: string) {
@@ -142,6 +171,7 @@ describeDb("pod run create", () => {
       readFileSync("specs/process/impl-xlarge.yaml", "utf8"),
     ) as { value: Parameters<typeof activeRevision>[3] };
     await activeRevision(conn.db, "process", "impl-xlarge", xl.value);
+    const templates = await pairSeats();
     const steps = [
       "plan",
       "implement",
@@ -163,17 +193,42 @@ describeDb("pod run create", () => {
           ["--run", "run_xl"],
         ),
       ),
+      ...(["decider", "auditor"] as const).flatMap((role) => [
+        ok("task-create", { task: { id: `orca_${role}`, status: "ready" } }, [
+          "--run",
+          "run_xl",
+          "--task-title",
+          `decision ${role}`,
+        ]),
+        ok(
+          "worker-start",
+          {
+            dispatchId: `ctx_${role}`,
+            state: "ready",
+            taskId: `orca_${role}`,
+            terminalHandle: `term_${role}`,
+            launch: null,
+          },
+          ["--task", `orca_${role}`],
+        ),
+      ]),
     ]);
     const outcome = await create(orca, log, {
       story: "S-XL",
       process: null,
       size: "xl",
       command: "pod run create story:S-XL --size xl --stage impl",
+      seats: { templates, capacity: 2 },
     });
     orca.assertDone();
     expect(outcome).toMatchObject({
       ok: true,
-      result: { run_id: "run_xl", process: "process.impl-xlarge@1" },
+      result: {
+        run_id: "run_xl",
+        process: "process.impl-xlarge@1",
+        coordinator_dispatch_id: "ctx_decider",
+        auditor_dispatch_id: "ctx_auditor",
+      },
     });
     expect(await conn.db.getTask("task_plan")).toMatchObject({
       step_id: "plan",

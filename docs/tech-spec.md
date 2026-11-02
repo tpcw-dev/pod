@@ -962,6 +962,12 @@ Capacity 1 does not deadlock, because a waiting Seat holds no slot and the coord
 
 Sizes other than xl keep the Decision Seats opened on first need, as "What `pod decide` does" describes.
 
+Spec clarification: S15a. `ledger.run.coordinator_dispatch_id` names the decider Dispatch of an xl Run; `ledger.run.coordinator` keeps that Dispatch's terminal handle, and the column is null on every other Run.
+
+Spec clarification: S15a. The terminal that ran `pod run create` is recorded as `created_by` on the `run_create` operation, not as the coordinator.
+
+Spec clarification: S15a. When the decider or the auditor cannot be opened at Run start, the Run is created in `hold` with `coordinator_dispatch_id` null and the refusal in the output.
+
 #### What `pod decide` does
 
 1. Read the policy's Reserved table first, with the classes deny, needs_human, and needs_existing_authorization, whose members "Policy schema" lists. Cross-check the category against the content and the scope, so a spend question relabeled `tradeoff` still hits the check.

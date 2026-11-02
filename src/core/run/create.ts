@@ -2,11 +2,18 @@ import { z } from "zod";
 import { snapshotHash } from "../config/canonical-json.ts";
 import { noSingleActive, singleActive } from "../config/active.ts";
 import type { Revision } from "../domain/config.ts";
-import type { Operation, Size, Story } from "../domain/ledger.ts";
+import type {
+  Operation,
+  Run,
+  RunState,
+  Size,
+  Story,
+} from "../domain/ledger.ts";
 import { refuse, type Outcome, type Refused } from "../domain/outcome.ts";
 import { failure, launchOutcome, stopOnOpen } from "../ledger/launch.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
+import { recordRunManifest } from "../manifest/run-manifest.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { projectSteps } from "../process/project.ts";
@@ -19,6 +26,14 @@ import {
   type ProcessRef,
   type SelectorErrorCode,
 } from "../process/select.ts";
+import {
+  openCoordinator,
+  openResidentAuditor,
+  pairInput,
+  seatRefusal,
+  type Seats,
+  type SeatRefusal,
+} from "./coordinator.ts";
 import { readSteps, StepsInvalid, topoOrder, type Step } from "./steps.ts";
 
 export interface RunCreateInput {
@@ -30,6 +45,7 @@ export interface RunCreateInput {
   host: string;
   provider: string;
   command: string;
+  seats?: Seats;
   now: () => Date;
 }
 
@@ -39,6 +55,10 @@ export interface RunCreateResult {
   process: string;
   snapshot_hash: string;
   owner_generation: number;
+  state: RunState;
+  coordinator_dispatch_id: string | null;
+  auditor_dispatch_id: string | null;
+  seat_refusal?: SeatRefusal;
   tasks: { task_id: string; step_id: string; role: string; state: string }[];
 }
 
@@ -49,6 +69,7 @@ interface Context {
   input: RunCreateInput;
   process: Revision;
   steps: Step[];
+  size: Size;
 }
 
 const RunRef = z.looseObject({ run_id: z.string() });
@@ -236,7 +257,7 @@ export async function runCreate(
   const policy = await singleActive(db, "policy", "global", "");
   if (policy === null) return noSingleActive("policy", "global", "");
   const { version } = await orca.version();
-  const ctx: Context = { db, orca, log, input, process, steps };
+  const ctx: Context = { db, orca, log, input, process, steps, size };
   const opKey = derivedOpKey("run_create", {
     provider: input.provider,
     external_id: input.story,
@@ -310,6 +331,7 @@ export async function runCreate(
       snapshot_hash: hash,
       state: "active",
       created_at: at,
+      coordinator_dispatch_id: null,
     });
     await tx.insertSnapshot({
       run_id: runId,
@@ -330,7 +352,12 @@ export async function runCreate(
       synced_at: at,
       ...tracked.fields,
     });
-    await tx.moveOperation(opKey, "done", { run_id: runId }, at);
+    await tx.moveOperation(
+      opKey,
+      "done",
+      { run_id: runId, created_by: input.coordinator },
+      at,
+    );
   });
   return project(ctx, runId, opKey, version);
 }
@@ -399,6 +426,7 @@ async function project(
     runId,
   );
   if (refused !== null) return refused;
+  const pair = await openPair(ctx, runId);
   const run = await db.getRun(runId);
   if (run === null) throw new Error(`Run ${runId} vanished`);
   const tasks = await db.listTasks(runId);
@@ -412,6 +440,10 @@ async function project(
       process: `process.${ctx.process.name}@${ctx.process.rev}`,
       snapshot_hash: run.snapshot_hash,
       owner_generation: run.owner_generation,
+      state: run.state,
+      coordinator_dispatch_id: run.coordinator_dispatch_id,
+      auditor_dispatch_id: pair.auditor,
+      ...(pair.refusal === null ? {} : { seat_refusal: pair.refusal }),
       tasks: tasks.map((task) => ({
         task_id: task.task_id,
         step_id: task.step_id,
@@ -420,4 +452,76 @@ async function project(
       })),
     },
   };
+}
+
+interface Pair {
+  auditor: string | null;
+  refusal: SeatRefusal | null;
+}
+
+async function holdPair(
+  ctx: Context,
+  run: Run,
+  refusal: SeatRefusal,
+): Promise<Pair> {
+  await ctx.db.transaction(async (tx) => {
+    const current = await tx.lockRun(run.run_id);
+    if (current === null) throw new Error(`Run ${run.run_id} vanished`);
+    await tx.setRunCoordinator(run.run_id, {
+      generation: current.owner_generation,
+      dispatch_id: null,
+      coordinator: current.coordinator,
+    });
+    if (current.state === "hold") return;
+    await tx.setRunState(run.run_id, "hold");
+    await tx.appendEvent({
+      type: "hold",
+      ts: ctx.input.now(),
+      host: ctx.input.host,
+      run_id: run.run_id,
+      task_id: null,
+      dispatch_id: null,
+      op_key: null,
+      payload: {
+        reason: "seat_open",
+        role: refusal.role,
+        code: refusal.code,
+        from: current.state,
+      },
+      source: { kind: "command", verb: "run create" },
+    });
+  });
+  return { auditor: null, refusal };
+}
+
+async function openPair(ctx: Context, runId: string): Promise<Pair> {
+  if (ctx.size !== "xl") return { auditor: null, refusal: null };
+  const { db, orca, log, input } = ctx;
+  const run = await db.getRun(runId);
+  if (run === null) throw new Error(`Run ${runId} vanished`);
+  const seats = pairInput(input.seats, input.host, input.now);
+  const manifestId = (
+    await db.transaction((tx) => recordRunManifest(tx, run, input.now()))
+  ).id;
+  const decider = await openCoordinator(db, orca, log, {
+    ...seats,
+    run,
+    generation: run.owner_generation,
+    viewPath: "",
+    manifestId,
+    relaunch: 0,
+  });
+  if (!decider.ok)
+    return holdPair(ctx, run, seatRefusal("decider", decider.refusal));
+  const seated = await db.getRun(runId);
+  if (seated === null) throw new Error(`Run ${runId} vanished`);
+  const auditor = await openResidentAuditor(db, orca, log, {
+    ...seats,
+    run: seated,
+    manifestId,
+    decider: decider.dispatch.dispatch_id,
+  });
+  if (!auditor.ok)
+    return holdPair(ctx, run, seatRefusal("auditor", auditor.refusal));
+  return { auditor: auditor.dispatch.dispatch_id, refusal: null };
 }

@@ -15,6 +15,7 @@ export interface RestoreView {
   dispatches: {
     dispatch_id: string;
     seat: string;
+    role: string;
     task_id: string | null;
     decision_id: string | null;
     worktree: string | null;
@@ -68,6 +69,7 @@ export async function restoreView(
     .map((row) => ({
       dispatch_id: row.dispatch_id,
       seat: row.seat,
+      role: row.role,
       task_id: row.task_id,
       decision_id: row.decision_id,
       worktree: Placement.parse(row.requested_launch).worktree ?? null,
@@ -107,6 +109,12 @@ function section(title: string, lines: readonly string[]): string {
   return [title, ...(lines.length === 0 ? ["- none"] : lines)].join("\n");
 }
 
+function ownerText(row: RestoreView["dispatches"][number]): string {
+  if (row.task_id !== null) return `task ${row.task_id}`;
+  if (row.decision_id !== null) return `decision ${row.decision_id}`;
+  return `resident ${row.role}`;
+}
+
 export function renderRestoreView(view: RestoreView): string {
   return [
     section("Run", [
@@ -127,7 +135,7 @@ export function renderRestoreView(view: RestoreView): string {
       "Open Dispatches",
       view.dispatches.map(
         (row) =>
-          `- ${row.dispatch_id} seat ${row.seat} ${row.task_id === null ? `decision ${row.decision_id ?? "unknown"}` : `task ${row.task_id}`} worktree ${row.worktree ?? "unknown"} terminal ${row.terminal_handle ?? "unknown"}`,
+          `- ${row.dispatch_id} seat ${row.seat} ${ownerText(row)} worktree ${row.worktree ?? "unknown"} terminal ${row.terminal_handle ?? "unknown"}`,
       ),
     ),
     section(

@@ -26,6 +26,7 @@ import {
   type DispatchResult,
   type LaunchArgs,
 } from "./launch-record.ts";
+import { returnSlot, yieldDispatch } from "./handoff.ts";
 import { drainRefusal, slotRefusal } from "./launch-gate.ts";
 import { openLaunches } from "./quota.ts";
 import { readSeats, SeatsInvalid, type Seat } from "./seats.ts";
@@ -231,8 +232,16 @@ export async function dispatch(
         ),
       );
     if (existing !== null) return { kind: "existing", operation: existing };
+    const yielded =
+      run.coordinator_dispatch_id !== null && run.host === input.host
+        ? await yieldDispatch(tx, run.coordinator_dispatch_id)
+        : null;
+    const handoff = yielded === null ? {} : { coordinator_waiting: yielded };
     const found = await precondition(tx, input, { run, task: current, seat });
-    if ("refusal" in found) return record(found.refusal);
+    if ("refusal" in found) {
+      await returnSlot(tx, handoff);
+      return record(found.refusal);
+    }
     const launch = seatLaunch(found.seat);
     const story = await tx.getStory(run.story_provider, run.story_external_id);
     const process = await tx.getRevision(snapshot.process_revision_id);
@@ -262,7 +271,12 @@ export async function dispatch(
       intent: "dispatch",
       owner_generation: input.generation,
       at: now,
-      result_ref: Json.parse({ request, launch, manifest_id: manifest.id }),
+      result_ref: Json.parse({
+        request,
+        launch,
+        manifest_id: manifest.id,
+        ...handoff,
+      }),
     });
     return { kind: "launch", manifestId: manifest.id, launch };
   });

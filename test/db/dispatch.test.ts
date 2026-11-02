@@ -5,18 +5,21 @@ import {
   dispatch,
   type DispatchInput,
 } from "../../src/core/dispatch/dispatch.ts";
+import { reconcileLaunches } from "../../src/core/check/reconcile.ts";
 import { launchIntents } from "../../src/core/dispatch/quota.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import { runCreate } from "../../src/core/run/create.ts";
 import {
   fixtures,
+  lost,
   noCalls,
   ok,
   unknownReply,
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import { residentSeat } from "./resident-fixture.ts";
 import { seedConfig } from "./seed.ts";
 
 const requestId = "44444444-4444-4444-8444-444444444444";
@@ -423,6 +426,121 @@ describeDb("pod dispatch", () => {
       status: "done",
       intent: "dispatch",
     });
+  });
+
+  async function residentDecider() {
+    await residentSeat(conn, "ctx_dec", "decider", "running", {
+      seat: "both-1",
+    });
+    await conn.db.setRunCoordinator("run_1", {
+      generation: 1,
+      dispatch_id: "ctx_dec",
+      coordinator: "term_ctx_dec",
+    });
+  }
+
+  async function activity(dispatchId: string) {
+    return (await conn.db.getDispatch(dispatchId))?.activity;
+  }
+
+  async function resultRef(opKey: string) {
+    return (await conn.db.getOperation(opKey))?.result_ref;
+  }
+
+  test("at capacity 1 the coordinator's slot passes to the worker in the reservation transaction, before worker-start", async () => {
+    await residentDecider();
+    const seen: (string | undefined)[] = [];
+    const { orca, log } = replay([ok("worker-start", started("ctx_w", null))]);
+    const watched: OrcaPort = {
+      ...orca,
+      workerStart: async (req) => {
+        seen.push(await activity("ctx_dec"));
+        seen.push((await conn.db.launchReservations(launchIntents))[0]?.status);
+        return orca.workerStart(req);
+      },
+    };
+    const outcome = await dispatch(
+      conn.db,
+      watched,
+      log,
+      input({ capacity: 1, opKey: "h-1" }),
+    );
+    orca.assertDone();
+    expect(outcome.ok).toBe(true);
+    expect(seen).toEqual(["waiting", "pending"]);
+    expect(await activity("ctx_dec")).toBe("waiting");
+    expect(await resultRef("h-1")).toMatchObject({
+      coordinator_waiting: "ctx_dec",
+    });
+  });
+
+  test("a failed worker-start returns the coordinator's slot", async () => {
+    await residentDecider();
+    const { orca, log } = replay([
+      {
+        verb: "worker-start",
+        exitCode: 1,
+        result: { state: "failed", lastError: "no agent" },
+      },
+    ]);
+    const outcome = await dispatch(
+      conn.db,
+      orca,
+      log,
+      input({ capacity: 1, opKey: "h-2" }),
+    );
+    expect(outcome).toMatchObject({ ok: false, refusal: { code: "failed" } });
+    expect(await activity("ctx_dec")).toBe("running");
+  });
+
+  test("a reservation released by reconcile returns the coordinator's slot", async () => {
+    await residentDecider();
+    const { orca, log } = replay([lost("worker-start")]);
+    await dispatch(conn.db, orca, log, input({ capacity: 1, opKey: "h-3" }));
+    expect(await activity("ctx_dec")).toBe("waiting");
+    const reconciled = await reconcileLaunches(
+      conn.db,
+      noCalls(),
+      receiptLog(conn.db, "local"),
+      {
+        run: (await conn.db.getRun("run_1"))!,
+        generation: 1,
+        leaseSeconds: 0,
+        now: () => new Date(Date.now() + 1000),
+        workers: () => Promise.resolve([]),
+      },
+    );
+    expect(reconciled.reconciled).toMatchObject([{ op_key: "h-3" }]);
+    expect(await activity("ctx_dec")).toBe("running");
+  });
+
+  test("a refused dispatch leaves the coordinator running", async () => {
+    await residentDecider();
+    await expectRefused("role_unfilled", { capacity: 1, seat: "nope" });
+    expect(await activity("ctx_dec")).toBe("running");
+  });
+
+  test("a dispatch to a host other than the Run's host does not yield the coordinator's slot", async () => {
+    await residentDecider();
+    const { orca, log } = replay([
+      ok("worker-start", started("ctx_far", null)),
+    ]);
+    const outcome = await dispatch(
+      conn.db,
+      orca,
+      log,
+      input({ capacity: 1, host: "elsewhere", seat: "far-1", opKey: "h-5" }),
+    );
+    expect(outcome.ok).toBe(true);
+    expect(await activity("ctx_dec")).toBe("running");
+    expect(await resultRef("h-5")).not.toHaveProperty("coordinator_waiting");
+  });
+
+  test("with no coordinator Dispatch nothing yields and no coordinator_waiting is recorded", async () => {
+    const { orca, log } = replay([ok("worker-start", started("ctx_w", null))]);
+    const outcome = await dispatch(conn.db, orca, log, input({ opKey: "h-6" }));
+    expect(outcome.ok).toBe(true);
+    expect(await resultRef("h-6")).not.toHaveProperty("coordinator_waiting");
   });
 
   test("the CLI prints the Dispatch with the owner generation in meta", () => {

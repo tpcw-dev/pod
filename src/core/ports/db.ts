@@ -91,6 +91,14 @@ export interface Repo {
     runId: string,
     change: { from: number; to: number; coordinator: string },
   ): Promise<boolean>;
+  setRunCoordinator(
+    runId: string,
+    change: {
+      generation: number;
+      dispatch_id: string | null;
+      coordinator: string;
+    },
+  ): Promise<boolean>;
   insertTask(row: Task): Promise<void>;
   getTask(taskId: string): Promise<Task | null>;
   listTasks(runId: string): Promise<Task[]>;

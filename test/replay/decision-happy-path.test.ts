@@ -125,7 +125,7 @@ describeDb("decision-happy-path", () => {
       const created = await runCreate(conn.db, orca, tracker, log, {
         story,
         process: { name: "decision-happy-path", rev: 1 },
-        size: "xl",
+        size: "l",
         stage: "impl",
         coordinator: "record",
         host: "rec",

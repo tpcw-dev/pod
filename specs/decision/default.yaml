@@ -71,3 +71,11 @@ value:
     Citations: {{citations}}
     Evidence manifest {{manifest_id}}:
     {{manifest}}
+  coordinator_open: |
+    This is your assigned Orca task. You are the coordinator of Pod Run {{run_id}} for {{story}} under {{process}}, and the decider Seat of its decision pair. The Run's owner generation is {{generation}}.
+    Run the pod verbs for this Run yourself, and pass --generation {{generation}} to every verb that takes one. Start now with the Bash tool:
+
+    {{check}}
+
+    Decision rounds for this Run arrive as messages; answer them as the decider, citing the Evidence manifest. When a verb refuses with owner_generation_stale, stop: another coordinator owns the Run.
+    Restore view, when a takeover opened this Seat: {{view_path}}

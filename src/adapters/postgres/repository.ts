@@ -185,6 +185,7 @@ function toRun(row: typeof run.$inferSelect): Run {
     snapshot_hash: row.snapshotHash,
     state: RunState.parse(row.state),
     created_at: row.createdAt,
+    coordinator_dispatch_id: row.coordinatorDispatchId,
   };
 }
 
@@ -673,6 +674,7 @@ function makeRepo(x: Executor): Repo {
         snapshotHash: row.snapshot_hash,
         state: row.state,
         createdAt: row.created_at,
+        coordinatorDispatchId: row.coordinator_dispatch_id,
       });
     },
 
@@ -699,6 +701,20 @@ function makeRepo(x: Executor): Repo {
         .update(run)
         .set({ ownerGeneration: change.to, coordinator: change.coordinator })
         .where(and(eq(run.runId, runId), eq(run.ownerGeneration, change.from)))
+        .returning({ id: run.runId });
+      return rows.length > 0;
+    },
+
+    async setRunCoordinator(runId, change) {
+      const rows = await x
+        .update(run)
+        .set({
+          coordinatorDispatchId: change.dispatch_id,
+          coordinator: change.coordinator,
+        })
+        .where(
+          and(eq(run.runId, runId), eq(run.ownerGeneration, change.generation)),
+        )
         .returning({ id: run.runId });
       return rows.length > 0;
     },
@@ -1190,6 +1206,7 @@ function makeRepo(x: Executor): Repo {
               snapshot_hash: runRow.snapshotHash,
               state: RunState.parse(runRow.state),
               created_at: runRow.createdAt,
+              coordinator_dispatch_id: runRow.coordinatorDispatchId,
             },
             snapshot:
               snap === null

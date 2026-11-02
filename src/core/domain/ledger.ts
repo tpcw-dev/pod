@@ -171,6 +171,7 @@ export interface Run {
   snapshot_hash: string;
   state: RunState;
   created_at: Date;
+  coordinator_dispatch_id: string | null;
 }
 
 export interface Task {

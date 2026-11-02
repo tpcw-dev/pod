@@ -3,7 +3,7 @@ name: decision-states
 schema_version: 1
 value:
   summary: decision-states replay scenarios, a plan the decision pair settles, then the build
-  selector: { stage: impl, size: [xl] }
+  selector: { stage: impl, size: [l] }
   roles: [planner, developer]
   steps:
     - {

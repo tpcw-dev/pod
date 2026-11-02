@@ -11,6 +11,7 @@ export const optionalTemplateFields = [
   "resume_summary",
   "evidence_request",
   "evidence",
+  "coordinator_open",
 ] as const;
 
 export const placeholders = [
@@ -25,6 +26,12 @@ export const placeholders = [
   "summary",
   "proposal",
   "citations",
+  "story",
+  "process",
+  "run_id",
+  "generation",
+  "check",
+  "view_path",
 ] as const;
 
 export type Placeholder = (typeof placeholders)[number];
@@ -39,6 +46,7 @@ export const Templates = z.strictObject({
   resume_summary: z.string().min(1).optional(),
   evidence_request: z.string().min(1).optional(),
   evidence: z.string().min(1).optional(),
+  coordinator_open: z.string().min(1).optional(),
 });
 export type Templates = z.infer<typeof Templates>;
 
@@ -52,6 +60,8 @@ export const fallbackTemplates: Record<
     "Decision {{decision_id}} round {{round}}. The auditor needs evidence.\n\nAudit: {{audit}}",
   evidence:
     "Decision {{decision_id}} round {{round}}. Audit this proposal against Evidence manifest {{manifest_id}}.\n\nProposal: {{proposal}}\nCitations: {{citations}}\n{{manifest}}",
+  coordinator_open:
+    "You coordinate Pod Run {{run_id}} for {{story}} under {{process}} at owner generation {{generation}}. Start with:\n\n{{check}}\n\nRestore view: {{view_path}}",
 };
 
 export function templateOf(
