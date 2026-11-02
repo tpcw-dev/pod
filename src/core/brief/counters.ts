@@ -1,4 +1,9 @@
-import type { BriefCounters, BriefMeasurement, SeatMeasure } from "../domain/brief.ts";
+import type {
+  BriefCounters,
+  BriefMeasurement,
+  DecisionOutcome,
+  SeatMeasure,
+} from "../domain/brief.ts";
 import type { DecisionRow } from "../domain/decision.ts";
 import type { Json } from "../domain/json.ts";
 import type { Dispatch, Event, Operation, Run, Task } from "../domain/ledger.ts";
@@ -135,13 +140,6 @@ function modelMismatch(
   return requested !== null && effective !== null && requested !== effective;
 }
 
-const escalationReasons = [
-  "policy-required",
-  "disagreement",
-  "context-missing",
-  "runtime-failure",
-] as const;
-
 type MeasuredDispatch = Pick<
   Dispatch,
   | "dispatch_id"
@@ -206,6 +204,18 @@ function reworked(
   return after(current) !== undefined;
 }
 
+function outcomeOf(
+  decision: MeasuredDecision,
+  reversed: ReadonlySet<string>,
+  tasks: readonly Pick<Task, "task_id" | "state" | "rework_of">[],
+): DecisionOutcome {
+  if (reversed.has(decision.id)) return "reversed";
+  if (decision.state !== "agreed") return "open";
+  if (decision.task_id !== null && reworked(decision.task_id, tasks))
+    return "reworked";
+  return "adopted";
+}
+
 export function measureRun(
   run: Pick<Run, "run_id" | "coordinator_dispatch_id">,
   tasks: readonly Pick<Task, "task_id" | "state" | "rework_of">[],
@@ -241,18 +251,13 @@ export function measureRun(
       state: row.state,
       reason: row.reason,
       effect: row.effect,
-      outcome: reversed.has(row.id)
-        ? "reversed"
-        : row.state !== "agreed"
-          ? "open"
-          : row.task_id !== null && reworked(row.task_id, tasks)
-            ? "reworked"
-            : "adopted",
+      outcome: outcomeOf(row, reversed, tasks),
     })),
     escalations: {
-      ...(Object.fromEntries(
-        escalationReasons.map((reason) => [reason, bucket(reason)]),
-      ) as Record<(typeof escalationReasons)[number], number>),
+      "policy-required": bucket("policy-required"),
+      disagreement: bucket("disagreement"),
+      "context-missing": bucket("context-missing"),
+      "runtime-failure": bucket("runtime-failure"),
       worker: events.filter(
         (row) => row.run_id === run.run_id && row.type === "escalate",
       ).length,
