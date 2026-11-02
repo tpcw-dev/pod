@@ -11,11 +11,27 @@ import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 
-export interface PairInput {
+export interface Seats {
   templates: Revision | null;
-  host: string;
   capacity: number;
+}
+
+export interface PairInput extends Seats {
+  host: string;
   now: () => Date;
+}
+
+export function pairInput(
+  seats: Seats | undefined,
+  host: string,
+  now: () => Date,
+): PairInput {
+  return {
+    templates: seats?.templates ?? null,
+    capacity: seats?.capacity ?? 1,
+    host,
+    now,
+  };
 }
 
 export interface SeatRefusal {
@@ -53,9 +69,11 @@ async function runFields(db: Db, run: Run, generation: number) {
     snapshot === null
       ? null
       : await db.getRevision(snapshot.process_revision_id);
+  if (process === null)
+    throw new Error(`Run ${run.run_id} lost its pinned process Revision`);
   return {
     story: `story:${run.story_external_id}`,
-    process: process === null ? "" : `process.${process.name}@${process.rev}`,
+    process: `process.${process.name}@${process.rev}`,
     run_id: run.run_id,
     generation: String(generation),
     check: `pod check --run ${run.run_id} --generation ${generation}`,

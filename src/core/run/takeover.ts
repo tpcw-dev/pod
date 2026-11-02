@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { listWorkers } from "../check/workers.ts";
-import type { Revision } from "../domain/config.ts";
 import { Json } from "../domain/json.ts";
 import type { Dispatch, Operation, Run } from "../domain/ledger.ts";
 import {
@@ -20,8 +19,10 @@ import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort, Receipt, TerminalShowResult } from "../ports/orca.ts";
 import {
   openCoordinator,
+  pairInput,
   seatRefusal,
   type SeatRefusal,
+  type Seats,
 } from "./coordinator.ts";
 
 export interface TakeoverInput {
@@ -32,7 +33,7 @@ export interface TakeoverInput {
   opKey: string | null;
   viewPath: (runId: string, generation: number) => string;
   host: string;
-  seats?: { templates: Revision | null; capacity: number };
+  seats?: Seats;
   command: (opKey: string) => string;
   now: () => Date;
 }
@@ -422,10 +423,7 @@ async function finishResident(
     viewPath: taken.view_path,
     manifestId: taken.manifest_id,
     relaunch: taken.owner_generation,
-    templates: input.seats?.templates ?? null,
-    capacity: input.seats?.capacity ?? 1,
-    host: input.host,
-    now: input.now,
+    ...pairInput(input.seats, input.host, input.now),
   });
   if (!seat.ok)
     return finished(db, taken, opKey, version, {

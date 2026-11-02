@@ -29,7 +29,9 @@ import {
 import {
   openCoordinator,
   openResidentAuditor,
+  pairInput,
   seatRefusal,
+  type Seats,
   type SeatRefusal,
 } from "./coordinator.ts";
 import { readSteps, StepsInvalid, topoOrder, type Step } from "./steps.ts";
@@ -43,7 +45,7 @@ export interface RunCreateInput {
   host: string;
   provider: string;
   command: string;
-  seats?: { templates: Revision | null; capacity: number };
+  seats?: Seats;
   now: () => Date;
 }
 
@@ -497,12 +499,7 @@ async function openPair(ctx: Context, runId: string): Promise<Pair> {
   const { db, orca, log, input } = ctx;
   const run = await db.getRun(runId);
   if (run === null) throw new Error(`Run ${runId} vanished`);
-  const seats = {
-    templates: input.seats?.templates ?? null,
-    capacity: input.seats?.capacity ?? 1,
-    host: input.host,
-    now: input.now,
-  };
+  const seats = pairInput(input.seats, input.host, input.now);
   const manifestId = (
     await db.transaction((tx) => recordRunManifest(tx, run, input.now()))
   ).id;
