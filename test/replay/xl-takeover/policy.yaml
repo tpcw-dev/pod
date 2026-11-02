@@ -1,0 +1,14 @@
+kind: policy
+name: xl-takeover
+schema_version: 1
+value:
+  gates:
+    review: { keeper: reviewer, type: AQA }
+    integration_review: { keeper: reviewer, type: AQA }
+    merge: { keeper: keeper, type: HQA }
+    hqa_after_deploy: { keeper: keeper, type: HQA }
+  principals:
+    reviewer: { tracker_account: reviewer-1 }
+    keeper: { tracker_account: keeper-1 }
+  limits:
+    decision_rounds: 3
