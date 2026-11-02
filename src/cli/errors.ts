@@ -22,6 +22,7 @@ export type ErrorCode =
   | "receipt_stale_sha"
   | "receipt_no_deploy"
   | "receipt_unverified_source"
+  | "receipt_keeper_is_decision_seat"
   | "docs_section_not_found"
   | "docs_port_missing"
   | "config_invalid"

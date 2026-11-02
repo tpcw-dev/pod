@@ -20,6 +20,7 @@ export const RefusalCode = z.enum([
   "receipt_stale_sha",
   "receipt_no_deploy",
   "receipt_unverified_source",
+  "receipt_keeper_is_decision_seat",
   "config_invalid",
   "decision_not_gate",
   "decision_denied",

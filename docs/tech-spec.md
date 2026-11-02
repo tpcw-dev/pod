@@ -574,6 +574,7 @@ Identifiers and flags come from argv. A body comes from a file path or stdin, as
 | `receipt_stale_sha` | 3 | a verdict's Head SHA is not the current candidate SHA, or the deployed revision does not match | the current candidate SHA, and a request for a new review |
 | `receipt_no_deploy` | 3 | `pod hqa record` runs for `hqa_after_deploy` and the Run has no deploy event | the deploy event fields to record |
 | `receipt_unverified_source` | 3 | the source is not an accepted human source, the content hash differs, readback failed, or this host has no passing bypass test | the gate id, a note that the Gate stays waiting, and after a failed bypass test the remedy that "Trust boundary and the bypass test" names |
+| `receipt_keeper_is_decision_seat` | 3 | a verdict's reviewer is the Seat of a decider or auditor Dispatch of the Run | the Seat, its role, and the Dispatch id |
 | `reserved_deny` | 3 | the Decision category or content hits a deny class | none beyond the recorded event |
 | `reserved_needs_human` | 3 | the Decision hits a needs-human class, or a needs-existing-authorization class that the Story does not authorize | the brief line, and the tracker comment that awaits the human gatekeeper |
 | `decision_budget_exhausted` | 3 | wall clock, relaunches, tool calls, or context tokens run out | the spent budget, and the needs-human item |
@@ -1108,6 +1109,43 @@ Spec clarification: S13a. Pod has no Story Revision. A Story's existing authoriz
 #### Gate-lift
 
 The policy schema validates `profiles`. A profile may replace only `prd_review` and `design_clickthrough` with a Decision-pair automated Gate. `hqa_after_deploy` and `staging_review` stay with the human gatekeeper. A lifted Gate records an automated PASS, never a human one. In v1 the executor refuses every profile activation. The schema fixtures cover a lift outside the two Gates, a lift on a running Run, an added Gate, and a missing policy Revision, and each is refused.
+
+#### Decision measurement
+
+Spec clarification: S14a. Every xl Run records what the coordinator pair cost to open and what came of each Decision, so a dogfood run reads both from the ledger alone.
+
+`ledger.dispatch.prompt_bytes` is a nullable integer: the UTF-8 byte length of the launch text Pod hands over for that Dispatch. For a Decision Seat it is the spec that Pod passes to Orca `task-create` before `worker-start`. For a `pod retry` Dispatch it is the task view that `pod retry` returns for the retry worker. A Dispatch from `pod dispatch`, and a late start that `pod check` records, carry no launch text from Pod, because the Orca task already holds the step spec from projection. Their column is null. A takeover decider counts its spec, which names the restore view's path. The restore view file is not counted. Pod records no vendor token count here, and `Decision.budget.spent.context_tokens` is unchanged.
+
+Cold start is derived, not stored. `cold_start_ms` for a Dispatch is `dispatch.created_at - operation.created_at`, joined on `dispatch.op_key`. Pod writes the operation row before the Orca call. It writes the Dispatch row and its `start` event in one transaction after the receipt. A Dispatch whose operation row is missing has a null cold start.
+
+`pod brief` carries a `measurement` object per Run:
+
+- `pair` is null unless the Run has `coordinator_dispatch_id`. Otherwise it holds `decider`, the Dispatch that column names, and `auditor`, the Run's auditor Dispatch with no Decision owner and the greatest `created_at`, or null. Each is `{ seat, prompt_bytes, cold_start_ms }`.
+- `decisions` has one row per `ledger.decision` of the Run: `decision_id`, `state`, `reason` or null, `effect` or null, and `outcome`.
+- `escalations` counts the Run's `needs_human` Decisions by `reason` in four buckets, `policy-required`, `disagreement`, `context-missing`, and `runtime-failure`, and counts the Run's `escalate` events as `worker`. `sample` is the Run's Decision count and `target` is 10.
+
+A Decision's `outcome` is the first of these that holds:
+
+| Outcome | Rule |
+| --- | --- |
+| `reversed` | a later Decision with effect `change_spec` names it in `supersedes_decision_id` |
+| `reworked` | it is `agreed`, and the Task it decided gained a rework Task, a Task whose `rework_of` names it. When that Task is `superseded`, its replacement is followed first, so the replacement a `change_spec` outcome creates is not rework |
+| `adopted` | it is `agreed` and `reworked` does not hold |
+| `open` | any other state |
+
+The brief derives `outcome` on each read. It does not write `ledger.decision.adoption`, which `pod decide` records as `pending`. The seven brief counters are unchanged. `pod brief --html` renders one Measurement table per Run, `measurement-<run_id>`, from the same JSON.
+
+`pod verdict post` refuses with `receipt_keeper_is_decision_seat` before it writes, when the file's `reviewer` is the `seat` of any Dispatch of the Run whose role is `decider` or `auditor`. That covers the resident pair before its first Decision, and every Seat a `ledger.decision_round` names. The HQA keeper rule in the policy schema already refuses a Seat id, and `pod hqa record` is unchanged.
+
+A local deploy is `pnpm deploy:local`, which runs `scripts/deploy-local.sh`. Every refusal prints a line that starts `refused:` and exits nonzero before any tag is written.
+
+1. Fetch origin, and refuse unless the tree is clean and HEAD equals `origin/main`.
+2. Read `version` from `package.json`. The tag is `v<version>`. Refuse when the commit a local or origin tag of that name peels to is not HEAD.
+3. Write the annotated tag `v<version>` when it is missing locally, and push it when origin lacks it. A run stopped between the two writes resumes on the same HEAD.
+4. `pnpm build`, then `pnpm link --global`.
+5. Print one JSON line, `{"environment":"local","deployment_id":"v<version>","deployed_revision":"<HEAD sha>","source_commit":"<HEAD sha>"}`, which carries the four `event_fields` of the deploy step for the coordinator's deploy delivery.
+
+The version bump belongs to the deployed story's own PR, not to the script. Pod has no `pod deploy` verb and no deploy adapter in v1.
 
 ### Versioning, release, and migration policy
 
