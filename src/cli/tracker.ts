@@ -40,9 +40,16 @@ export interface TrackerWiring {
   recordRefusals(): readonly FixtureRefused[];
 }
 
-const Workspace = z.looseObject({ urlKey: z.string() });
+const Workspace = z.looseObject({
+  urlKey: z.string(),
+  teams: z.looseObject({
+    nodes: z.array(z.looseObject({ key: z.string().min(1) })).min(1),
+  }),
+});
 
-async function workspaceKey(token: string): Promise<string[]> {
+async function workspaceKey(
+  token: string,
+): Promise<{ workspace: string[]; teamKeys: string[] }> {
   const reply = await fetchTransport(token)(
     { operation: "Workspace", variables: {} },
     { drop: false },
@@ -52,7 +59,10 @@ async function workspaceKey(token: string): Promise<string[]> {
     throw usageError("POD_TRACKER_RECORD could not read the workspace key", [
       `tracker error ${decoded.error ?? "none"}`,
     ]);
-  return [decoded.result.urlKey];
+  return {
+    workspace: [decoded.result.urlKey],
+    teamKeys: decoded.result.teams.nodes.map((team) => team.key),
+  };
 }
 
 export async function trackerFor(
@@ -109,7 +119,7 @@ export async function trackerFor(
         hosts: [hostname(), host.hostId],
         users: [userInfo().username],
         roots: [process.cwd()],
-        workspace: await workspaceKey(token),
+        ...(await workspaceKey(token)),
         denylist: terms,
         replacements: pairs,
       }),
