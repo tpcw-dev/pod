@@ -14,6 +14,7 @@ import { candidateSha } from "../../src/core/gate/receipt.ts";
 import { postVerdict } from "../../src/core/gate/verdict.ts";
 import { runBlocked } from "../../src/core/ledger/run-blocked.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
+import { OUTBOX_MAX_TRIES } from "../../src/core/tracker/outbox.ts";
 import { noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
 import { fixtures } from "../orca/temp-fixtures.ts";
 import { fakeTracker, trackerStory, type FakeTracker } from "./fake-tracker.ts";
@@ -800,6 +801,36 @@ describeDb("pod check and Gate receipts", () => {
       `rev-1: pr PASS\nHead: ${headSha}`,
     ]);
     expect(await syncStates()).toEqual(["synced"]);
+  });
+
+  test("a parked outbox row is named once and gets no tracker call", async () => {
+    await gatedRun(conn, { gates: { pr: { keeper: "rev-1", type: "AQA" } } });
+    tracker = fakeTracker();
+    await conn.db.insertOperation({
+      op_key: "status-parked",
+      intent: "verdict",
+      owner_generation: 1,
+      at: new Date(),
+    });
+    const { id } = await conn.db.enqueueOutbox({
+      op_key: "status-parked",
+      target: "tracker",
+      payload: {
+        kind: "status",
+        story: { provider: "linear", external_id: "S-1" },
+        status: "Doing",
+      },
+    });
+    await conn.db.failOutbox(id, "status_unknown", { park: true });
+    const outcome = await quietCheck();
+    const parked = `tracker outbox row ${id} parked after ${OUTBOX_MAX_TRIES} tries: status_unknown; fix the cause, then reset its tries`;
+    expect(
+      outcome.ok &&
+        outcome.result.nextSteps.filter((line) => line.includes(`row ${id} `)),
+    ).toEqual([parked]);
+    expect(tracker.calls).not.toContain("setStatus");
+    expect(tracker.calls).not.toContain("readback");
+    expect(tracker.calls).not.toContain("postComment");
   });
 
   test("an edited keeper comment voids its receipt once and holds the Run, leaving the done Task", async () => {

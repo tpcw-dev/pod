@@ -3,7 +3,11 @@ import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import type { OutboxPayload } from "../../src/core/domain/ledger.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { StaleGeneration } from "../../src/core/check/fence.ts";
-import { commentPayload, drainOutbox } from "../../src/core/tracker/outbox.ts";
+import {
+  OUTBOX_MAX_TRIES,
+  commentPayload,
+  drainOutbox,
+} from "../../src/core/tracker/outbox.ts";
 import { fakeTracker, trackerStory, type FakeTracker } from "./fake-tracker.ts";
 import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { freshRun } from "./run-fixture.ts";
@@ -223,5 +227,67 @@ describeDb("tracker outbox drain", () => {
     expect(await drain(fake)).toEqual({ acked: [id], failed: [] });
     expect(fake.calls).toEqual(["setStatus", "setStatus:mutation"]);
     expect(fake.story.status).toBe("Doing");
+  });
+  test("a row whose post fails five passes running is parked and not offered on the sixth", async () => {
+    const id = await enqueueComment("never lands");
+    const fake = fakeTracker();
+    fake.dropPost = true;
+    fake.postLands = false;
+    for (let pass = 1; pass <= OUTBOX_MAX_TRIES; pass += 1)
+      expect(await drain(fake)).toEqual({
+        acked: [],
+        failed: [{ id, error: "dropped" }],
+      });
+    fake.calls.length = 0;
+    expect(await drain(fake)).toEqual({ acked: [], failed: [] });
+    expect(fake.calls).toEqual([]);
+    expect(await conn.db.listOutboxParked()).toMatchObject([
+      { id, tries: OUTBOX_MAX_TRIES, last_error: "dropped", acked_at: null },
+    ]);
+  });
+
+  test("a payload_invalid row is parked after one pass", async () => {
+    const id = await enqueue({
+      kind: "comment",
+      story,
+      body: "x",
+      hash: "0".repeat(64),
+    });
+    const fake = fakeTracker();
+    expect(await drain(fake)).toEqual({
+      acked: [],
+      failed: [{ id, error: "payload_invalid" }],
+    });
+    expect(await row(id)).toEqual({
+      tries: OUTBOX_MAX_TRIES,
+      last_error: "payload_invalid",
+      acked: false,
+    });
+    expect((await conn.db.listOutboxParked()).map((row) => row.id)).toEqual([
+      id,
+    ]);
+    expect(await drain(fake)).toEqual({ acked: [], failed: [] });
+    expect(fake.calls).toEqual([]);
+  });
+
+  test("a row that fails four times and then acks is acked and never parked", async () => {
+    const id = await enqueueComment("lands late");
+    const fake = fakeTracker();
+    fake.dropPost = true;
+    fake.postLands = false;
+    for (let pass = 1; pass < OUTBOX_MAX_TRIES; pass += 1)
+      expect(await drain(fake)).toEqual({
+        acked: [],
+        failed: [{ id, error: "dropped" }],
+      });
+    fake.dropPost = false;
+    fake.postLands = true;
+    expect(await drain(fake)).toEqual({ acked: [id], failed: [] });
+    expect(await row(id)).toEqual({
+      tries: OUTBOX_MAX_TRIES - 1,
+      last_error: null,
+      acked: true,
+    });
+    expect(await conn.db.listOutboxParked()).toEqual([]);
   });
 });

@@ -11,6 +11,8 @@ import {
 } from "../ports/tracker.ts";
 import { cancelRun } from "./sync.ts";
 
+export { OUTBOX_MAX_TRIES } from "../domain/ledger.ts";
+
 export function bodyHash(body: string): string {
   return createHash("sha256").update(body, "utf8").digest("hex");
 }
@@ -125,7 +127,11 @@ export async function drainOutbox(
       await db.ackOutbox(row.id, outcome.ack);
       drained.acked.push(row.id);
     } else {
-      await db.failOutbox(row.id, outcome.fail);
+      await db.failOutbox(
+        row.id,
+        outcome.fail,
+        outcome.fail === "payload_invalid" ? { park: true } : undefined,
+      );
       drained.failed.push({ id: row.id, error: outcome.fail });
     }
   }

@@ -125,6 +125,8 @@ export interface NewOutboxRow {
   payload: OutboxPayload;
 }
 
+export const OUTBOX_MAX_TRIES = 5;
+
 export interface OutboxRow {
   id: number;
   op_key: string;
