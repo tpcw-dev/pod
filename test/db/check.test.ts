@@ -560,6 +560,49 @@ describeDb("pod check", () => {
     });
   });
 
+  test("a pass whose generation goes stale before the drain returns the stale result and records no cancel", async () => {
+    await conn.db.insertOperation({
+      op_key: "verdict-stale",
+      intent: "verdict",
+      owner_generation: 1,
+      at: new Date(),
+    });
+    await conn.db.enqueueOutbox({
+      op_key: "verdict-stale",
+      target: "tracker",
+      payload: {
+        kind: "status",
+        story: { provider: "linear", external_id: "S-1" },
+        status: "Doing",
+      },
+    });
+    const tracker = fakeTracker();
+    const setStatus = tracker.setStatus.bind(tracker);
+    tracker.setStatus = async (req) => {
+      await conn.sql`update ledger.run set owner_generation = 2 where run_id = 'run_1'`;
+      tracker.story = trackerStory({
+        status: "Canceled",
+        statusType: "canceled",
+      });
+      return setStatus(req);
+    };
+    const { orca, log } = replay(conn, [
+      ok("check", empty(null), run),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_1", workerState: "running" }]),
+        run,
+      ),
+    ]);
+    expect(await checkPass(conn.db, orca, tracker, log, input())).toMatchObject(
+      {
+        ok: false,
+        refusal: { code: "owner_generation_stale" },
+      },
+    );
+    expect(await events(conn, "cancel")).toEqual([]);
+  });
+
   test("a check Orca refuses is failed and names the error code", async () => {
     const outcome = await pass([
       {

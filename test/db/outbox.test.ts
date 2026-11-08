@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import type { OutboxPayload } from "../../src/core/domain/ledger.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
+import { StaleGeneration } from "../../src/core/check/fence.ts";
 import { commentPayload, drainOutbox } from "../../src/core/tracker/outbox.ts";
 import { fakeTracker, trackerStory, type FakeTracker } from "./fake-tracker.ts";
 import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
@@ -38,10 +39,16 @@ describeDb("tracker outbox drain", () => {
 
   const enqueueComment = (body: string) => enqueue(commentPayload(story, body));
 
-  function drain(fake: FakeTracker) {
+  function drain(
+    fake: FakeTracker,
+    over: { run_id?: string; generation?: number } = {},
+  ) {
     return drainOutbox(conn.db, fake, receiptLog(conn.db, "local"), {
+      run_id: "run_1",
+      generation: 1,
       host: "local",
       now: () => new Date(),
+      ...over,
     });
   }
 
@@ -164,6 +171,39 @@ describeDb("tracker outbox drain", () => {
     expect(
       await conn.sql`select 1 from ledger.event where type = 'cancel'`,
     ).toHaveLength(1);
+  });
+
+  test("a status row for the checked Run against a Canceled Story with a stale generation throws StaleGeneration and leaves the row pending", async () => {
+    const id = await enqueue({ kind: "status", story, status: "Doing" });
+    const fake = fakeTracker(
+      trackerStory({ status: "Canceled", statusType: "canceled" }),
+    );
+    await expect(drain(fake, { generation: 2 })).rejects.toBeInstanceOf(
+      StaleGeneration,
+    );
+    expect(
+      await conn.sql`select 1 from ledger.event where type = 'cancel'`,
+    ).toHaveLength(0);
+    expect(await row(id)).toEqual({ tries: 0, last_error: null, acked: false });
+  });
+
+  test("a status row for another Run against a Canceled Story is acked canceled_by_human and does not cancel that Run", async () => {
+    const id = await enqueue({ kind: "status", story, status: "Doing" });
+    const fake = fakeTracker(
+      trackerStory({ status: "Canceled", statusType: "canceled" }),
+    );
+    expect(await drain(fake, { run_id: "run_2" })).toEqual({
+      acked: [id],
+      failed: [],
+    });
+    const [acked] = await conn.sql<
+      { readback: { error: string } }[]
+    >`select readback from ledger.outbox where id = ${id}`;
+    expect(acked?.readback.error).toBe("canceled_by_human");
+    expect(
+      await conn.sql`select 1 from ledger.event where type = 'cancel'`,
+    ).toHaveLength(0);
+    expect((await conn.db.getRun("run_1"))?.state).toBe("active");
   });
 
   test("a status row whose Story read fails is failed with the read error and no mutation", async () => {
