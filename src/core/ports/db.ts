@@ -77,8 +77,9 @@ export interface Repo {
   ): Promise<void>;
   enqueueOutbox(row: NewOutboxRow): Promise<OutboxRow>;
   listOutboxPending(): Promise<OutboxRow[]>;
+  listOutboxParked(): Promise<OutboxRow[]>;
   ackOutbox(id: number, readback: Json): Promise<void>;
-  failOutbox(id: number, error: string): Promise<void>;
+  failOutbox(id: number, error: string, opts?: { park: true }): Promise<void>;
   outboxByOpKey(opKey: string): Promise<OutboxRow | null>;
   insertGateReceipt(row: NewGateReceipt): Promise<GateReceipt>;
   listGateReceipts(runId: string): Promise<GateReceipt[]>;

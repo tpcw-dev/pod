@@ -169,9 +169,16 @@ export async function checkPass(
         host: input.host,
         now: input.now,
       });
+      const parked = await db.listOutboxParked();
+      const parkedIds = new Set(parked.map((row) => row.id));
       for (const failed of drained.failed)
+        if (!parkedIds.has(failed.id))
+          tracked.push(
+            `tracker outbox row ${failed.id} failed: ${failed.error}; run pod check again`,
+          );
+      for (const row of parked)
         tracked.push(
-          `tracker outbox row ${failed.id} failed: ${failed.error}; run pod check again`,
+          `tracker outbox row ${row.id} parked after ${row.tries} tries: ${row.last_error ?? "no error recorded"}; fix the cause, then reset its tries`,
         );
       await syncVerdictReceipts(db, run.run_id);
       const voids = await voidEditedReceipts(db, tracker, log, {

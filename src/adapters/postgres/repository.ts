@@ -4,10 +4,12 @@ import {
   asc,
   desc,
   eq,
+  gte,
   ilike,
   inArray,
   isNotNull,
   isNull,
+  lt,
   max,
   sql,
 } from "drizzle-orm";
@@ -55,6 +57,7 @@ import {
   StoredTests,
   Intent,
   ModelAttribution,
+  OUTBOX_MAX_TRIES,
   OperationStatus,
   ReceiptOutcome,
   RunState,
@@ -575,7 +578,16 @@ function makeRepo(x: Executor): Repo {
       const rows = await x
         .select()
         .from(outbox)
-        .where(isNull(outbox.ackedAt))
+        .where(and(isNull(outbox.ackedAt), lt(outbox.tries, OUTBOX_MAX_TRIES)))
+        .orderBy(asc(outbox.id));
+      return rows.map(toOutbox);
+    },
+
+    async listOutboxParked() {
+      const rows = await x
+        .select()
+        .from(outbox)
+        .where(and(isNull(outbox.ackedAt), gte(outbox.tries, OUTBOX_MAX_TRIES)))
         .orderBy(asc(outbox.id));
       return rows.map(toOutbox);
     },
@@ -587,10 +599,14 @@ function makeRepo(x: Executor): Repo {
         .where(and(eq(outbox.id, id), isNull(outbox.ackedAt)));
     },
 
-    async failOutbox(id, error) {
+    async failOutbox(id, error, opts) {
       await x
         .update(outbox)
-        .set({ lastError: error, tries: sql`${outbox.tries} + 1` })
+        .set({
+          lastError: error,
+          tries:
+            opts?.park === true ? OUTBOX_MAX_TRIES : sql`${outbox.tries} + 1`,
+        })
         .where(and(eq(outbox.id, id), isNull(outbox.ackedAt)));
     },
 
