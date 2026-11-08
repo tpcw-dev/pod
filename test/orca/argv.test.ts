@@ -24,6 +24,7 @@ test("a grok worker-start omits --model and --effort", () => {
     "--worktree",
     "current",
     "--json",
+    "--full",
   ]);
 });
 
@@ -44,6 +45,7 @@ test("another agent keeps --model and --effort", () => {
     "--effort",
     "medium",
     "--json",
+    "--full",
   ]);
 });
 

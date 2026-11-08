@@ -20,11 +20,14 @@ function compare(a: [number, number, number], b: [number, number, number]) {
   return 0;
 }
 
-export function checkVersion(installed: string): string {
+export function checkVersion(
+  installed: string,
+  range: { min: string; below: string } = supportedOrcaRange,
+): string {
   const version = installed.trim();
   const got = parts(version);
-  const min = parts(supportedOrcaRange.min);
-  const below = parts(supportedOrcaRange.below);
+  const min = parts(range.min);
+  const below = parts(range.below);
   if (
     got === null ||
     min === null ||

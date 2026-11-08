@@ -1,10 +1,16 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z, type ZodType } from "zod";
-import { type OrcaPort, type ReceiptSink } from "../../core/ports/orca.ts";
+import {
+  supportedOrcaRange,
+  type OrcaPort,
+  type ReceiptSink,
+} from "../../core/ports/orca.ts";
 import { verbOf } from "./argv.ts";
 import { methods } from "./methods.ts";
 import { checkVersion, receiptOf } from "./receipt.ts";
+
+const recordedRange = { min: "1.4.211", below: supportedOrcaRange.below };
 
 const FixtureEntry = z.looseObject({
   verb: z.string().min(1),
@@ -81,7 +87,7 @@ export function makeReplayOrca(options: {
       stderr: entry.stderr,
       startedAt: entry.recordedAt,
       endedAt: entry.recordedAt,
-      orcaVersion: checkVersion(entry.orcaVersion),
+      orcaVersion: checkVersion(entry.orcaVersion, recordedRange),
     };
     await options.sink(record);
     return receiptOf(record, schema);
@@ -95,7 +101,7 @@ export function makeReplayOrca(options: {
           new ReplayMismatch(`no fixtures in ${options.dir}`),
         );
       return Promise.resolve({
-        version: checkVersion(first.entry.orcaVersion),
+        version: checkVersion(first.entry.orcaVersion, recordedRange),
       });
     },
     ...methods(call),

@@ -32,6 +32,7 @@ function flags(
     else argv.push(name, JSON.stringify(value));
   }
   argv.push("--json");
+  if (group === "orchestration") argv.push("--full");
   return argv;
 }
 

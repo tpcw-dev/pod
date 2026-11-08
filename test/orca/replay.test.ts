@@ -47,6 +47,7 @@ test("calls in the recorded order pass and feed the sink", async () => {
     "--run",
     "run_1",
     "--json",
+    "--full",
   ]);
 });
 
@@ -64,7 +65,7 @@ test("an unmatched call fails with the diff", async () => {
     '- expected 002 task-create ["--run","run_1"]',
   );
   expect((error as Error).message).toContain(
-    '+ actual task-create ["orchestration","task-create","--spec","s","--run","run_2","--json"]',
+    '+ actual task-create ["orchestration","task-create","--spec","s","--run","run_2","--json","--full"]',
   );
 });
 
