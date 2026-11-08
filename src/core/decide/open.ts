@@ -12,7 +12,7 @@ import {
   authorizationOf,
   budgetFields,
   budgetOf,
-  reservedOf,
+  effectiveReserved,
 } from "../domain/policy.ts";
 import {
   refuse,
@@ -201,7 +201,7 @@ export async function openDecision(
     const limits = input.limits(policy);
     if (old !== null)
       await supersede(tx, old, decisionId, { at: now, host: input.host });
-    const hits = reservedCheck(reservedOf(policy), {
+    const hits = reservedCheck(effectiveReserved(policy), {
       category: input.category,
       question: input.question,
       options: input.options,

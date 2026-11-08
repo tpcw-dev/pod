@@ -11,8 +11,16 @@ value:
     hqa_after_deploy: { keeper: human-gatekeeper, type: HQA }
     staging_review: { keeper: human-gatekeeper, type: HQA }
   profiles:
+    hands-on:
+      deploy_production: needs_human
+    standard:
+      deploy_production: needs_human
+    hands-off:
+      replaces: { prd_review: decision-pair-aqa, design_clickthrough: decision-pair-aqa }
+      deploy_production: needs_human
     autonomous:
       replaces: { prd_review: decision-pair-aqa, design_clickthrough: decision-pair-aqa }
+      deploy_production: agent
   reserved:
     deny:
       - { name: live_trading, match: [live trading, live trade, place an order, real money] }

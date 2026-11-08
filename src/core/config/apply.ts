@@ -150,15 +150,27 @@ async function policyRefusal(
   const profile = activeProfile(value);
   if (profile === null) return null;
   const [run] = await tx.liveRunsPinningPolicyScope(scope, scope_ref);
+  const held =
+    run === undefined
+      ? ""
+      : `Run ${run} has an open Decision or an unsettled Task, and `;
+  if (profile === refusedProfile)
+    return {
+      code: "gate_lift_refused",
+      message: `active_profile ${profile}: ${held}activating ${profile} waits on the step method override`,
+      nextSteps: [
+        "see Gate-lift in docs/tech-spec.md",
+        "choose hands-on, standard, or hands-off and apply again",
+      ],
+    };
   return {
     code: "gate_lift_refused",
-    message:
-      run === undefined
-        ? `active_profile ${profile}: profile activation is refused in v1`
-        : `active_profile ${profile}: Run ${run} has an open Decision or an unsettled Task, and profile activation is refused in v1`,
+    message: `active_profile ${profile}: ${held}profile activation is refused in v1`,
     nextSteps: ["remove active_profile and apply again"],
   };
 }
+
+const refusedProfile = "autonomous";
 
 function storeRevision(
   tx: Repo,

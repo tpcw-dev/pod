@@ -205,6 +205,21 @@ export function reservedOf(policyValue: unknown): Reserved {
   return merged;
 }
 
+export function effectiveReserved(policyValue: unknown): Reserved {
+  const reserved = reservedOf(policyValue);
+  const policy = fields(policyValue);
+  const active = policy["active_profile"];
+  const profile =
+    typeof active === "string" ? fields(fields(policy["profiles"])[active]) : {};
+  if (profile["deploy_production"] !== "agent") return reserved;
+  return {
+    ...reserved,
+    needs_human: reserved.needs_human.filter(
+      (row) => row.name !== "deploy_production",
+    ),
+  };
+}
+
 export interface Authorization {
   authorizes: string[];
   story_kind: "infrastructure" | null;
