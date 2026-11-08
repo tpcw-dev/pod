@@ -87,6 +87,7 @@ describeDb("decision-happy-path", () => {
                 users: [userInfo().username],
                 roots: [process.cwd()],
                 workspace: [],
+                teamKeys: [story.split("-")[0] ?? ""],
                 denylist: readFileSync(
                   process.env["POD_SCRUB_DENYLIST"] ?? "",
                   "utf8",

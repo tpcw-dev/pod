@@ -12,7 +12,8 @@ export const operations = {
   StoryComments: `query StoryComments($id: String!, $after: String) { issue(id: $id) { comments(first: 50, after: $after, orderBy: createdAt) { nodes { ${commentFields} } pageInfo { hasNextPage endCursor } } } }`,
   Comment: `query Comment($id: String!) { comment(id: $id) { ${commentFields} issue { identifier } } }`,
   PostComment: `mutation PostComment($issueId: String!, $body: String!) { commentCreate(input: { issueId: $issueId, body: $body }) { success comment { ${commentFields} } } }`,
-  Workspace: "query Workspace { organization { urlKey } }",
+  Workspace:
+    "query Workspace { organization { urlKey teams { nodes { key } } } }",
   SetStatus: `mutation SetStatus($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success issue { ${issueFields} } } }`,
 } as const;
 export type Operation = keyof typeof operations;

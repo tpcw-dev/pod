@@ -15,6 +15,7 @@ export interface TrackerScrubTerms {
   users: readonly string[];
   roots: readonly string[];
   workspace: readonly string[];
+  teamKeys: readonly string[];
   denylist: readonly string[];
   replacements?: readonly Replacement[];
 }
@@ -46,13 +47,12 @@ export function makeTrackerScrubber(terms: TrackerScrubTerms): Scrubber {
   });
   const issues = new Map<string, string>();
   const ids = new Map<string, string>();
-  const teamKeys = new Set<string>();
+  const teamKeys = new Set(terms.teamKeys);
   const workspace = terms.workspace.filter((term) => term.trim() !== "");
   return {
     scrub(text) {
       let out = text.replace(identifier, (hit, key: string) => {
-        if (key === "TRK") return hit;
-        teamKeys.add(key);
+        if (!teamKeys.has(key)) return hit;
         let mapped = issues.get(hit);
         if (mapped === undefined) {
           mapped = `TRK-${issues.size + 1}`;

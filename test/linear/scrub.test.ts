@@ -4,6 +4,7 @@ import {
   parseReplacements,
   ReplacementListInvalid,
 } from "../../src/adapters/linear/scrub.ts";
+import { sha256 } from "../../src/adapters/linear/fixture.ts";
 
 function scrubber(denylist: string[] = []) {
   return makeTrackerScrubber({
@@ -11,6 +12,7 @@ function scrubber(denylist: string[] = []) {
     users: ["alice"],
     roots: [],
     workspace: ["acme"],
+    teamKeys: ["ABC"],
     denylist,
   });
 }
@@ -21,6 +23,33 @@ test("issue identifiers map in first-seen order and their team key becomes trk",
     "TRK-1 then TRK-2 then TRK-1",
   );
   expect(scrub.scrub("team ABC and ABC-4")).toBe("team trk and TRK-2");
+});
+
+test("a token whose key is not a team key passes through unchanged", () => {
+  const scrub = scrubber();
+  expect(scrub.scrub("SHA-256 and UTF-8 and ISO-8601")).toBe(
+    "SHA-256 and UTF-8 and ISO-8601",
+  );
+  expect(scrub.scrub("abc-17 and ABCD-17 and SHA")).toBe(
+    "abc-17 and ABCD-17 and SHA",
+  );
+});
+
+test("a body holding SHA-256 hashes the same before and after scrubbing", () => {
+  const body = "pin the SHA-256 of the UTF-8 body at ISO-8601 time";
+  expect(sha256(scrubber().scrub(body))).toBe(sha256(body));
+});
+
+test("with no team keys no identifier is rewritten", () => {
+  const scrub = makeTrackerScrubber({
+    hosts: [],
+    users: [],
+    roots: [],
+    workspace: [],
+    teamKeys: [],
+    denylist: [],
+  });
+  expect(scrub.scrub("ABC-17 and team ABC")).toBe("ABC-17 and team ABC");
 });
 
 test("the workspace key becomes trk as a word, case-insensitively", () => {
@@ -53,6 +82,7 @@ test("a listed replacement is gone before the denylist check", () => {
     users: [],
     roots: [],
     workspace: [],
+    teamKeys: [],
     denylist: ["secretco", "otherco"],
     replacements: [{ term: "secretco", replacement: "keeper" }],
   });
