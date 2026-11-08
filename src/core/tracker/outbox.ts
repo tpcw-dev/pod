@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { fence } from "../check/fence.ts";
 import { Json } from "../domain/json.ts";
 import { OutboxPayload, type OutboxRow } from "../domain/ledger.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
@@ -19,6 +20,8 @@ export function commentPayload(story: StoryRef, body: string): OutboxPayload {
 }
 
 export interface DrainInput {
+  run_id: string;
+  generation: number;
   host: string;
   now: () => Date;
 }
@@ -79,10 +82,11 @@ async function drainStatus(
   });
   const story = set.result?.story ?? null;
   if (set.error === canceledByHuman && story !== null) {
-    if (runId !== null)
-      await db.transaction((tx) =>
-        cancelRun(tx, runId, story.status, input.host, input.now()),
-      );
+    if (runId === input.run_id)
+      await db.transaction(async (tx) => {
+        await fence(tx, runId, input.generation);
+        await cancelRun(tx, runId, story.status, input.host, input.now());
+      });
     return {
       ack: Json.parse({ kind: "story", story, error: canceledByHuman }),
     };

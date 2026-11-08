@@ -164,6 +164,8 @@ export async function checkPass(
     ];
     if (tracker !== null) {
       const drained = await drainOutbox(db, tracker, log, {
+        run_id: run.run_id,
+        generation: input.generation,
         host: input.host,
         now: input.now,
       });
