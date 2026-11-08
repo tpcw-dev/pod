@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { snapshotHash } from "../config/canonical-json.ts";
 import { noSingleActive, singleActive } from "../config/active.ts";
+import { activeProfile } from "../config/policy.ts";
 import type { Revision } from "../domain/config.ts";
 import type {
   Operation,
@@ -45,6 +46,7 @@ export interface RunCreateInput {
   host: string;
   provider: string;
   command: string;
+  project?: string | null;
   seats?: Seats;
   now: () => Date;
 }
@@ -252,10 +254,13 @@ export async function runCreate(
   const checked = stepsOf(process);
   if (!checked.ok) return checked;
   const { steps } = checked;
-  const crew = await singleActive(db, "crew", "global", "");
-  if (crew === null) return noSingleActive("crew", "global", "");
-  const policy = await singleActive(db, "policy", "global", "");
-  if (policy === null) return noSingleActive("policy", "global", "");
+  const projectRef = input.project ?? null;
+  const scope = projectRef === null ? "global" : "project";
+  const scopeRef = projectRef ?? "";
+  const crew = await singleActive(db, "crew", scope, scopeRef);
+  if (crew === null) return noSingleActive("crew", scope, scopeRef);
+  const policy = await singleActive(db, "policy", scope, scopeRef);
+  if (policy === null) return noSingleActive("policy", scope, scopeRef);
   const { version } = await orca.version();
   const ctx: Context = { db, orca, log, input, process, steps, size };
   const opKey = derivedOpKey("run_create", {
@@ -341,6 +346,8 @@ export async function runCreate(
       effective_gate_map: {},
       hash,
       pinned_at: at,
+      project: projectRef,
+      profile: activeProfile(policy.value),
     });
     await tx.upsertStory({
       provider: input.provider,

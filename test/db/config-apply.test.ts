@@ -4,9 +4,15 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { stringify } from "yaml";
+import { checkPass } from "../../src/core/check/check.ts";
+import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
+import { singleActive } from "../../src/core/config/active.ts";
+import { ok } from "../orca/temp-fixtures.ts";
+import { fakeTracker, type FakeTracker } from "./fake-tracker.ts";
+import { envelope, storeRevision } from "./fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
-import { freshRun } from "./run-fixture.ts";
-import { crewValue, processValue } from "./seed.ts";
+import { createRun, empty, freshRun, replay, workers } from "./run-fixture.ts";
+import { crewValue, processValue, seedConfig } from "./seed.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "pod-apply-"));
 
@@ -924,17 +930,27 @@ describeDb("pod config apply of a policy", () => {
     ).toBe(0);
   });
 
-  test("active_profile is gate_lift_refused, naming a Run with unsettled Tasks", async () => {
-    const value = { gates, profiles: { p: lift }, active_profile: "p" };
-    const quiet = runCli(["config", "apply", policyFile("lift", value)]);
-    expect(quiet.status).toBe(3);
-    expect(quiet.json.error?.code).toBe("gate_lift_refused");
-    expect(quiet.json.error?.message).toContain("refused in v1");
+  test("active_profile waits pending at project scope and is refused at global scope", async () => {
     await freshRun(conn);
-    const busy = activate(policyFile("lift-busy", value));
-    expect(busy.status).toBe(3);
-    expect(busy.json.error).toMatchObject({ code: "gate_lift_refused" });
-    expect(busy.json.error?.message).toContain("Run run_1");
+    const value = { gates, profiles: { p: lift }, active_profile: "p" };
+    const global = activate(policyFile("lift", value));
+    expect(global.status).toBe(3);
+    expect(global.json.error).toMatchObject({ code: "gate_lift_refused" });
+    expect(global.json.error?.message).toContain("per project");
+    const project = activateAt(policyFile("lift", value, "project:p1"), "project:p1");
+    expect(project.status, project.json.error?.message).toBe(0);
+    expect(project.json.result).toMatchObject({
+      ref: "policy.lift@1",
+      activation: null,
+      pending: {
+        profile: "p",
+        comment: "profile p1 p policy.lift@1",
+        runs_on_old_profile: [],
+      },
+    });
+    const rows = await conn.sql<{ n: number }[]>`
+      select count(*)::int as n from config.activation where scope = 'project'`;
+    expect(rows[0]?.n).toBe(0);
   });
 
   test("a project policy that drops a global needs_human member is schema_invalid naming it", async () => {
@@ -964,5 +980,243 @@ describeDb("pod config apply of a policy", () => {
       "project:p1",
     );
     expect(kept.status).toBe(0);
+  });
+});
+
+describeDb("profile activation", () => {
+  let conn: Connection;
+  let tracker: FakeTracker;
+  const bypassPath = join(dir, "bypass.jsonl");
+  writeFileSync(
+    bypassPath,
+    `${JSON.stringify({ host: "h1", result: "pass", at: "2026-10-31T00:00:00.000Z" })}\n`,
+  );
+  const gates = {
+    pr: { keeper: "reviewer-seat", type: "AQA" },
+    hqa_after_deploy: { keeper: "human", type: "HQA" },
+  };
+  const profiles = {
+    "hands-on": { deploy_production: "needs_human" },
+    standard: { deploy_production: "needs_human" },
+  };
+  const principals = { human: { tracker_account: "keeper-1" } };
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  function profileFile(profile: string, name = "dogfood") {
+    return file(
+      `profile-${profile}.yaml`,
+      stringify({
+        kind: "policy",
+        name,
+        schema_version: 1,
+        scope: "project",
+        scope_ref: "dogfood",
+        value: { gates, principals, profiles, active_profile: profile },
+      }),
+    );
+  }
+
+  function request(profile: string, expected = "none") {
+    return runCli([
+      "config",
+      "apply",
+      profileFile(profile),
+      "--activate",
+      "--scope",
+      "project:dogfood",
+      "--expected-revision",
+      expected,
+    ]);
+  }
+
+  async function seedKeeper(): Promise<void> {
+    await clearDb(conn);
+    const { policy } = await seedConfig(conn.db);
+    const keeper = await storeRevision(
+      conn.db,
+      envelope("policy", "default", { gates, principals }),
+    );
+    const moved = await conn.db.activate({
+      scope: "global",
+      scope_ref: "",
+      kind: "policy",
+      name: "default",
+      expected: policy.id,
+      revision_id: keeper.id,
+      bundle_id: null,
+      activated_by: "operator",
+      activated_at: new Date(),
+    });
+    if (!moved.ok) throw new Error("keeper policy did not activate");
+    tracker = fakeTracker();
+  }
+
+  function say(body: string, authorId: string) {
+    tracker.comments.unshift({
+      ref: {
+        provider: "linear",
+        external_id: "S-1",
+        comment_id: `c-${tracker.comments.length + 1}`,
+      },
+      authorId,
+      body,
+      editedAt: null,
+    });
+  }
+
+  async function check(): Promise<string[]> {
+    const { orca, log } = replay(conn, [
+      ok("check", empty(null), ["--run", "run_1"]),
+      ok("worker-list", workers([]), ["--run", "run_1"]),
+    ]);
+    const outcome = await checkPass(conn.db, orca, tracker, log, {
+      run: "run_1",
+      generation: 1,
+      host: "local",
+      hostName: "h1",
+      bypassPath,
+      capacity: 2,
+      leaseSeconds: launchLeaseSeconds,
+      now: () => new Date(),
+    });
+    orca.assertDone();
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    return outcome.result.nextSteps;
+  }
+
+  const activeAtProject = async () =>
+    (await singleActive(conn.db, "policy", "project", "dogfood"))?.id;
+
+  const activations = async () =>
+    (
+      await conn.sql<{ n: number }[]>`
+        select count(*)::int as n from ledger.event where type = 'activation'`
+    )[0]?.n;
+
+  test("hands-on activation waits for the human readback", async () => {
+    await seedKeeper();
+    await createRun(conn);
+    const before = await activeAtProject();
+    const events = await activations();
+
+    const applied = request("hands-on");
+    expect(applied.status, applied.json.error?.message).toBe(0);
+    const result = applied.json.result as {
+      id: string;
+      activation: unknown;
+      pending: { op_key: string; comment: string };
+    };
+    expect(result.activation).toBeNull();
+    expect(result.pending.comment).toBe(
+      "profile dogfood hands-on policy.dogfood@1",
+    );
+    expect(await activeAtProject()).toBe(before);
+    expect(await activations()).toBe(events);
+    const status = async () =>
+      (await conn.db.getOperation(result.pending.op_key))?.status;
+    expect(await status()).toBe("pending");
+
+    say(result.pending.comment, "bot");
+    expect(await check()).toContainEqual(
+      expect.stringMatching(
+        /^receipt_unverified_source: profile request "profile dogfood hands-on policy\.dogfood@1" comment c-1 by bot/,
+      ),
+    );
+    expect(await status()).toBe("pending");
+    expect(await activeAtProject()).toBe(before);
+
+    say(`${result.pending.comment}\nlooks right`, "keeper-1");
+    await check();
+    expect(await status()).toBe("done");
+    expect(await activeAtProject()).toBe(result.id);
+    const [event] = await conn.sql<{ source: Record<string, unknown> }[]>`
+      select source from ledger.event where type = 'activation'
+      order by id desc limit 1`;
+    expect(event?.source).toMatchObject({
+      kind: "tracker_comment",
+      comment_id: "c-2",
+      author: "keeper-1",
+    });
+    expect(await activations()).toBe((events ?? 0) + 1);
+
+    await check();
+    expect(await activations()).toBe((events ?? 0) + 1);
+    expect(request("hands-on").json.result).toMatchObject({
+      id: result.id,
+      activation: { revision_id: result.id },
+      pending: null,
+    });
+  });
+
+  test("replaying a pending apply returns the same pending result", async () => {
+    await seedKeeper();
+    const first = request("standard");
+    const again = request("standard");
+    expect(again.status).toBe(0);
+    expect(again.json.result).toEqual(first.json.result);
+    const rows = await conn.sql<{ n: number }[]>`
+      select count(*)::int as n from ledger.operation where intent = 'config_apply'`;
+    expect(rows[0]?.n).toBe(1);
+  });
+
+  test("a Run snapshot keeps its profile after a later activation", async () => {
+    await seedKeeper();
+    const handsOn = await storeRevision(conn.db, {
+      ...envelope("policy", "dogfood", {
+        gates,
+        principals,
+        profiles,
+        active_profile: "hands-on",
+      }),
+      scope: "project",
+      scope_ref: "dogfood",
+    });
+    const moved = await conn.db.activate({
+      scope: "project",
+      scope_ref: "dogfood",
+      kind: "policy",
+      name: "dogfood",
+      expected: null,
+      revision_id: handsOn.id,
+      bundle_id: null,
+      activated_by: "operator",
+      activated_at: new Date(),
+    });
+    expect(moved.ok).toBe(true);
+    await createRun(conn, "dogfood");
+    const pinned = await conn.db.getSnapshot("run_1");
+    expect(pinned).toMatchObject({
+      project: "dogfood",
+      profile: "hands-on",
+      policy_revision_id: handsOn.id,
+    });
+
+    const standard = request("standard", handsOn.id);
+    expect(standard.json.result).toMatchObject({
+      activation: null,
+      pending: { runs_on_old_profile: ["run_1"] },
+    });
+    const result = standard.json.result as {
+      id: string;
+      pending: { comment: string };
+    };
+    say(result.pending.comment, "keeper-1");
+    await check();
+    expect(await activeAtProject()).toBe(result.id);
+    expect(await conn.db.getSnapshot("run_1")).toEqual(pinned);
+  });
+
+  test("a Run created without --project pins no project", async () => {
+    await seedKeeper();
+    await createRun(conn);
+    expect(await conn.db.getSnapshot("run_1")).toMatchObject({
+      project: null,
+      profile: null,
+    });
   });
 });

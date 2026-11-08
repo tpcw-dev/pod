@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { singleActive } from "../config/active.ts";
+import {
+  activatePendingProfile,
+  pendingProfileOps,
+} from "../config/apply.ts";
 import { decisionLimits } from "../config/limits.ts";
 import { advanceDecision, chargeBudget } from "../decide/advance.ts";
 import { applyRuling } from "../decide/ruling.ts";
@@ -31,7 +35,12 @@ import type { TrackerPort } from "../ports/tracker.ts";
 import { drainOutbox } from "../tracker/outbox.ts";
 import { syncStory } from "../tracker/sync.ts";
 import { voidEditedReceipts } from "../gate/hqa.ts";
-import { verifiedRulings } from "../gate/ruling.ts";
+import {
+  readStoryComments,
+  verifiedProfileRequests,
+  verifiedRulings,
+  waitingDecisions,
+} from "../gate/ruling.ts";
 import { syncVerdictReceipts } from "../gate/verdict.ts";
 import { fence, StaleGeneration } from "./fence.ts";
 import { reconcileLaunches, type Reconciled } from "./reconcile.ts";
@@ -254,16 +263,48 @@ async function applyRulings(
   run: Run,
   input: CheckInput,
 ): Promise<string[]> {
-  const { rulings, nextSteps } = await verifiedRulings(db, tracker, log, {
+  const pending = await pendingProfileOps(db);
+  const waiting = await waitingDecisions(db, run.run_id);
+  if (waiting.size === 0 && pending.length === 0) return [];
+  const read = await readStoryComments(tracker, log, run);
+  if (!read.ok)
+    return [
+      `tracker readback of story:${run.story_external_id} failed: ${read.error}; Decision rulings and profile requests wait for the next pod check`,
+    ];
+  const context = {
     run,
     hostName: input.hostName,
     bypassPath: input.bypassPath,
     now: input.now,
-  });
+  };
+  const { rulings, nextSteps } = await verifiedRulings(
+    db,
+    tracker,
+    read.comments,
+    context,
+  );
   for (const ruling of rulings) {
     const step = await db.transaction(async (tx) => {
       const owned = await fence(tx, run.run_id, input.generation);
       return applyRuling(tx, owned, ruling, {
+        at: input.now(),
+        host: input.host,
+      });
+    });
+    if (step !== null) nextSteps.push(step);
+  }
+  const profiles = await verifiedProfileRequests(
+    db,
+    tracker,
+    read.comments,
+    pending,
+    context,
+  );
+  nextSteps.push(...profiles.nextSteps);
+  for (const readback of profiles.readbacks) {
+    const step = await db.transaction(async (tx) => {
+      await fence(tx, run.run_id, input.generation);
+      return activatePendingProfile(tx, readback.op_key, readback.source, {
         at: input.now(),
         host: input.host,
       });

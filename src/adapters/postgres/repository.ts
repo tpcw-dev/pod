@@ -11,6 +11,7 @@ import {
   isNull,
   lt,
   max,
+  or,
   sql,
 } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -499,6 +500,8 @@ function makeRepo(x: Executor): Repo {
         effectiveGateMap: row.effective_gate_map,
         hash: row.hash,
         pinnedAt: row.pinned_at,
+        project: row.project,
+        profile: row.profile,
       });
     },
 
@@ -516,6 +519,8 @@ function makeRepo(x: Executor): Repo {
         effective_gate_map: json(row.effectiveGateMap),
         hash: row.hash,
         pinned_at: row.pinnedAt,
+        project: row.project,
+        profile: row.profile,
       };
     },
 
@@ -1019,8 +1024,10 @@ function makeRepo(x: Executor): Repo {
         .innerJoin(revision, eq(revision.id, snapshot.policyRevisionId))
         .where(
           and(
-            eq(revision.scope, scope),
-            eq(revision.scopeRef, scopeRef),
+            or(
+              and(eq(revision.scope, scope), eq(revision.scopeRef, scopeRef)),
+              scope === "project" ? eq(snapshot.project, scopeRef) : undefined,
+            ),
             sql`(exists (select 1 from ${decision} where ${decision.runId} = ${snapshot.runId} and ${inArray(decision.state, openStates)})
               or exists (select 1 from ${task} where ${task.runId} = ${snapshot.runId} and ${task.state} not in ('done', 'superseded', 'failed')))`,
           ),
