@@ -7,6 +7,7 @@ import {
   type RunOutput,
   type Runner,
 } from "../../src/adapters/orca/real.ts";
+import { argvFor } from "../../src/adapters/orca/argv.ts";
 import { makeScrubber } from "../../src/adapters/orca/scrub.ts";
 import { launchOutcome } from "../../src/core/ledger/launch.ts";
 import {
@@ -33,7 +34,7 @@ function out(stdout: string, extra: Partial<RunOutput> = {}): RunOutput {
 
 function stub(
   reply: (args: readonly string[]) => RunOutput,
-  version = "1.4.211",
+  version = "1.4.253",
 ): { run: Runner; calls: Call[] } {
   const calls: Call[] = [];
   const run: Runner = (file, args, opts) => {
@@ -77,7 +78,7 @@ test("a receipt record carries every field and the receipt keeps unknown fields 
   });
   expect(receipt.verb).toBe("worker-start");
   expect(receipt.exitCode).toBe(0);
-  expect(receipt.orcaVersion).toBe("1.4.211");
+  expect(receipt.orcaVersion).toBe("1.4.253");
   expect(receipt.result?.dispatchId).toBe("ctx_1");
   expect(receipt.raw).toMatchObject({
     result: { novel: { kept: true } },
@@ -104,7 +105,7 @@ test("a receipt record carries every field and the receipt keeps unknown fields 
     signal: null,
     stdout: ready,
     stderr: "note",
-    orcaVersion: "1.4.211",
+    orcaVersion: "1.4.253",
   });
   expect(record?.argv).toEqual([
     "orchestration",
@@ -120,6 +121,7 @@ test("a receipt record carries every field and the receipt keeps unknown fields 
     "--worktree",
     "current",
     "--json",
+    "--full",
   ]);
   expect(calls.at(-1)?.file).toBe("orca");
   expect(launchOutcome(receipt)).toEqual({ kind: "ok" });
@@ -164,6 +166,7 @@ test("no call ever passes --terminal, and deps go as a JSON array", async () => 
     "--task-title",
     "x",
     "--json",
+    "--full",
   ]);
 });
 
@@ -239,11 +242,71 @@ test("a definite failure is failed", async () => {
   expect(launchOutcome(receipt)).toEqual({ kind: "failed" });
 });
 
-test("the version gate refuses outside >=1.4.211 <1.5.0", async () => {
+test("a --full start that exits 1 before its turn is observed stays unknown", async () => {
+  const unobserved = {
+    state: "outcome_unknown",
+    stage: "turn_start_unobserved",
+    turnStart: "unobserved",
+    dispatchId: "ctx_1",
+  };
+  const settled = { state: "dispatched", turnStart: "unobserved" };
+  for (const result of [unobserved, settled]) {
+    const { run } = stub(() =>
+      out(JSON.stringify({ ok: true, result }), { code: 1 }),
+    );
+    const orca = makeRealOrca({ run, sink: () => Promise.resolve() });
+    const receipt = await orca.workerStart({ task: "t", agent: "claude" });
+    expect(launchOutcome(receipt)).toEqual({
+      kind: "unknown",
+      requestId: null,
+    });
+  }
+});
+
+test("exit 1 with an error and no start is failed", async () => {
+  const { run } = stub(() =>
+    out(
+      JSON.stringify({
+        ok: false,
+        error: { code: "invalid_argument", message: "Unknown flag --x" },
+      }),
+      { code: 1 },
+    ),
+  );
+  const orca = makeRealOrca({ run, sink: () => Promise.resolve() });
+  const receipt = await orca.workerStart({ task: "t", agent: "claude" });
+  expect(launchOutcome(receipt)).toEqual({ kind: "failed" });
+});
+
+test("orchestration calls ask for the full record, and run-create parses only it", async () => {
+  expect(argvFor.runCreate({ objective: "o" }).slice(-2)).toEqual([
+    "--json",
+    "--full",
+  ]);
+  expect(argvFor.terminalShow({ terminal: "term_1" })).toEqual([
+    "terminal",
+    "show",
+    "--terminal",
+    "term_1",
+    "--json",
+  ]);
+  const concise = { ok: true, result: { runId: "run_1" } };
+  const full = { ok: true, result: { run: { id: "run_1" } } };
+  const ids: (string | null)[] = [];
+  for (const reply of [concise, full]) {
+    const { run } = stub(() => out(JSON.stringify(reply)));
+    const orca = makeRealOrca({ run, sink: () => Promise.resolve() });
+    const receipt = await orca.runCreate({ objective: "o" });
+    ids.push(receipt.result?.run.id ?? null);
+  }
+  expect(ids).toEqual([null, "run_1"]);
+});
+
+test("the version gate refuses outside >=1.4.246 <1.5.0", async () => {
   for (const [version, accepted] of [
-    ["1.4.210", false],
-    ["1.4.211", true],
-    ["1.4.240", true],
+    ["1.4.245", false],
+    ["1.4.246", true],
+    ["1.4.253", true],
     ["1.5.0", false],
     ["orca", false],
   ] as const) {
@@ -260,7 +323,7 @@ test("the version gate refuses outside >=1.4.211 <1.5.0", async () => {
       expect(error).toBeInstanceOf(OrcaVersionUnsupported);
       expect(error).toMatchObject({
         installed: version,
-        range: ">=1.4.211 <1.5.0",
+        range: ">=1.4.246 <1.5.0",
       });
       expect(calls.map((item) => item.args[0])).toEqual(["--version"]);
     }
@@ -312,12 +375,19 @@ test("record mode numbers files after existing ones and drops free text from mat
   expect(fixture).toMatchObject({
     verb: "task-create",
     match: {
-      argv: ["orchestration", "task-create", "--run", "run_1", "--json"],
+      argv: [
+        "orchestration",
+        "task-create",
+        "--run",
+        "run_1",
+        "--json",
+        "--full",
+      ],
     },
     exitCode: 0,
     signal: null,
     stderr: "",
-    orcaVersion: "1.4.211",
+    orcaVersion: "1.4.253",
   });
   expect(typeof fixture["recordedAt"]).toBe("string");
   await orca.workerStart({ task: "task_9", agent: "claude" }).catch(() => {});
@@ -414,7 +484,7 @@ test("a check batch parses string payloads, and an ack returns the next batch", 
     acknowledged: "delivery_1",
   });
   expect(calls.slice(1).map((call) => call.args)).toEqual([
-    ["orchestration", "check", "--run", "run_1", "--json"],
+    ["orchestration", "check", "--run", "run_1", "--json", "--full"],
     [
       "orchestration",
       "check",
@@ -423,6 +493,7 @@ test("a check batch parses string payloads, and an ack returns the next batch", 
       "--ack",
       "delivery_1",
       "--json",
+      "--full",
     ],
   ]);
 });
@@ -468,6 +539,7 @@ test("worker-list takes the page flags and carries nextCursor", async () => {
     "--limit",
     "1",
     "--json",
+    "--full",
   ]);
 });
 
@@ -523,6 +595,7 @@ test("run-use names the coordinator terminal with --from and parses the Run", as
     "--from",
     "term_new",
     "--json",
+    "--full",
   ]);
   expect(receipt.result?.run.consumer_generation).toBe(2);
   expect(receipt.result?.run.coordinator_handle).toBe("term_new");
@@ -540,6 +613,7 @@ test("run-show reads the Run's coordinator handle", async () => {
     "--id",
     "run_1",
     "--json",
+    "--full",
   ]);
   expect(receipt.verb).toBe("run-show");
   expect(receipt.result?.run.coordinator_handle).toBe("term_new");

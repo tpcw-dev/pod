@@ -42,7 +42,7 @@ export interface ReceiptRecord {
 
 export type ReceiptSink = (record: ReceiptRecord) => Promise<void>;
 
-export const supportedOrcaRange = { min: "1.4.211", below: "1.5.0" } as const;
+export const supportedOrcaRange = { min: "1.4.246", below: "1.5.0" } as const;
 
 export function orcaRangeText(): string {
   return `>=${supportedOrcaRange.min} <${supportedOrcaRange.below}`;

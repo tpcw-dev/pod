@@ -657,7 +657,7 @@ interface Receipt<T> {
 
 #### The real adapter
 
-The real adapter spawns `orca orchestration <verb> ... --json`. For each call it records a receipt `{verb, argv, exitCode, stdout, stderr, startedAt, endedAt, orcaVersion}` into `ledger.event` as a `receipt` event with source `receipt`. In record mode, set by `POD_ORCA_RECORD=<dir>`, it also writes the receipt as a fixture file.
+The real adapter spawns `orca orchestration <verb> ... --json --full`. From Orca 1.4.246, `--json` prints a concise view, and `--full` restores the full record the schemas parse. `orca terminal show` takes no `--full`. For each call it records a receipt `{verb, argv, exitCode, stdout, stderr, startedAt, endedAt, orcaVersion}` into `ledger.event` as a `receipt` event with source `receipt`. In record mode, set by `POD_ORCA_RECORD=<dir>`, it also writes the receipt as a fixture file.
 
 Exit 1 with `outcome_unknown` maps to the `launch_unknown` path. The operation stays `unknown`, the reservation stays held, and `requestShow` is the first reconcile step. Without evidence that rules out a duplicate, Pod does not start again.
 
@@ -677,7 +677,7 @@ Each row comes from the PRD's Orca facts, observed on Orca 1.4.230 in the proof 
 | `worker-start` takes `--task/--spec`, `--run`, `--agent`, `--model/--effort`, `--worktree`, `--deps`, `--retry-of`, `--retry-request`, `--json` | `WorkerStartRequest` names exactly these fields |
 | Orca 1.4.211 help lists `request-show`, which asks whether one orchestration mutation already took effect | `requestShow` is the first reconcile step, and its availability per version is an assumption until a fixture records it |
 
-The adapter declares a supported Orca version range and refuses a call outside it with `orca_version_unsupported`. The first range starts at 1.4.211.
+The adapter declares a supported Orca version range and refuses a call outside it with `orca_version_unsupported`. The live range starts at 1.4.246, the first Orca that accepts `--full`; an older Orca rejects the flag with `invalid_argument`. Replay accepts fixtures recorded from 1.4.211, because a recorded `match.argv` without `--full` still matches the live argv as a subsequence.
 
 #### Fixture replay
 

@@ -63,7 +63,8 @@ export function launchOutcome(receipt: Receipt<unknown>): LaunchOutcome {
     (state === undefined || state === "ready")
   )
     return { kind: "ok" };
-  if (receipt.exitCode === 0) return { kind: "unknown", requestId };
+  if (receipt.exitCode === 0 || (state !== undefined && state !== "failed"))
+    return { kind: "unknown", requestId };
   return { kind: "failed" };
 }
 
