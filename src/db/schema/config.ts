@@ -79,4 +79,6 @@ export const snapshot = config.table("snapshot", {
   effectiveGateMap: jsonb("effective_gate_map").notNull(),
   hash: text("hash").notNull(),
   pinnedAt: timestamp("pinned_at", { withTimezone: true }).notNull(),
+  project: text("project"),
+  profile: text("profile"),
 });

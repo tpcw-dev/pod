@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { noSingleActive } from "../config/active.ts";
+import { activeProfile } from "../config/policy.ts";
 import type { BriefRun, BriefTree } from "../domain/brief.ts";
 import type { Revision } from "../domain/config.ts";
 import type { DecisionScope } from "../domain/decision.ts";
@@ -267,6 +268,7 @@ export function policiesSection(
   ctx: StateContext,
   policy: Revision | null,
   crew: Revision | null,
+  pending: PoliciesSection["pending_profile"],
 ): PoliciesSection {
   const reserved = Fields.safeParse(
     Fields.safeParse(policy?.value).data?.["reserved"],
@@ -274,6 +276,8 @@ export function policiesSection(
   return {
     policy: revisionRef(policy),
     crew: revisionRef(crew),
+    profile: policy === null ? null : activeProfile(policy.value),
+    pending_profile: pending,
     reserved: {
       deny: strings(reserved?.["deny"]),
       needs_human: strings(reserved?.["needs_human"]),

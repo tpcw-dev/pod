@@ -1,0 +1,24 @@
+kind: policy
+name: dogfood
+schema_version: 1
+scope: project
+scope_ref: dogfood
+value:
+  gates:
+    prd_review: { keeper: human, type: HQA }
+    design_clickthrough: { keeper: human, type: HQA }
+    hqa_after_deploy: { keeper: human, type: HQA }
+  principals:
+    human: { tracker_account: keeper-1 }
+  profiles:
+    hands-on:
+      deploy_production: needs_human
+    standard:
+      deploy_production: needs_human
+    hands-off:
+      replaces: { prd_review: decision-pair-aqa, design_clickthrough: decision-pair-aqa }
+      deploy_production: needs_human
+    autonomous:
+      replaces: { prd_review: decision-pair-aqa, design_clickthrough: decision-pair-aqa }
+      deploy_production: agent
+  active_profile: hands-off

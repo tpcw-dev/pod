@@ -49,6 +49,8 @@ function view(
       observed_at,
       policy: { id: "policy-rev", name: "default", rev: 1 },
       crew: { id: "crew-rev", name: "default", rev: 1 },
+      profile: null,
+      pending_profile: [],
       reserved: {
         deny: ["live_trading", words(sizes.reserved ?? 0, "r")].filter(
           (row) => row !== "",

@@ -82,9 +82,28 @@ function gateProblem(gates: unknown, crewValue: unknown | null): Problem {
   return null;
 }
 
+const profileKeys = ["replaces", "requires", "deploy_production"];
+const deploySettings = ["needs_human", "agent"];
+
 function profileProblem(profiles: unknown, gates: unknown): Problem {
   const ids = gateIds(gates);
   for (const [name, profile] of Object.entries(fields(profiles))) {
+    const extra = Object.keys(fields(profile)).find(
+      (key) => !profileKeys.includes(key),
+    );
+    if (extra !== undefined)
+      return {
+        path: `profiles.${name}.${extra}`,
+        message: `profiles.${name}.${extra}: a profile carries only ${profileKeys.join(", ")}`,
+      };
+    if ("deploy_production" in fields(profile)) {
+      const setting = fields(profile)["deploy_production"];
+      if (typeof setting !== "string" || !deploySettings.includes(setting))
+        return {
+          path: `profiles.${name}.deploy_production`,
+          message: `profiles.${name}.deploy_production: must be ${deploySettings.join(" or ")}`,
+        };
+    }
     const replaces = fields(fields(profile)["replaces"]);
     for (const [gate, to] of Object.entries(replaces)) {
       const path = `profiles.${name}.replaces.${gate}`;
@@ -106,6 +125,16 @@ function profileProblem(profiles: unknown, gates: unknown): Problem {
     }
   }
   return null;
+}
+
+function activeProfileProblem(value: unknown): Problem {
+  const name = activeProfile(value);
+  if (name === null || Object.hasOwn(fields(fields(value)["profiles"]), name))
+    return null;
+  return {
+    path: "active_profile",
+    message: `active_profile: ${name} is not a profile this policy defines`,
+  };
 }
 
 function isMap(value: unknown): boolean {
@@ -238,6 +267,7 @@ export function validatePolicy(
   const problem =
     gateProblem(policy["gates"], crewValue) ??
     profileProblem(policy["profiles"], policy["gates"]) ??
+    activeProfileProblem(value) ??
     reservedProblem(policy["reserved"]) ??
     escalateProblem(value) ??
     limitsProblem(policy["limits"]) ??

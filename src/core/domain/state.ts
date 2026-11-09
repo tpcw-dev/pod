@@ -52,6 +52,10 @@ export const PoliciesSection = z.object({
   ...stamp,
   policy: RevisionRef.nullable(),
   crew: RevisionRef.nullable(),
+  profile: z.string().nullable(),
+  pending_profile: z.array(
+    z.object({ profile: z.string(), policy: z.string(), comment: z.string() }),
+  ),
   reserved: z.object({
     deny: z.array(z.string()),
     needs_human: z.array(z.string()),

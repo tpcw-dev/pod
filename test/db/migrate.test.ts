@@ -25,7 +25,7 @@ describeDb("pod db migrate", () => {
   test("a run after the reset's migrate applies nothing", () => {
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 13, applied: 0 } },
+      json: { ok: true, result: { journal: 14, applied: 0 } },
     });
   });
 
@@ -36,11 +36,11 @@ describeDb("pod db migrate", () => {
     await db.close();
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 13, applied: 13 },
+      result: { journal: 14, applied: 14 },
     });
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 13, applied: 0 },
+      result: { journal: 14, applied: 0 },
     });
   });
 
@@ -56,7 +56,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 13, applied: 9 } },
+      json: { ok: true, result: { journal: 14, applied: 10 } },
     });
   });
 
@@ -72,7 +72,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 13, applied: 5 } },
+      json: { ok: true, result: { journal: 14, applied: 6 } },
     });
   });
 
@@ -88,7 +88,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 13, applied: 4 } },
+      json: { ok: true, result: { journal: 14, applied: 5 } },
     });
   });
 
@@ -104,7 +104,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 13, applied: 3 } },
+      json: { ok: true, result: { journal: 14, applied: 4 } },
     });
     const conn = openDb();
     try {
@@ -167,7 +167,7 @@ describeDb("pod db migrate", () => {
     ).toEqual({ kind: "ok", journal: 11, applied: 11 });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 13, applied: 2 } },
+      json: { ok: true, result: { journal: 14, applied: 3 } },
     });
     const conn = openDb();
     try {
@@ -194,7 +194,7 @@ describeDb("pod db migrate", () => {
     ).toEqual({ kind: "ok", journal: 12, applied: 12 });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 13, applied: 1 } },
+      json: { ok: true, result: { journal: 14, applied: 2 } },
     });
     const conn = openDb();
     try {
@@ -202,6 +202,37 @@ describeDb("pod db migrate", () => {
         select is_nullable as nullable, data_type as type from information_schema.columns
         where table_schema = 'ledger' and table_name = 'dispatch' and column_name = 'prompt_bytes'`;
       expect(column).toEqual({ nullable: "YES", type: "integer" });
+    } finally {
+      await conn.close();
+    }
+  });
+
+  test("a database at 0012 applies 0013, which adds nullable project and profile text columns to the snapshot", async () => {
+    const db = openDb();
+    await db.sql`set client_min_messages = warning`;
+    await db.sql`drop schema if exists config, ledger, drizzle cascade`;
+    await db.close();
+    expect(await migrate(dbUrl(), journalThrough("0012_prompt_bytes"))).toEqual(
+      { kind: "ok", journal: 13, applied: 13 },
+    );
+    expect(runCli(["db", "migrate"])).toMatchObject({
+      status: 0,
+      json: { ok: true, result: { journal: 14, applied: 1 } },
+    });
+    const conn = openDb();
+    try {
+      const columns = await conn.sql<
+        { name: string; nullable: string; type: string }[]
+      >`
+        select column_name as name, is_nullable as nullable, data_type as type
+        from information_schema.columns
+        where table_schema = 'config' and table_name = 'snapshot'
+          and column_name in ('project', 'profile')
+        order by column_name`;
+      expect(columns).toEqual([
+        { name: "profile", nullable: "YES", type: "text" },
+        { name: "project", nullable: "YES", type: "text" },
+      ]);
     } finally {
       await conn.close();
     }

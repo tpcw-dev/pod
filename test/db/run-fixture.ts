@@ -50,6 +50,13 @@ export function replay(conn: Connection, entries: readonly TempEntry[]) {
 export async function freshRun(conn: Connection): Promise<void> {
   await clearDb(conn);
   await seedConfig(conn.db);
+  await createRun(conn);
+}
+
+export async function createRun(
+  conn: Connection,
+  project: string | null = null,
+): Promise<void> {
   const { orca, log } = replay(conn, [
     ok("run-create", { run: { id: "run_1" } }),
     ok("task-create", { task: { id: "task_b", status: "ready" } }),
@@ -64,6 +71,7 @@ export async function freshRun(conn: Connection): Promise<void> {
     host: "local",
     provider: "linear",
     command: "pod run create story:S-1",
+    project,
     now: () => new Date(),
   });
   if (!created.ok) throw new Error(created.refusal.message);

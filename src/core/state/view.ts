@@ -1,8 +1,14 @@
 import { singleActive } from "../config/active.ts";
+import { pendingProfileOps } from "../config/apply.ts";
 import type { BriefTree } from "../domain/brief.ts";
-import type { Revision } from "../domain/config.ts";
+import type { Revision, Scope } from "../domain/config.ts";
 import { refuse, type Refused } from "../domain/outcome.ts";
-import type { StateScope, StateView } from "../domain/state.ts";
+import type {
+  PoliciesSection,
+  StateScope,
+  StateView,
+} from "../domain/state.ts";
+import type { Repo } from "../ports/db.ts";
 import { seatProviders, SeatsInvalid } from "../dispatch/seats.ts";
 import { fitBudget } from "./budget.ts";
 import {
@@ -17,6 +23,27 @@ import {
 } from "./sections.ts";
 
 export const stateBudget = 3000;
+
+async function pendingProfiles(
+  repo: Repo,
+  scope: Scope,
+  scopeRef: string,
+): Promise<PoliciesSection["pending_profile"]> {
+  const rows: PoliciesSection["pending_profile"] = [];
+  for (const { request } of await pendingProfileOps(repo)) {
+    if (request.scope !== scope || request.scope_ref !== scopeRef) continue;
+    const revision = await repo.getRevision(request.revision_id);
+    rows.push({
+      profile: request.profile,
+      policy:
+        revision === null
+          ? request.revision_id
+          : `${revision.name}@${revision.rev}`,
+      comment: request.comment,
+    });
+  }
+  return rows;
+}
 
 function providersOf(crews: readonly (Revision | null)[]): string[] {
   const providers = new Set<string>();
@@ -59,7 +86,12 @@ export async function buildState(
     scope,
     roadmap: roadmap.section,
     runs: await runsSection(ctx, tree),
-    policies: policiesSection(ctx, policy, crew),
+    policies: policiesSection(
+      ctx,
+      policy,
+      crew,
+      await pendingProfiles(ctx.repo, level, ref),
+    ),
     decisions: await decisionsSection(ctx, scope),
     usage: await usageSection(ctx, providersOf([crew, ...pinnedCrews(tree)])),
     needs_human: await needsHumanSection(ctx, tree),

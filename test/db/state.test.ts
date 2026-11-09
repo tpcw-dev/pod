@@ -470,7 +470,9 @@ test("the policies section names the object members of specs/policy/default.yaml
     { repo: {} as never, docs: null, now: () => now },
     revision,
     null,
+    [],
   );
+  expect(section.profile).toBeNull();
   expect(section.reserved).toEqual({
     deny: ["live_trading", "evidence_tamper", "safety_limit_removal"],
     needs_human: [

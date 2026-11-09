@@ -92,6 +92,13 @@
       "when": 1794182400000,
       "tag": "0012_prompt_bytes",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794268800000,
+      "tag": "0013_snapshot_project_profile",
+      "breakpoints": true
     }
   ]
 }

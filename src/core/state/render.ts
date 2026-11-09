@@ -36,6 +36,10 @@ function revisionLine(
     : `${label} ${ref.name}@${ref.rev} ${ref.id}`;
 }
 
+function refText(ref: { name: string; rev: number } | null): string {
+  return ref === null ? "none" : `${ref.name}@${ref.rev}`;
+}
+
 export function renderState(view: StateView): string {
   const { roadmap, runs, policies, decisions, usage, needs_human, learnings } =
     view;
@@ -60,6 +64,11 @@ export function renderState(view: StateView): string {
       policies,
       [
         revisionLine("policy", policies.policy),
+        `Profile: ${policies.profile ?? "none"} (policy ${refText(policies.policy)})`,
+        ...policies.pending_profile.map(
+          (row) =>
+            `Profile pending: ${row.profile} (policy ${row.policy}), post ${JSON.stringify(row.comment)}`,
+        ),
         revisionLine("crew", policies.crew),
         `reserved deny: ${policies.reserved.deny.join(", ")}`,
         `reserved needs_human: ${policies.reserved.needs_human.join(", ")}`,

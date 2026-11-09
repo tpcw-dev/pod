@@ -57,6 +57,8 @@ describeDb("a pinned Snapshot", () => {
       effective_gate_map: gateMap,
       hash,
       pinned_at: new Date(),
+      project: null,
+      profile: null,
     });
 
     const second = join(dir, "process-2.yaml");

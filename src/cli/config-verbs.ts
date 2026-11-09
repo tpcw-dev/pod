@@ -46,6 +46,15 @@ export const ConfigApplyOutput = z.object({
       op_key: z.string(),
     })
     .nullable(),
+  pending: z
+    .object({
+      op_key: z.string(),
+      profile: z.string(),
+      comment: z.string(),
+      runs_on_old_profile: z.array(z.string()),
+      readback: z.string(),
+    })
+    .nullable(),
 });
 
 function scopeFlag(value: string): { scope: string; scope_ref: string } {

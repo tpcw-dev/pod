@@ -1,6 +1,11 @@
 import { z } from "zod";
-import type { Revision, RevisionEnvelope } from "../domain/config.ts";
-import type { Json } from "../domain/json.ts";
+import {
+  Kind,
+  Scope,
+  type Revision,
+  type RevisionEnvelope,
+} from "../domain/config.ts";
+import { Json } from "../domain/json.ts";
 import type { Refusal } from "../domain/outcome.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import { validateDecisionTemplates } from "../decide/templates.ts";
@@ -39,12 +44,21 @@ const AppliedActivation = z.object({
 });
 export type AppliedActivation = z.infer<typeof AppliedActivation>;
 
+const PendingProfile = z.object({
+  op_key: z.string(),
+  profile: z.string(),
+  comment: z.string(),
+  runs_on_old_profile: z.array(z.string()),
+  readback: z.string(),
+});
+
 const ApplyResult = z.object({
   ref: z.string(),
   id: z.string(),
   rev: z.int(),
   created: z.boolean(),
   activation: AppliedActivation.nullable(),
+  pending: PendingProfile.nullable().default(null),
 });
 export type ApplyResult = z.infer<typeof ApplyResult>;
 
@@ -55,6 +69,26 @@ export type ApplyOutcome =
   | { kind: "duplicate_op"; opKey: string; intent: string }
   | { kind: "operation_open"; opKey: string; status: string }
   | { kind: "process_invalid"; refusal: Refusal };
+
+const PendingRequest = z.object({
+  scope: Scope,
+  scope_ref: z.string(),
+  kind: Kind,
+  name: z.string(),
+  revision_id: z.string(),
+  expected: z.string().nullable(),
+  profile: z.string(),
+  comment: z.string(),
+});
+export type PendingRequest = z.infer<typeof PendingRequest>;
+
+const RecordedPending = z.object({
+  pending: PendingRequest,
+  result: ApplyResult,
+});
+
+const readbackRule =
+  "the HQA keeper posts the comment on the Story of a live Run; the next pod check on that Run reads it back and activates the profile";
 
 const RecordedRefusal = z.object({
   code: z.literal("revision_conflict"),
@@ -149,16 +183,32 @@ async function policyRefusal(
   }
   const profile = activeProfile(value);
   if (profile === null) return null;
-  const [run] = await tx.liveRunsPinningPolicyScope(scope, scope_ref);
+  if (profile === refusedProfile) {
+    const [run] = await tx.liveRunsPinningPolicyScope(scope, scope_ref);
+    const held =
+      run === undefined
+        ? ""
+        : `Run ${run} has an open Decision or an unsettled Task, and `;
+    return {
+      code: "gate_lift_refused",
+      message: `active_profile ${profile}: ${held}activating ${profile} waits on the step method override`,
+      nextSteps: [
+        "see Gate-lift in docs/tech-spec.md",
+        "choose hands-on, standard, or hands-off and apply again",
+      ],
+    };
+  }
+  if (scope === "project") return null;
   return {
     code: "gate_lift_refused",
-    message:
-      run === undefined
-        ? `active_profile ${profile}: profile activation is refused in v1`
-        : `active_profile ${profile}: Run ${run} has an open Decision or an unsettled Task, and profile activation is refused in v1`,
-    nextSteps: ["remove active_profile and apply again"],
+    message: `active_profile ${profile}: a profile is activated per project, not at ${scope} scope`,
+    nextSteps: [
+      "move active_profile into a project-scope policy and apply it with --scope project:REF",
+    ],
   };
 }
+
+const refusedProfile = "autonomous";
 
 function storeRevision(
   tx: Repo,
@@ -183,7 +233,151 @@ function resultOf(
     rev: stored.revision.rev,
     created: stored.created,
     activation,
+    pending: null,
   };
+}
+
+function pendingProfile(envelope: RevisionEnvelope): string | null {
+  return envelope.kind === "policy" && envelope.scope === "project"
+    ? activeProfile(envelope.value)
+    : null;
+}
+
+async function requestProfile(
+  tx: Repo,
+  input: ApplyInput,
+  opKey: string,
+  id: string,
+  profile: string,
+): Promise<ApplyOutcome> {
+  const stored = await storeRevision(tx, input, id);
+  const { scope, scope_ref, kind, name } = input.envelope;
+  const comment = `profile ${scope_ref} ${profile} ${revisionRef(stored.revision)}`;
+  const result: ApplyResult = {
+    ...resultOf(stored, null),
+    pending: {
+      op_key: opKey,
+      profile,
+      comment,
+      runs_on_old_profile: await tx.liveRunsPinningPolicyScope(
+        scope,
+        scope_ref,
+      ),
+      readback: readbackRule,
+    },
+  };
+  const pending: PendingRequest = {
+    scope,
+    scope_ref,
+    kind,
+    name,
+    revision_id: id,
+    expected: input.activate?.expected ?? null,
+    profile,
+    comment,
+  };
+  const { operation, created } = await tx.insertOperation({
+    op_key: opKey,
+    intent: "config_apply",
+    owner_generation: 0,
+    at: input.now,
+    result_ref: Json.parse({ pending, result }),
+  });
+  if (!created) return recorded(tx, opKey, operation);
+  return { kind: "ok", result };
+}
+
+export interface PendingProfileOp {
+  op_key: string;
+  request: PendingRequest;
+}
+
+export async function pendingProfileOps(
+  repo: Repo,
+): Promise<PendingProfileOp[]> {
+  const rows = await repo.listOperations(["config_apply"], ["pending"]);
+  return rows.flatMap((row) => {
+    const parsed = RecordedPending.safeParse(row.result_ref);
+    return parsed.success
+      ? [{ op_key: row.op_key, request: parsed.data.pending }]
+      : [];
+  });
+}
+
+export interface ProfileSource {
+  comment_id: string;
+  author: string;
+  readback_at: string;
+}
+
+export async function activatePendingProfile(
+  tx: Repo,
+  opKey: string,
+  source: ProfileSource,
+  context: { at: Date; host: string },
+): Promise<string | null> {
+  const operation = await tx.getOperation(opKey);
+  const parsed = RecordedPending.safeParse(operation?.result_ref);
+  if (operation?.status !== "pending" || !parsed.success) return null;
+  const { pending, result } = parsed.data;
+  const { scope, scope_ref, kind, name, revision_id, expected } = pending;
+  const outcome = await tx.activate({
+    scope,
+    scope_ref,
+    kind,
+    name,
+    expected,
+    revision_id,
+    bundle_id: null,
+    activated_by: source.author,
+    activated_at: context.at,
+  });
+  if (!outcome.ok) {
+    await tx.moveOperation(
+      opKey,
+      "refused",
+      { code: "revision_conflict", active: outcome.active },
+      context.at,
+    );
+    return `revision_conflict: profile request ${JSON.stringify(pending.comment)} expected ${expected ?? "none"} but the active policy is ${outcome.active ?? "none"}; apply the profile again with --expected-revision ${outcome.active ?? "none"}`;
+  }
+  const activation: AppliedActivation = {
+    scope,
+    scope_ref,
+    kind,
+    name,
+    revision_id,
+    previous_revision_id: outcome.previous,
+    bundle_id: null,
+    op_key: opKey,
+  };
+  await tx.appendEvent({
+    type: "activation",
+    ts: context.at,
+    host: context.host,
+    run_id: null,
+    task_id: null,
+    dispatch_id: null,
+    op_key: opKey,
+    payload: {
+      scope,
+      scope_ref,
+      kind,
+      name,
+      revision_id,
+      previous_revision_id: outcome.previous,
+      bundle_id: null,
+      profile: pending.profile,
+    },
+    source: { kind: "tracker_comment", ...source },
+  });
+  await tx.moveOperation(
+    opKey,
+    "done",
+    { ...result, activation, pending: null },
+    context.at,
+  );
+  return null;
 }
 
 export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
@@ -211,6 +405,8 @@ export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
     if (existing !== null) return recorded(tx, opKey, existing);
     const refusal = await processRefusal(tx, input.envelope);
     if (refusal !== null) return { kind: "process_invalid", refusal };
+    const profile = pendingProfile(input.envelope);
+    if (profile !== null) return requestProfile(tx, input, opKey, id, profile);
     const { operation, created } = await tx.insertOperation({
       op_key: opKey,
       intent: "config_apply",
@@ -289,6 +485,10 @@ async function recorded(
     return { kind: "duplicate_op", opKey, intent: operation.intent };
   if (operation.status === "done")
     return { kind: "ok", result: ApplyResult.parse(operation.result_ref) };
+  if (operation.status === "pending") {
+    const pending = RecordedPending.safeParse(operation.result_ref);
+    if (pending.success) return { kind: "ok", result: pending.data.result };
+  }
   if (operation.status === "refused") {
     const refusal = RecordedRefusal.safeParse(operation.result_ref);
     if (refusal.success) {

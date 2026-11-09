@@ -97,6 +97,7 @@ export const RunCreateInput = z.strictObject({
   process: z.string().optional(),
   size: Size.optional(),
   stage: z.string().min(1).optional(),
+  project: z.string().min(1).optional(),
 });
 type RunCreateInput = z.infer<typeof RunCreateInput>;
 
@@ -158,6 +159,7 @@ export async function runCreateVerb(
     ...(input.process === undefined ? [] : ["--process", input.process]),
     ...(input.size === undefined ? [] : ["--size", input.size]),
     ...(input.stage === undefined ? [] : ["--stage", input.stage]),
+    ...(input.project === undefined ? [] : ["--project", input.project]),
   ]
     .map(quote)
     .join(" ");
@@ -168,6 +170,7 @@ export async function runCreateVerb(
         process: ref,
         size: input.size ?? null,
         stage: input.stage ?? null,
+        project: input.project ?? null,
         coordinator,
         host: host.hostId,
         provider: host.trackerKind,

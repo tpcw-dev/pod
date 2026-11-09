@@ -92,6 +92,8 @@ describeDb("pod brief", () => {
       effective_gate_map: gateMap,
       hash,
       pinned_at: at,
+      project: null,
+      profile: null,
     });
     const spec = await storeRevision(
       conn.db,

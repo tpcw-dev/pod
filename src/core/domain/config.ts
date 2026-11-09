@@ -71,4 +71,6 @@ export interface Snapshot {
   effective_gate_map: Json;
   hash: string;
   pinned_at: Date;
+  project: string | null;
+  profile: string | null;
 }

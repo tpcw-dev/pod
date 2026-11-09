@@ -2,6 +2,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
+import {
+  globalProject,
+  projectProfiles,
+  type ProjectProfile,
+} from "../core/brief/profiles.ts";
 import { revisionId } from "../core/config/canonical-json.ts";
 import type { BriefTree } from "../core/domain/brief.ts";
 import { RevisionEnvelope, type Revision } from "../core/domain/config.ts";
@@ -83,6 +88,14 @@ const TestJson = z.object({
 });
 
 export const BriefOutput = z.object({
+  projects: z.array(
+    z.object({
+      project: z.string(),
+      profile: z.string().nullable(),
+      policy: z.string().nullable(),
+      line: z.string(),
+    }),
+  ),
   stories: z.array(
     z.object({
       provider: z.string(),
@@ -98,6 +111,8 @@ export const BriefOutput = z.object({
           run_id: z.string(),
           state: z.string(),
           created_at: z.string(),
+          profile: z.string().nullable(),
+          profile_stale: z.boolean(),
           snapshot: z
             .object({
               hash: z.string(),
@@ -221,9 +236,14 @@ function driftFor(
   return byStory;
 }
 
-function toBriefResult(tree: BriefTree): BriefResult {
+function toBriefResult(
+  tree: BriefTree,
+  projects: readonly ProjectProfile[],
+): BriefResult {
   const drift = driftFor(tree);
+  const current = new Map(projects.map((row) => [row.project, row.profile]));
   return {
+    projects: [...projects],
     stories: tree.stories.map((item) => ({
       provider: item.story.provider,
       external_id: item.story.external_id,
@@ -237,6 +257,11 @@ function toBriefResult(tree: BriefTree): BriefResult {
         run_id: run.run.run_id,
         state: run.run.state,
         created_at: iso(run.run.created_at),
+        profile: run.snapshot?.profile ?? null,
+        profile_stale:
+          run.snapshot !== null &&
+          run.snapshot.profile !==
+            (current.get(run.snapshot.project ?? globalProject) ?? null),
         snapshot:
           run.snapshot === null
             ? null
@@ -300,7 +325,9 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
         `no Story has external_id ${externalId}`,
         ["pod brief"],
       );
-    const result = BriefOutput.parse(toBriefResult(tree));
+    const result = BriefOutput.parse(
+      toBriefResult(tree, await projectProfiles(connection.db, tree)),
+    );
     if (input.html !== undefined)
       writeFileSync(input.html, renderBriefHtml(JSON.stringify(result)));
     return result;
