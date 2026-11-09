@@ -1,9 +1,6 @@
 import { z } from "zod";
 import { singleActive } from "../config/active.ts";
-import {
-  activatePendingProfile,
-  pendingProfileOps,
-} from "../config/apply.ts";
+import { activatePendingProfile, pendingProfileOps } from "../config/apply.ts";
 import { decisionLimits } from "../config/limits.ts";
 import { advanceDecision, chargeBudget } from "../decide/advance.ts";
 import { applyRuling } from "../decide/ruling.ts";

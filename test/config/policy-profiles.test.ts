@@ -52,7 +52,9 @@ test.each(["hqa_after_deploy", "staging_review"])(
   "a profile that lifts %s is refused",
   (gate) => {
     expect(
-      refusedAt(withProfiles({ p: { replaces: { [gate]: "decision-pair-aqa" } } })),
+      refusedAt(
+        withProfiles({ p: { replaces: { [gate]: "decision-pair-aqa" } } }),
+      ),
     ).toEqual(["schema_invalid", `profiles.p.replaces.${gate}`]);
   },
 );
@@ -74,9 +76,10 @@ test("a profile key outside replaces, requires, and deploy_production is refused
 });
 
 test("an active_profile that names an undefined profile is refused", () => {
-  expect(
-    refusedAt({ ...defaultValue, active_profile: "reckless" }),
-  ).toEqual(["schema_invalid", "active_profile"]);
+  expect(refusedAt({ ...defaultValue, active_profile: "reckless" })).toEqual([
+    "schema_invalid",
+    "active_profile",
+  ]);
   expect(refusedAt({ gates: {}, active_profile: "hands-on" })).toEqual([
     "schema_invalid",
     "active_profile",

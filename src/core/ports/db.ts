@@ -65,6 +65,7 @@ export interface Repo {
     scope: Scope,
     scopeRef: string,
   ): Promise<Activation[]>;
+  activeScopeRefs(kind: Kind, scope: Scope): Promise<string[]>;
   activate(input: ActivateInput): Promise<ActivateResult>;
   insertSnapshot(row: Snapshot): Promise<void>;
   getSnapshot(runId: string): Promise<Snapshot | null>;

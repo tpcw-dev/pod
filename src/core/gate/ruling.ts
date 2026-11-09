@@ -27,8 +27,7 @@ interface Verified {
 }
 
 export type StoryComments =
-  | { ok: true; comments: TrackerComment[] }
-  | { ok: false; error: string };
+  { ok: true; comments: TrackerComment[] } | { ok: false; error: string };
 
 export async function readStoryComments(
   tracker: TrackerPort,
@@ -135,7 +134,12 @@ export interface ProfileReadback {
 }
 
 function requestLine(body: string): string {
-  return body.split(/\r?\n/).find((line) => line.trim() !== "")?.trim() ?? "";
+  return (
+    body
+      .split(/\r?\n/)
+      .find((line) => line.trim() !== "")
+      ?.trim() ?? ""
+  );
 }
 
 export async function verifiedProfileRequests(

@@ -210,7 +210,9 @@ export function effectiveReserved(policyValue: unknown): Reserved {
   const policy = fields(policyValue);
   const active = policy["active_profile"];
   const profile =
-    typeof active === "string" ? fields(fields(policy["profiles"])[active]) : {};
+    typeof active === "string"
+      ? fields(fields(policy["profiles"])[active])
+      : {};
   if (profile["deploy_production"] !== "agent") return reserved;
   return {
     ...reserved,

@@ -406,8 +406,7 @@ export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
     const refusal = await processRefusal(tx, input.envelope);
     if (refusal !== null) return { kind: "process_invalid", refusal };
     const profile = pendingProfile(input.envelope);
-    if (profile !== null)
-      return requestProfile(tx, input, opKey, id, profile);
+    if (profile !== null) return requestProfile(tx, input, opKey, id, profile);
     const { operation, created } = await tx.insertOperation({
       op_key: opKey,
       intent: "config_apply",

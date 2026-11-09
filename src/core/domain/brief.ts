@@ -58,6 +58,8 @@ export interface BriefSnapshot {
   crew_revision_id: string;
   process_revision_id: string;
   policy_revision_id: string;
+  project: string | null;
+  profile: string | null;
   crew: Revision | null;
   process: Revision | null;
   policy: Revision | null;

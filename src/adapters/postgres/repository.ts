@@ -434,6 +434,16 @@ function makeRepo(x: Executor): Repo {
       return row === undefined ? null : toActivation(row);
     },
 
+    async activeScopeRefs(kind, scope) {
+      const rows = await x
+        .select({ scopeRef: activation.scopeRef })
+        .from(activation)
+        .where(and(eq(activation.kind, kind), eq(activation.scope, scope)))
+        .groupBy(activation.scopeRef)
+        .orderBy(asc(activation.scopeRef));
+      return rows.map((row) => row.scopeRef);
+    },
+
     async listActivations(kind, scope, scopeRef) {
       const rows = await x
         .select()
@@ -1245,6 +1255,8 @@ function makeRepo(x: Executor): Repo {
                     crew_revision_id: snap.crew_revision_id,
                     process_revision_id: snap.process_revision_id,
                     policy_revision_id: snap.policy_revision_id,
+                    project: snap.project,
+                    profile: snap.profile,
                     crew: await repo.getRevision(snap.crew_revision_id),
                     process: await repo.getRevision(snap.process_revision_id),
                     policy: await repo.getRevision(snap.policy_revision_id),
