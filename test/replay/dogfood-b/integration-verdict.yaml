@@ -1,0 +1,11 @@
+gate: integration_review
+task: task_671078ef82bd
+head_sha: 0cbc3ee2bca8c5da657ee80ff746674c9280b02e
+reviewer: integrator
+outcome: PASS
+notes: |
+  PASS on 0cbc3ee2bca8c5da657ee80ff746674c9280b02e for gate integration_review of task_671078ef82bd. No findings. The three commits (6a230f6 Rules, 2acc89f Activation, 0cbc3ee Surfaces) meet TPC-1413's Completion check, Constraints, and Exclusions, and the agreed plan D1-D9 for run_89963994885a. The PR-body pairing is the pr step and is not on this SHA.
+  Checkpoint 1: test/config/policy-profiles.test.ts exists and passed (12). grep of the four profile keys in specs/policy/default.yaml equals 4. Lifts of hqa_after_deploy and staging_review are refused. deploy_production is needs_human on hands-on, standard, and hands-off, and agent on autonomous. Autonomous activation is gate_lift_refused.
+  Checkpoint 2: src/db/schema/config.ts has profile, and db/migrations/0013_snapshot_project_profile.sql exists. The named config-apply cases passed, including the snapshot that keeps project, profile, and policy_revision_id after a later activation.
+  Checkpoint 3: test/replay/profiles.test.ts passed, one replay each for hands-on, standard, and hands-off, asserting the brief JSON profile and the state Profile line. The Gate-lift section contains a Spec clarification. package.json is 0.1.1.
+  On this head, pnpm typecheck and pnpm lint exited 0, the scope scan against POD_SCRUB_DENYLIST exited 0, and pnpm vitest run passed 99 files (1000 passed, 1 skipped, 2 todo) with TMPDIR=/var/tmp and an embedded Postgres. effective_gate_map stays {}. A global active_profile and autonomous stay gate_lift_refused. The project column is written beside profile at pin time and is not updated later.

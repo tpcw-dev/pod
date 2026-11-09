@@ -1,0 +1,19 @@
+{
+  "verb": "task-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "task-create",
+      "--run",
+      "run_89963994885a",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"ba85be3e-0570-4706-b0a5-b088d24d97f3\",\n  \"ok\": true,\n  \"result\": {\n    \"task\": {\n      \"id\": \"task_6e36f2a880f0\",\n      \"run_id\": \"run_89963994885a\",\n      \"parent_id\": null,\n      \"created_by_terminal_handle\": \"term_ab7cfa0f-a59d-4362-bfb8-36761f51da8b\",\n      \"created_by_pane_key\": \"0e1376f8-cccb-4fff-a8dc-9fdcf7367565:4f826a62-4d1b-40fc-8c0b-485dfb0d2eb1\",\n      \"created_by_process_incarnation\": \"902f0fc5-edba-4879-a032-58e853f081bb::/w/1@@f77d1207:f0a0c777-c1f2-43bc-ad86-31c326d2ca7c\",\n      \"created_by_run_generation\": 1,\n      \"task_title\": \"decision auditor\",\n      \"display_name\": \"decision auditor\",\n      \"spec\": \"This is your assigned Orca task. You are the auditor Seat of Pod Decision . You audit; you never propose.\\nDo not edit files, run pod verbs, or send worker_done. Each proposal arrives as a message from the Run coordinator. Read it now, and after each answer, with the Bash tool:\\n\\norca orchestration check --wait --timeout-ms 540000 --json\\n\\nRun it again if it returns no message. Pass --ack <deliveryId> from the previous result on the next check.\\nList the constraints and the verification results first, then audit the proposal, check its citations against the manifest, and look for counterexamples.\\nAnswer each proposal with exactly one message, then wait for the next one:\\n\\norca orchestration send --type decision_gate --subject \\\"decision <decision id> round <n> audit\\\" --payload '{\\\"kind\\\":\\\"decision_audit\\\",\\\"dispatchId\\\":\\\"<your dispatch id>\\\",\\\"decisionId\\\":\\\"<decision id>\\\",\\\"round\\\":<n>,\\\"stance\\\":\\\"<agree|disagree|escalate|needs_evidence>\\\",\\\"reasons\\\":[\\\"<reason>\\\"],\\\"points_of_disagreement\\\":[\\\"<point>\\\"]}' --json\\n\\nRun the command with the Bash tool. Take <your dispatch id> from your preamble, and the decision id and the round from the message. Use an empty points_of_disagreement list when you agree.\\n\\nQuestion: Audit the Decisions of Run run_89963994885a for story:TPC-1413.\\nOptions:\\n\\nEvidence manifest c1ac102cfcee15dd67ce4c5c89f85e0850efaf6935002e6ca3c32b7d5dd7f8d5:\\n\\n\",\n      \"status\": \"ready\",\n      \"deps\": \"[]\",\n      \"result\": null,\n      \"created_at\": \"2026-11-08 22:26:48\",\n      \"completed_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"3e500a0a-83a5-4180-9b38-e38256342b06\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-08T22:26:49.003Z"
+}

@@ -1,0 +1,21 @@
+{
+  "verb": "task-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "task-create",
+      "--run",
+      "run_89963994885a",
+      "--deps",
+      "[\"task_856242e637c3\"]",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"f84e957a-68d1-42c8-b5cd-bb0877eb016e\",\n  \"ok\": true,\n  \"result\": {\n    \"task\": {\n      \"id\": \"task_bb08dec9ef7d\",\n      \"run_id\": \"run_89963994885a\",\n      \"parent_id\": null,\n      \"created_by_terminal_handle\": \"term_ab7cfa0f-a59d-4362-bfb8-36761f51da8b\",\n      \"created_by_pane_key\": \"0e1376f8-cccb-4fff-a8dc-9fdcf7367565:4f826a62-4d1b-40fc-8c0b-485dfb0d2eb1\",\n      \"created_by_process_incarnation\": \"902f0fc5-edba-4879-a032-58e853f081bb::/w/1@@f77d1207:f0a0c777-c1f2-43bc-ad86-31c326d2ca7c\",\n      \"created_by_run_generation\": 1,\n      \"task_title\": \"implement\",\n      \"display_name\": \"implement\",\n      \"spec\": \"Several Tasks, one per slice of the plan.\",\n      \"status\": \"pending\",\n      \"deps\": \"[\\\"task_856242e637c3\\\"]\",\n      \"result\": null,\n      \"created_at\": \"2026-11-08 22:26:31\",\n      \"completed_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"ab483fad-f556-4533-b741-2d017c90ab9d\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-08T22:26:31.601Z"
+}

@@ -1,0 +1,21 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_89963994885a",
+      "--ack",
+      "delivery_816d84658928",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"9fd0e9c1-f747-4d17-8135-5f259ef513aa\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_89963994885a\",\n    \"deliveryId\": null,\n    \"messages\": [],\n    \"count\": 0,\n    \"replayed\": false,\n    \"acknowledged\": \"delivery_816d84658928\",\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"next\": \"A plain check already acknowledges the mail it shows, so --ack is not needed. Run check without --ack to read new mail.\",\n    \"mutation\": {\n      \"requestId\": \"b35cf383-fdfb-4295-be7d-9e5a33f1bd17\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-09T01:28:38.237Z"
+}

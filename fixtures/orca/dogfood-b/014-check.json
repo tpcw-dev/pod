@@ -1,0 +1,19 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_89963994885a",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 1,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"367d5577-574d-4b9e-af01-25ec0a956fd9\",\n  \"ok\": false,\n  \"error\": {\n    \"code\": \"worker_cannot_coordinate_own_run\",\n    \"message\": \"You work Dispatch ctx_e477711cb6c3 in Run run_89963994885a, so you cannot coordinate that Run. Your mail arrives through plain `orchestration check` (no --run); report with `orchestration send`. No effects were applied. Orchestration mutation request ID: 4027615d-b1d9-4ac5-80e5-e4eb952db508.\",\n    \"data\": {\n      \"effectsApplied\": false,\n      \"dispatchId\": \"ctx_e477711cb6c3\",\n      \"orchestrationRequestId\": \"4027615d-b1d9-4ac5-80e5-e4eb952db508\",\n      \"originalCommand\": [\n        \"/w/1\",\n        \"orchestration\",\n        \"check\",\n        \"--run\",\n        \"run_89963994885a\",\n        \"--json\",\n        \"--full\"\n      ]\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-08T22:26:54.333Z"
+}

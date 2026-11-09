@@ -1,0 +1,19 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_89963994885a",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"e2bf5bbf-9787-4ced-a3da-07d2f911ddbd\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_89963994885a\",\n    \"deliveryId\": \"delivery_5e380e88bbcf\",\n    \"messages\": [\n      {\n        \"id\": \"msg_c34be18c3d53\",\n        \"run_id\": \"run_89963994885a\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_b1e7afeb-101b-4a87-9398-05a8cc6b66b9\",\n        \"to_handle\": \"run:run_89963994885a\",\n        \"subject\": \"review PASS on 0cbc3ee\",\n        \"body\": \"Reviewed the three TPC-1413 commits on 0cbc3ee2bca8c5da657ee80ff746674c9280b02e and posted PASS for gate review. Verdict post succeeded: task_b5683e1e670c is done and task_671078ef82bd was promoted. Nothing remains on this review step.\\n{\\\"ok\\\":true,\\\"result\\\":{\\\"task_id\\\":\\\"task_b5683e1e670c\\\",\\\"outcome\\\":\\\"PASS\\\",\\\"state\\\":\\\"done\\\",\\\"promoted\\\":[\\\"task_671078ef82bd\\\"],\\\"created\\\":[],\\\"replayed\\\":false,\\\"receipt_id\\\":1,\\\"op_key\\\":\\\"verdict:ed573386871d03a6631bb252d5526dd32301500fbf74a7f6eb1d0cb8b27c7f61\\\",\\\"gate\\\":\\\"review\\\",\\\"candidate_sha\\\":\\\"0cbc3ee2bca8c5da657ee80ff746674c9280b02e\\\",\\\"owner_generation\\\":1,\\\"orca\\\":\\\"1.4.253\\\"},\\\"meta\\\":{\\\"pod\\\":\\\"0.1.0\\\",\\\"ownerGeneration\\\":1,\\\"opKey\\\":\\\"verdict:ed573386871d03a6631bb252d5526dd32301500fbf74a7f6eb1d0cb8b27c7f61\\\",\\\"orca\\\":\\\"1.4.253\\\"}}\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_b5683e1e670c\\\",\\\"dispatchId\\\":\\\"ctx_8efde78ae741\\\",\\\"outcome\\\":\\\"succeeded\\\"}\",\n        \"created_at\": \"2026-11-09T00:51:09Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"deliveryAcknowledged\": true,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"2c461ad3-095b-4ef1-a07a-425adba9cbbe\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-09T00:51:23.346Z"
+}

@@ -1,0 +1,13 @@
+{
+  "method": "readComment",
+  "match": {
+    "operation": "Comment",
+    "variables": {
+      "id": "00000000-0000-4000-8000-000000000013"
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"comment\":{\"id\":\"00000000-0000-4000-8000-000000000013\",\"body\":\"hqa_after_deploy PASS\\nDeployed: ff0fe227b83a2d37b50b398d9e3aed17075fc27c\\n\\nPosted by the coordination session on keeper's word (2026-11-09). Checked on the v0.1.1 build: `pod --help` shows `meta.pod` 0.1.1; `pod brief story:TRK-1` carries `profile` per project, `dogfood` is `hands-on` under `policy.dogfood-b-project@1`.\\n\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"},\"issue\":{\"identifier\":\"TRK-1\"}}}}\n",
+  "error": null,
+  "recordedAt": "2026-11-09T23:45:05.897Z"
+}

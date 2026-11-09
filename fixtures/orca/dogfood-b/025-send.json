@@ -1,0 +1,19 @@
+{
+  "verb": "send",
+  "match": {
+    "argv": [
+      "orchestration",
+      "send",
+      "--to",
+      "dispatch:ctx_7e7698e06f4d",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"0613e62c-c6aa-41a3-aad5-3dd038bc840c\",\n  \"ok\": true,\n  \"result\": {\n    \"message\": {\n      \"id\": \"msg_8dc6f6e5f844\",\n      \"run_id\": \"run_89963994885a\",\n      \"delivery_contract\": \"current_delivery\",\n      \"from_handle\": \"term_ab7cfa0f-a59d-4362-bfb8-36761f51da8b\",\n      \"to_handle\": \"dispatch:ctx_7e7698e06f4d\",\n      \"subject\": \"decision dec_d00a5b0eb02b2f910afcbd056fd579b22b80006304fae1f2a1b7d9b155d21f2b round 1 proposal\",\n      \"body\": \"Decision dec_d00a5b0eb02b2f910afcbd056fd579b22b80006304fae1f2a1b7d9b155d21f2b round 1. Audit this proposal.\\n\\nQuestion: Should the plan Task of TPC-1413 pass as written? The planner's plan is the file /w/1 (three sequential Tasks T1 rules, T2 activation, T3 surfaces and proof, design points D1 to D9). Read it and check it against the Story's Goal, Constraints, Completion check, and Exclusions. D1 adds an optional `pod run create --project` flag and a nullable snapshot `project` column, which the Story's Constraints do not name.\\nProposal: Send the plan back to the planner with one change, keeping D1. D1 stays: today pod run create resolves policy at global scope only, so without a project input no Run ever pins a project-scope Revision and Q7 ('the new profile applies from the next pod run create') cannot happen; deriving the project from the pinned Revision's scope_ref is circular, and a Run that falls back to global would drop out of the Q7 run list and the Q8 brief marker. The nullable project column is the smallest addition that serves Q7 and Q8, it leaves the profile column, the 0013 migration and the snapshot no-update rule as the Constraints say, and the PR body must name it as the one addition beyond the Constraints. Required change: D5 admits a 'requires' key on a profile entry, but no profile key 'requires' exists in specs/policy/default.yaml or profileProblem today, and the Story's Exclusions bar TPC-1385's replaces/requires table. D5's closed key set must be replaces and deploy_production only (S16b extends that set later), and T1 must test that a 'requires' key is refused as an unknown key. Everything else matches the Story: CP1 (four profiles, grep count 4, policy-profiles tests), CP2 (profile column, 0013, both exact test names), CP3 (one replay per activatable profile, the Gate-lift Spec clarification, row 8, the patch bump), the pending path with keepers from the currently active policy, autonomous still gate_lift_refused, and the Exclusions (no attention, no lift enforcement, no new verb). D6 pointing next: at the Gate-lift Spec clarification instead of a TPC-1385 section is acceptable because the spec has no TPC-1385 section and src/ must stay free of ticket keys; the PR body should state it.\\nCitations: story:5686f3497362d71709b99e02f4cf7275ea91d56e6a989fbfb876a0a38447e71b, task:c18e2f8c3f9359ecbf07467ed0efead98bddcb441b4d41677b22b1c552ddd6f4, delivery:78e448fb72f4f0d982be9dbe29e4ae68e79f92eb8fa9b6eea77abe4b19ff7cf4, policy:039ebaa0357a66471d6e0f47e901acc4e1f4837c507af5fbd5f6a243f7c6c21c, run:6914546f1a57ea71e397208d046fb5675132510711c773155b4a56b61900c30f\",\n      \"type\": \"status\",\n      \"priority\": \"normal\",\n      \"thread_id\": null,\n      \"payload\": null,\n      \"created_at\": \"2026-11-08T22:31:33Z\",\n      \"delivered_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"3b994bdf-06df-4a0e-b62c-042d1512f1ca\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-08T22:31:33.220Z"
+}

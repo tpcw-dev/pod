@@ -1,0 +1,19 @@
+{
+  "verb": "task-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "task-create",
+      "--run",
+      "run_89963994885a",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"304c6dbe-2afc-46a3-b44b-427dc47c6926\",\n  \"ok\": true,\n  \"result\": {\n    \"task\": {\n      \"id\": \"task_856242e637c3\",\n      \"run_id\": \"run_89963994885a\",\n      \"parent_id\": null,\n      \"created_by_terminal_handle\": \"term_ab7cfa0f-a59d-4362-bfb8-36761f51da8b\",\n      \"created_by_pane_key\": \"0e1376f8-cccb-4fff-a8dc-9fdcf7367565:4f826a62-4d1b-40fc-8c0b-485dfb0d2eb1\",\n      \"created_by_process_incarnation\": \"902f0fc5-edba-4879-a032-58e853f081bb::/w/1@@f77d1207:f0a0c777-c1f2-43bc-ad86-31c326d2ca7c\",\n      \"created_by_run_generation\": 1,\n      \"task_title\": \"plan\",\n      \"display_name\": \"plan\",\n      \"spec\": \"Process impl-xlarge@1, step plan, role planner.\",\n      \"status\": \"ready\",\n      \"deps\": \"[]\",\n      \"result\": null,\n      \"created_at\": \"2026-11-08 22:26:30\",\n      \"completed_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"2f648b66-2406-4bfb-b512-130f1a49684f\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-08T22:26:30.629Z"
+}
