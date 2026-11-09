@@ -38,6 +38,12 @@ import {
   decideVerb,
   renderRuling,
 } from "./decide-verbs.ts";
+import {
+  DeployRecordInput,
+  DeployRecordOutput,
+  deployMeta,
+  deployRecordVerb,
+} from "./deploy-verbs.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
 import {
   DocsReadInput,
@@ -286,6 +292,18 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
       "a source-verified comment by the human gatekeeper, or by the relay principal with a matching content hash, plus a deploy event for `hqa_after_deploy`",
     ],
     meta: gateMeta,
+  }),
+  row({
+    name: "deploy record",
+    input: DeployRecordInput,
+    output: DeployRecordOutput,
+    handler: deployRecordVerb,
+    sideEffect: "ledger",
+    cancelBy: ["operator"],
+    evidenceRequired: [
+      "a deploy line whose deployed_revision matches the Run's candidate SHA or its tree",
+    ],
+    meta: deployMeta,
   }),
   row({
     name: "drain",

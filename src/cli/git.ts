@@ -16,3 +16,12 @@ export function gitStatus(path: string): string {
     );
   return result.stdout.trimEnd();
 }
+
+export function gitTree(sha: string): Promise<string | null> {
+  const result = spawnSync(
+    "git",
+    ["rev-parse", "--verify", "--quiet", `${sha}^{tree}`],
+    { encoding: "utf8" },
+  );
+  return Promise.resolve(result.status === 0 ? result.stdout.trim() : null);
+}

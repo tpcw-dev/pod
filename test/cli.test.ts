@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -7,6 +7,7 @@ import { expect, test } from "vitest";
 function run(
   args: string[],
   env: Record<string, string> = {},
+  input?: string,
 ): { status: number | null; stdout: string } {
   const result = spawnSync(
     "node_modules/.bin/tsx",
@@ -14,6 +15,7 @@ function run(
     {
       encoding: "utf8",
       env: { ...process.env, ...env },
+      ...(input === undefined ? {} : { input }),
     },
   );
   return { status: result.status, stdout: result.stdout };
@@ -61,6 +63,7 @@ test("help lists the verbs sorted by name", () => {
     "decide",
     "decide cancel",
     "decide ruling",
+    "deploy record",
     "dispatch",
     "docs read",
     "drain",
@@ -86,6 +89,41 @@ test("a flag the verb does not take is usage", () => {
   const result = run(["db", "migrate", "--html", "out.html"]);
   expect(result.status).toBe(2);
   expect(JSON.parse(result.stdout).error.code).toBe("usage");
+});
+
+test("deploy record takes one JSON deploy line from FILE or --stdin", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pod-deploy-line-"));
+  const file = (name: string, text: string) => {
+    const path = join(dir, name);
+    writeFileSync(path, text);
+    return path;
+  };
+  const deploy = ["deploy", "record", "story:S-1", "--generation", "1"];
+  const sha = "0123456789abcdef0123456789abcdef01234567";
+  const line = JSON.stringify({
+    environment: "local",
+    deployment_id: "v0.1.1",
+    deployed_revision: sha,
+    source_commit: sha,
+  });
+  for (const [args, code, input] of [
+    [deploy, "usage"],
+    [[...deploy, file("both.json", line), "--stdin"], "usage", line],
+    [[...deploy, "--stdin"], "schema_invalid", ""],
+    [[...deploy, "--stdin"], "schema_invalid", `${line}\n${line}`],
+    [
+      [...deploy, file("extra.json", line.replace("}", ',"x":1}'))],
+      "schema_invalid",
+    ],
+    [
+      [...deploy, file("short.json", '{"environment":"local"}')],
+      "schema_invalid",
+    ],
+  ] as const) {
+    const result = run([...args], { POD_HOME: "/nonexistent" }, input);
+    expect(result.status, args.join(" ")).toBe(2);
+    expect(JSON.parse(result.stdout).error.code).toBe(code);
+  }
 });
 
 test("an unknown verb is usage", () => {

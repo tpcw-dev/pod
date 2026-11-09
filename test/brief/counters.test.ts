@@ -91,6 +91,25 @@ test("a receipt-attributed Dispatch whose effective model differs from the reque
   ).toBe(1);
 });
 
+test("a deploy recorded by pod deploy record counts as hand-filled", () => {
+  expect(
+    countRun(
+      { run_id: "run-a" },
+      [],
+      [],
+      [
+        {
+          run_id: "run-a",
+          type: "deploy",
+          op_key: "op-deploy",
+          source: { kind: "command", verb: "deploy record" },
+        },
+      ],
+      [],
+    ).hand_filled,
+  ).toBe(1);
+});
+
 test("a hand-filled source that is not a command does not count", () => {
   expect(
     countRun(

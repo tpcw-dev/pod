@@ -26,6 +26,8 @@ export const RefusalCode = z.enum([
   "decision_denied",
   "decision_budget_exhausted",
   "gate_lift_refused",
+  "deploy_revision_mismatch",
+  "deploy_not_waiting",
   "usage",
   "failed",
 ]);
