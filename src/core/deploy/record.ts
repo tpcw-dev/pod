@@ -45,25 +45,26 @@ async function revisionRefusal(
 ): Promise<Refused | null> {
   const { deployed_revision: deployed, source_commit: source } = input.line;
   const candidate = await candidateSha(tx, run.run_id);
-  const mismatch = (reason: string) =>
+  const mismatch = (detail: string) =>
     refuse(
       "deploy_revision_mismatch",
-      `Run ${run.run_id}: deployed_revision ${deployed} ${reason} the candidate SHA ${candidate ?? "(none)"}`,
+      `Run ${run.run_id}: deployed_revision ${deployed} ${detail}; candidate SHA ${candidate ?? "none"}`,
       [
-        `deploy the candidate ${candidate ?? "SHA the Run pushed"} or a squash of it`,
+        "deploy the Run's candidate SHA or a squash of it",
         "run from a checkout that has both commits (git fetch)",
       ],
     );
   if (deployed !== source)
-    return mismatch(`differs from source_commit ${source}, so it is not`);
-  if (candidate === null) return mismatch("has no");
+    return mismatch(`differs from source_commit ${source}`);
+  if (candidate === null)
+    return mismatch("cannot be checked because the Run has no push event");
   if (deployed === candidate) return null;
   const [deployedTree, candidateTree] = await Promise.all([
     input.treeOf(deployed),
     input.treeOf(candidate),
   ]);
   if (deployedTree !== null && deployedTree === candidateTree) return null;
-  return mismatch("is neither, nor has the tree of,");
+  return mismatch("is not the candidate SHA and does not share its tree");
 }
 
 async function write(
