@@ -72,12 +72,13 @@ export function deliveryOutcome(
 const Sha = z.string().regex(/^[0-9a-f]{40}$/);
 const Text = z.string().min(1);
 const Pr = z.strictObject({ number: z.int(), url: Text, head: Sha });
-const Deploy = z.strictObject({
+export const Deploy = z.strictObject({
   environment: Text,
   deployment_id: Text,
   deployed_revision: Text,
   source_commit: Text,
 });
+export type Deploy = z.infer<typeof Deploy>;
 
 type FactType = "push" | "pr" | "deploy";
 

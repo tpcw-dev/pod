@@ -90,6 +90,7 @@ function parse() {
         page: { type: "string" },
         heading: { type: "string" },
         json: { type: "boolean" },
+        stdin: { type: "boolean" },
       },
       strict: true,
       allowPositionals: true,

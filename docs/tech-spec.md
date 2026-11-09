@@ -282,7 +282,7 @@ Each event type has one kind of producer. A verb that is not listed records no e
 | `pod decide` when a Decision closes, a Reserved deny hits, a human ruling is verified, or an evidence exchange records a child manifest | `decision` |
 | `pod check` or `pod decide` when a Decision's adoption state changes | `decision` |
 | `pod decide` with category `self`, below the escalation threshold | `self_decision` |
-| `pod check` reading a push, a PR, or a deploy from a delivery or an `external_action` event | `push`, `pr`, `deploy` |
+| `pod check` reading a push, a PR, or a deploy from a delivery, and `pod deploy record` recording an `external_action` deploy | `push`, `pr`, `deploy` |
 | `pod release` | `release` |
 | `pod takeover` | `takeover` |
 | `pod decide` when a Seat, the lead, or the claim authority escalates, and when a Decision enters `needs_human` | `escalate` |
@@ -501,6 +501,7 @@ v1 has the PRD's 16 command forms plus `db migrate`. `db migrate` is a setup ver
 | `release` | `--dispatch D`, `--generation N`, optional `--retain --reason R` | orca | release event, Orca `worker-release` | nobody |
 | `verdict post` | `FILE`, `--generation N` | tracker | `ledger.gate_receipt`, `ledger.outbox` | operator, by voiding the receipt |
 | `hqa record` | `story:<id>`, `--generation N` | tracker | `ledger.gate_receipt`, `ledger.outbox` | operator, by voiding the receipt |
+| `deploy record` | `story:<id>`, `--generation N`, `FILE` or `--stdin` | ledger | deploy event, `ledger.task` | operator |
 | `decide` | `--task T`, `--category C`, `--effect accept_plan` or `--effect change_spec`, `FILE`, `--generation N` | orca | `ledger.decision`, `ledger.decision_round`, `ledger.evidence_manifest`, `config.revision` for a change_spec Task spec, decider and auditor `ledger.dispatch` rows, Orca `send` | operator or the escalating actor, by a cancel event |
 | `state` | optional `--project P`, optional `--decisions` | none | nothing | not applicable |
 | `takeover` | `story:<id>` | orca | `ledger.run.owner_generation`, `ledger.run.coordinator`, takeover event, a restore view from the same manifest, Orca `run-use`, and on an xl Run a new decider `ledger.dispatch` row | nobody |
@@ -524,6 +525,7 @@ The evidence each side-effect verb requires before it acts:
 | `release` | the Dispatch is settled or the caller gives a retain reason, and this host owns the terminal |
 | `verdict post` | Head SHA equals the current candidate SHA, and the reviewer is not the developer |
 | `hqa record` | a source-verified comment by the human gatekeeper, or by the relay principal with a matching content hash, plus a deploy event for `hqa_after_deploy` |
+| `deploy record` | a deploy line whose deployed_revision matches the Run's candidate SHA or its tree |
 | `decide` | the Reserved check passed, an Evidence manifest is pinned, and the `effect` fits the Task as "Decision effects" requires |
 | `takeover` | evidence that the old coordinator has stopped, which on an xl Run is the decider Dispatch |
 | `drain` | an owner generation that matches the Run |
@@ -572,7 +574,9 @@ Identifiers and flags come from argv. A body comes from a file path or stdin, as
 | `launch_unknown` | 4 | Orca returned `outcome_unknown` or the reply was lost | the same command with the same `--op-key`, then `pod check` |
 | `duplicate_op` | 3 | an op key returns with a different intent | a new op key with `retry_of` |
 | `receipt_stale_sha` | 3 | a verdict's Head SHA is not the current candidate SHA, or the deployed revision does not match | the current candidate SHA, and a request for a new review |
-| `receipt_no_deploy` | 3 | `pod hqa record` runs for `hqa_after_deploy` and the Run has no deploy event | the deploy event fields to record |
+| `receipt_no_deploy` | 3 | `pod hqa record` runs for `hqa_after_deploy` and the Run has no deploy event | `pod deploy record story:<id> --generation N` with the deploy event fields |
+| `deploy_revision_mismatch` | 3 | a deploy line's `deployed_revision` differs from its `source_commit`, or is neither the Run's candidate SHA nor a commit with the candidate's tree | both SHAs and the Run, and a fetch of both commits into the checkout that runs the verb |
+| `deploy_not_waiting` | 3 | `pod deploy record` finds no `ready` `external_action` Task, and the line does not replay the Task's recorded deploy | `pod state story:<id>` |
 | `receipt_unverified_source` | 3 | the source is not an accepted human source, the content hash differs, readback failed, or this host has no passing bypass test | the gate id, a note that the Gate stays waiting, and after a failed bypass test the remedy that "Trust boundary and the bypass test" names |
 | `receipt_keeper_is_decision_seat` | 3 | a verdict's reviewer is the Seat of a decider or auditor Dispatch of the Run | the Seat, its role, and the Dispatch id |
 | `reserved_deny` | 3 | the Decision category or content hits a deny class | none beyond the recorded event |
@@ -914,7 +918,7 @@ A dependency is satisfied when it is `passed`, or `done`, which a Task reaches o
 | --- | --- | --- |
 | `pending` | `ready` | every Task in `deps` is satisfied |
 | `ready` | `dispatched` | `pod dispatch` records a start event for a worker step |
-| `ready` | `delivered` | an `external_action` event or a `human_wait` Gate receipt arrives |
+| `ready` | `delivered` | `pod deploy record` appends the `external_action` deploy event, or a `human_wait` Gate receipt arrives |
 | `dispatched` | `delivered` | `pod check` records a delivery that matches the Dispatch and the owner generation |
 | `dispatched` | `blocked` | Orca reports the Task `blocked` after `worker-stop` |
 | `blocked` | `dispatched` | `pod retry` starts a new Dispatch with `retry_of` |

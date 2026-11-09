@@ -166,7 +166,9 @@ async function deployedRevision(
     return refuse(
       "receipt_no_deploy",
       `gate ${gate} needs a deploy event on Run ${run.run_id}`,
-      [`record a worker_done payload deploy with ${deployFields}`],
+      [
+        `pod deploy record story:${run.story_external_id} --generation N with one line of ${deployFields}`,
+      ],
     );
   const revision = deploy.data.deployed_revision;
   const named = /^Deployed:\s*(\S+)\s*$/m.exec(comment.body)?.[1];

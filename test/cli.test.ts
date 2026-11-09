@@ -61,6 +61,7 @@ test("help lists the verbs sorted by name", () => {
     "decide",
     "decide cancel",
     "decide ruling",
+    "deploy record",
     "dispatch",
     "docs read",
     "drain",

@@ -11,6 +11,7 @@ import type { Dispatch, Event, Operation, Run, Task } from "../domain/ledger.ts"
 export const HAND_FILLED_VERBS = [
   "verdict post",
   "hqa record",
+  "deploy record",
   "config apply",
   "takeover",
   "check --resume",

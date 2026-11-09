@@ -212,7 +212,7 @@ describeDb("pod hqa record", () => {
       refusal: {
         code: "receipt_no_deploy",
         nextSteps: [
-          "record a worker_done payload deploy with environment, deployment_id, deployed_revision, source_commit",
+          "pod deploy record story:S-1 --generation N with one line of environment, deployment_id, deployed_revision, source_commit",
         ],
       },
     });

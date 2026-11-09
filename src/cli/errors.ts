@@ -30,6 +30,8 @@ export type ErrorCode =
   | "decision_denied"
   | "decision_budget_exhausted"
   | "gate_lift_refused"
+  | "deploy_revision_mismatch"
+  | "deploy_not_waiting"
   | "failed";
 
 const exits: Partial<Record<ErrorCode, number>> = {
