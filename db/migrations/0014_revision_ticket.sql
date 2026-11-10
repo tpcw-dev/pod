@@ -1,0 +1,1 @@
+ALTER TABLE "config"."revision" ADD COLUMN "ticket" text;

@@ -22,7 +22,13 @@ import type {
 } from "../../src/core/ports/tracker.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { runCreate } from "../../src/core/run/create.ts";
-import { describeDb, openDb, resetDb, runCli } from "../db/helpers.ts";
+import {
+  describeDb,
+  openDb,
+  resetDb,
+  operatorHome,
+  runCli,
+} from "../db/helpers.ts";
 import { events } from "../db/run-fixture.ts";
 
 const dir = "test/replay/dogfood-b";
@@ -58,16 +64,19 @@ describeDb("dogfood-b", () => {
       `${dir}/process.yaml`,
       "specs/decision/default.yaml",
     ]) {
-      const applied = runCli([
-        "config",
-        "apply",
-        file,
-        "--activate",
-        "--scope",
-        "global",
-        "--expected-revision",
-        "none",
-      ]);
+      const applied = runCli(
+        [
+          "config",
+          "apply",
+          file,
+          "--activate",
+          "--scope",
+          "global",
+          "--expected-revision",
+          "none",
+        ],
+        { POD_HOME: operatorHome("keeper") },
+      );
       expect(applied.status, applied.json.error?.message ?? file).toBe(0);
     }
   });
@@ -270,16 +279,19 @@ describeDb("dogfood-b", () => {
       outcome: { state: "done" },
     });
 
-    const pending = runCli([
-      "config",
-      "apply",
-      `${dir}/policy-project.yaml`,
-      "--activate",
-      "--scope",
-      "project:dogfood",
-      "--expected-revision",
-      "none",
-    ]);
+    const pending = runCli(
+      [
+        "config",
+        "apply",
+        `${dir}/policy-project.yaml`,
+        "--activate",
+        "--scope",
+        "project:dogfood",
+        "--expected-revision",
+        "none",
+      ],
+      { POD_HOME: operatorHome("keeper") },
+    );
     expect(pending.json.result).toMatchObject({
       activation: null,
       pending: {

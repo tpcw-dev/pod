@@ -24,6 +24,8 @@ export interface ApplyInput {
   envelope: RevisionEnvelope;
   actor: string;
   reason: string;
+  ticket?: string | null;
+  verb?: "config apply" | "config set";
   now: Date;
   activate: {
     expected: string | null;
@@ -220,6 +222,7 @@ function storeRevision(
     id,
     actor: input.actor,
     reason: input.reason,
+    ticket: input.ticket ?? null,
   });
 }
 
@@ -468,7 +471,7 @@ export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
         previous_revision_id: outcome.previous,
         bundle_id: null,
       },
-      source: { kind: "command", verb: "config apply" },
+      source: { kind: "command", verb: input.verb ?? "config apply" },
     });
     const result = resultOf(stored, activation);
     await tx.moveOperation(opKey, "done", result, input.now);

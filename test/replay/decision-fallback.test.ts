@@ -87,6 +87,7 @@ describeDb("decision-fallback", () => {
             estimateScale: "fibonacci",
             docsKind: "notion",
             docsTokenEnv: "POD_DOCS_TOKEN",
+            operator: null,
           })
         : null;
       const trackerReplay = recording

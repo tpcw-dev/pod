@@ -14,7 +14,13 @@ import { postVerdict } from "../../src/core/gate/verdict.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { runCreate } from "../../src/core/run/create.ts";
 import { takeover } from "../../src/core/run/takeover.ts";
-import { describeDb, openDb, resetDb, runCli } from "../db/helpers.ts";
+import {
+  describeDb,
+  openDb,
+  operatorHome,
+  resetDb,
+  runCli,
+} from "../db/helpers.ts";
 import { assertInvariants } from "./assertions.ts";
 import {
   candidate,
@@ -79,7 +85,7 @@ describeDb("integrated-drill", () => {
         "global",
         "--expected-revision",
         "none",
-      ]);
+      ], { POD_HOME: operatorHome("operator") });
       expect(applied.status, applied.json.error?.message ?? file).toBe(0);
     }
   });

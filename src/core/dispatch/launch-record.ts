@@ -64,9 +64,12 @@ export interface StartedInput {
 export function fromReceipt(result: WorkerStartResult): Launched | null {
   if (typeof result.dispatchId !== "string") return null;
   const worktree = result.effects?.find((effect) => effect.kind === "worktree");
+  const terminal = result.effects?.find(
+    (effect) => effect.kind === "terminal" && effect.role === "agent",
+  );
   return {
     dispatchId: result.dispatchId,
-    terminalHandle: result.terminalHandle ?? null,
+    terminalHandle: result.terminalHandle ?? terminal?.id ?? null,
     requested: result.launch?.requested ?? null,
     effective: result.launch?.effective ?? null,
     worktreeId: worktree?.id ?? null,

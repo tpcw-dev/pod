@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, inject } from "vitest";
@@ -9,6 +9,7 @@ import {
 } from "../../src/adapters/postgres/connection.ts";
 import { migrate } from "../../src/adapters/postgres/migrate.ts";
 import { migrationsFolder } from "../../src/cli/db-verbs.ts";
+import { operator } from "./identity-fixture.ts";
 
 export const required = process.env["POD_DB_REQUIRED"] === "1";
 
@@ -66,7 +67,13 @@ export function openDb(): Connection {
   return connect(dbUrl());
 }
 
-export const podHome = mkdtempSync(join(tmpdir(), "pod-home-"));
+export function operatorHome(principal: string, profile = ""): string {
+  const home = mkdtempSync(join(tmpdir(), "pod-home-"));
+  writeFileSync(join(home, "host.yaml"), `${profile}operator: ${principal}\n`);
+  return home;
+}
+
+export const podHome = operatorHome(operator);
 
 export interface CliResult {
   status: number | null;
@@ -97,6 +104,8 @@ export function runCli(
         POD_DOCS_FIXTURES: "",
         POD_DB_URL: dbUrl(),
         POD_HOME: podHome,
+        POD_SEAT: "",
+        ORCA_TERMINAL_HANDLE: "",
         ...env,
       },
     },

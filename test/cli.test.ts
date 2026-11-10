@@ -59,6 +59,7 @@ test("help lists the verbs sorted by name", () => {
     "check",
     "config apply",
     "config export",
+    "config set",
     "db migrate",
     "decide",
     "decide cancel",

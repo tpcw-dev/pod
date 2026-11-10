@@ -13,7 +13,8 @@ import type { NewRevision, Revision } from "../../src/core/domain/config.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import { runCreate } from "../../src/core/run/create.ts";
 import { fixtures, ok, type TempEntry } from "../orca/temp-fixtures.ts";
-import { clearDb, runCli, type CliResult } from "./helpers.ts";
+import { clearDb, operatorHome, runCli, type CliResult } from "./helpers.ts";
+import { operator } from "./identity-fixture.ts";
 import {
   batch,
   dispatched,
@@ -357,18 +358,24 @@ export async function clearRuns(conn: Connection): Promise<void> {
   await conn.sql`delete from config.activation where scope = 'run'`;
 }
 
-export function applyConfig(files: readonly string[]): void {
+export function applyConfig(
+  files: readonly string[],
+  env: Record<string, string> = {},
+): void {
   for (const file of files) {
-    const applied = runCli([
-      "config",
-      "apply",
-      file,
-      "--activate",
-      "--scope",
-      "global",
-      "--expected-revision",
-      "none",
-    ]);
+    const applied = runCli(
+      [
+        "config",
+        "apply",
+        file,
+        "--activate",
+        "--scope",
+        "global",
+        "--expected-revision",
+        "none",
+      ],
+      env,
+    );
     expect(applied.status, applied.json.error?.message ?? file).toBe(0);
   }
 }
@@ -511,10 +518,8 @@ export function delivery(
   ];
 }
 
-export function oneSlotHome(): string {
-  const home = mkdtempSync(join(tmpdir(), "pod-home-"));
-  writeFileSync(join(home, "host.yaml"), "capacity: 1\n");
-  return home;
+export function oneSlotHome(principal = operator): string {
+  return operatorHome(principal, "capacity: 1\n");
 }
 
 export const seatOpens = (

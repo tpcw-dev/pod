@@ -112,6 +112,7 @@ describeDb("decision-happy-path", () => {
             estimateScale: "fibonacci",
             docsKind: "notion",
             docsTokenEnv: "POD_DOCS_TOKEN",
+            operator: null,
           })
         : null;
       const trackerReplay = recording

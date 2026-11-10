@@ -11,6 +11,7 @@ const HostProfile = z.looseObject({
     .looseObject({ url_env: z.string().min(1).default("POD_DB_URL") })
     .prefault({}),
   capacity: z.int().positive().default(2),
+  operator: z.string().min(1).optional(),
   tracker: z
     .looseObject({
       kind: z.string().min(1).default("linear"),
@@ -35,6 +36,7 @@ export interface HostSettings {
   estimateScale: string;
   docsKind: string;
   docsTokenEnv: string;
+  operator: string | null;
 }
 
 export function podHome(): string {
@@ -75,6 +77,7 @@ export function readHostProfile(): HostSettings {
     estimateScale: parsed.data.tracker.estimate_scale,
     docsKind: parsed.data.docs.kind,
     docsTokenEnv: parsed.data.docs.token_env,
+    operator: parsed.data.operator ?? null,
   };
 }
 

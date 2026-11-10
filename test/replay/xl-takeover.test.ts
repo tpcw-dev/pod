@@ -21,18 +21,21 @@ const newDecider = "ctx_new_decider";
 
 describeDb("xl-takeover", () => {
   let conn: Connection;
-  const home = oneSlotHome();
+  const home = oneSlotHome("keeper");
   const env = { POD_HOME: home };
 
   beforeAll(async () => {
     await resetDb();
     conn = openDb();
-    applyConfig([
-      `${dir}/policy.yaml`,
-      `${dir}/crew.yaml`,
-      `${dir}/process.yaml`,
-      "specs/decision/default.yaml",
-    ]);
+    applyConfig(
+      [
+        `${dir}/policy.yaml`,
+        `${dir}/crew.yaml`,
+        `${dir}/process.yaml`,
+        "specs/decision/default.yaml",
+      ],
+      env,
+    );
   });
   afterAll(() => conn.close());
 

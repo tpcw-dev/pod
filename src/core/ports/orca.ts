@@ -165,7 +165,13 @@ export const WorkerStartResult = z.looseObject({
   failedStage: z.string().nullish(),
   requestId: z.string().nullish(),
   effects: z
-    .array(z.looseObject({ kind: z.string(), id: z.string().nullish() }))
+    .array(
+      z.looseObject({
+        kind: z.string(),
+        id: z.string().nullish(),
+        role: z.string().nullish(),
+      }),
+    )
     .nullish(),
 });
 export type WorkerStartResult = z.infer<typeof WorkerStartResult>;

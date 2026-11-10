@@ -27,6 +27,7 @@ export const revision = config.table(
     value: jsonb("value").notNull(),
     actor: text("actor").notNull(),
     reason: text("reason").notNull(),
+    ticket: text("ticket"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
