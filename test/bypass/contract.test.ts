@@ -6,6 +6,7 @@ const sideEffectVerbs = [
   "db migrate",
   "config apply",
   "config set",
+  "config activate",
   "run create",
   "dispatch",
   "check",
@@ -53,6 +54,7 @@ const extraVerbs = [
   { story: "TPC-1490", name: "deploy record", sideEffect: "ledger" },
   { story: "TPC-1478", name: "config set", sideEffect: "config" },
   { story: "TPC-1495", name: "run close", sideEffect: "tracker" },
+  { story: "TPC-1479", name: "config activate", sideEffect: "config" },
 ] as const;
 
 function trim(value: string): string {
@@ -123,7 +125,7 @@ test("verbs beyond the 17 are registered with their side effect", () => {
 test("the contract copies the bypass paragraphs", () => {
   const spec = readFileSync("docs/tech-spec.md", "utf8").split("\n");
   const contract = readFileSync("docs/contract.md", "utf8").split("\n");
-  for (const lineNumber of [767, 769, 771]) {
+  for (const lineNumber of [775, 777, 779]) {
     const line = spec[lineNumber - 1];
     expect(line?.length).toBeGreaterThan(0);
     expect(contract).toContain(line);

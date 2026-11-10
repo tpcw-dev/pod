@@ -7,8 +7,10 @@ import {
   projectProfiles,
   type ProjectProfile,
 } from "../core/brief/profiles.ts";
+import { pendingActivations, revisionRef } from "../core/config/apply.ts";
 import { revisionId } from "../core/config/canonical-json.ts";
 import type { BriefTree } from "../core/domain/brief.ts";
+import type { Repo } from "../core/ports/db.ts";
 import { RevisionEnvelope, type Revision } from "../core/domain/config.ts";
 import { Json } from "../core/domain/json.ts";
 import { renderBriefHtml } from "../core/manifest/html.ts";
@@ -87,7 +89,17 @@ const TestJson = z.object({
   timeout_seconds: z.number().nullable(),
 });
 
+const PendingRequestJson = z.object({
+  op_key: z.string(),
+  ref: z.string(),
+  scope: z.string(),
+  ticket: z.string().nullable(),
+  actor: z.string().nullable(),
+  comment: z.string(),
+});
+
 export const BriefOutput = z.object({
+  pending_requests: z.array(PendingRequestJson),
   projects: z.array(
     z.object({
       project: z.string(),
@@ -236,13 +248,36 @@ function driftFor(
   return byStory;
 }
 
+async function pendingRequests(
+  repo: Repo,
+): Promise<z.infer<typeof PendingRequestJson>[]> {
+  const rows: z.infer<typeof PendingRequestJson>[] = [];
+  for (const { op_key, request } of await pendingActivations(repo)) {
+    const revision = await repo.getRevision(request.revision_id);
+    rows.push({
+      op_key,
+      ref: revision === null ? request.revision_id : revisionRef(revision),
+      scope:
+        request.scope_ref === ""
+          ? request.scope
+          : `${request.scope}:${request.scope_ref}`,
+      ticket: request.ticket,
+      actor: request.actor,
+      comment: request.comment,
+    });
+  }
+  return rows;
+}
+
 function toBriefResult(
   tree: BriefTree,
   projects: readonly ProjectProfile[],
+  pending: BriefResult["pending_requests"],
 ): BriefResult {
   const drift = driftFor(tree);
   const current = new Map(projects.map((row) => [row.project, row.profile]));
   return {
+    pending_requests: pending,
     projects: [...projects],
     stories: tree.stories.map((item) => ({
       provider: item.story.provider,
@@ -326,7 +361,11 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
         ["pod brief"],
       );
     const result = BriefOutput.parse(
-      toBriefResult(tree, await projectProfiles(connection.db, tree)),
+      toBriefResult(
+        tree,
+        await projectProfiles(connection.db, tree),
+        await pendingRequests(connection.db),
+      ),
     );
     if (input.html !== undefined)
       writeFileSync(input.html, renderBriefHtml(JSON.stringify(result)));

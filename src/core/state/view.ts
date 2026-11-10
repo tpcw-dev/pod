@@ -1,5 +1,5 @@
 import { singleActive } from "../config/active.ts";
-import { pendingProfileOps } from "../config/apply.ts";
+import { pendingActivations } from "../config/apply.ts";
 import type { BriefTree } from "../domain/brief.ts";
 import type { Revision, Scope } from "../domain/config.ts";
 import { refuse, type Refused } from "../domain/outcome.ts";
@@ -24,14 +24,17 @@ import {
 
 export const stateBudget = 3000;
 
-async function pendingProfiles(
+async function pendingRequests(
   repo: Repo,
   scope: Scope,
   scopeRef: string,
-): Promise<PoliciesSection["pending_profile"]> {
+): Promise<Pick<PoliciesSection, "pending_profile" | "pending_requests">> {
   const rows: PoliciesSection["pending_profile"] = [];
-  for (const { request } of await pendingProfileOps(repo)) {
-    if (request.scope !== scope || request.scope_ref !== scopeRef) continue;
+  const requests = (await pendingActivations(repo)).filter(
+    ({ request }) => request.scope === scope && request.scope_ref === scopeRef,
+  );
+  for (const { request } of requests) {
+    if (request.profile === null) continue;
     const revision = await repo.getRevision(request.revision_id);
     rows.push({
       profile: request.profile,
@@ -42,7 +45,7 @@ async function pendingProfiles(
       comment: request.comment,
     });
   }
-  return rows;
+  return { pending_profile: rows, pending_requests: requests.length };
 }
 
 function providersOf(crews: readonly (Revision | null)[]): string[] {
@@ -90,7 +93,7 @@ export async function buildState(
       ctx,
       policy,
       crew,
-      await pendingProfiles(ctx.repo, level, ref),
+      await pendingRequests(ctx.repo, level, ref),
     ),
     decisions: await decisionsSection(ctx, scope),
     usage: await usageSection(ctx, providersOf([crew, ...pinnedCrews(tree)])),

@@ -25,14 +25,17 @@ export interface ApplyInput {
   actor: string;
   reason: string;
   ticket?: string | null;
-  verb?: "config apply" | "config set";
+  verb?: ConfigVerb;
   now: Date;
   activate: {
     expected: string | null;
     opKey: string | null;
     host: string;
   } | null;
+  request?: { host: string; expected?: string | null } | null;
 }
+
+export type ConfigVerb = "config apply" | "config set" | "config activate";
 
 const AppliedActivation = z.object({
   scope: z.string(),
@@ -46,10 +49,11 @@ const AppliedActivation = z.object({
 });
 export type AppliedActivation = z.infer<typeof AppliedActivation>;
 
-const PendingProfile = z.object({
+const PendingResult = z.object({
   op_key: z.string(),
-  profile: z.string(),
+  profile: z.string().nullable(),
   comment: z.string(),
+  ticket: z.string().nullable().default(null),
   runs_on_old_profile: z.array(z.string()),
   readback: z.string(),
 });
@@ -60,7 +64,7 @@ const ApplyResult = z.object({
   rev: z.int(),
   created: z.boolean(),
   activation: AppliedActivation.nullable(),
-  pending: PendingProfile.nullable().default(null),
+  pending: PendingResult.nullable().default(null),
 });
 export type ApplyResult = z.infer<typeof ApplyResult>;
 
@@ -72,25 +76,36 @@ export type ApplyOutcome =
   | { kind: "operation_open"; opKey: string; status: string }
   | { kind: "process_invalid"; refusal: Refusal };
 
-const PendingRequest = z.object({
+const ActivationRequest = z.object({
   scope: Scope,
   scope_ref: z.string(),
   kind: Kind,
   name: z.string(),
   revision_id: z.string(),
   expected: z.string().nullable(),
-  profile: z.string(),
+  profile: z.string().nullable(),
   comment: z.string(),
+  ticket: z.string().nullable().default(null),
+  actor: z.string().nullable().default(null),
 });
-export type PendingRequest = z.infer<typeof PendingRequest>;
+export type ActivationRequest = z.infer<typeof ActivationRequest>;
 
-const RecordedPending = z.object({
-  pending: PendingRequest,
+const RecordedRequest = z.object({
+  pending: ActivationRequest,
   result: ApplyResult,
 });
 
-const readbackRule =
-  "the HQA keeper posts the comment on the Story of a live Run; the next pod check on that Run reads it back and activates the profile";
+const requestIntents = ["config_apply", "config_activate"] as const;
+
+function readbackRule(ticket: string | null): string {
+  const where =
+    ticket === null ? "the Story of a live Run" : `ticket ${ticket}`;
+  return `an HQA keeper posts the comment on ${where}; the next pod check reads it back and activates the Revision`;
+}
+
+export function activateComment(revisionId: string): string {
+  return `config activate ${revisionId}`;
+}
 
 const RecordedRefusal = z.object({
   code: z.literal("revision_conflict"),
@@ -117,6 +132,26 @@ export function deriveOpKey(
       name: envelope.name,
       expected_revision: expected ?? "none",
       revision_id: id,
+    }),
+  )}`;
+}
+
+function requestOpKey(
+  envelope: RevisionEnvelope,
+  expected: string | null,
+  id: string,
+  ticket: string | null,
+): string {
+  return `config_activate:${sha256Hex(
+    canonicalJson({
+      intent: "config_activate",
+      scope: envelope.scope,
+      scope_ref: envelope.scope_ref,
+      kind: envelope.kind,
+      name: envelope.name,
+      expected_revision: expected ?? "none",
+      revision_id: id,
+      ticket: ticket ?? "none",
     }),
   )}`;
 }
@@ -246,118 +281,60 @@ function pendingProfile(envelope: RevisionEnvelope): string | null {
     : null;
 }
 
-async function requestProfile(
+async function openRequest(
   tx: Repo,
   input: ApplyInput,
   opKey: string,
   id: string,
-  profile: string,
+  expected: string | null,
+  host: string,
 ): Promise<ApplyOutcome> {
   const stored = await storeRevision(tx, input, id);
   const { scope, scope_ref, kind, name } = input.envelope;
-  const comment = `profile ${scope_ref} ${profile} ${revisionRef(stored.revision)}`;
+  const profile = pendingProfile(input.envelope);
+  const ticket = input.ticket ?? null;
+  const comment =
+    profile === null
+      ? activateComment(id)
+      : `profile ${scope_ref} ${profile} ${revisionRef(stored.revision)}`;
   const result: ApplyResult = {
     ...resultOf(stored, null),
     pending: {
       op_key: opKey,
       profile,
       comment,
-      runs_on_old_profile: await tx.liveRunsPinningPolicyScope(
-        scope,
-        scope_ref,
-      ),
-      readback: readbackRule,
+      ticket,
+      runs_on_old_profile:
+        profile === null
+          ? []
+          : await tx.liveRunsPinningPolicyScope(scope, scope_ref),
+      readback: readbackRule(ticket),
     },
   };
-  const pending: PendingRequest = {
+  const pending: ActivationRequest = {
     scope,
     scope_ref,
     kind,
     name,
     revision_id: id,
-    expected: input.activate?.expected ?? null,
+    expected,
     profile,
     comment,
+    ticket,
+    actor: input.actor,
   };
   const { operation, created } = await tx.insertOperation({
     op_key: opKey,
-    intent: "config_apply",
+    intent: "config_activate",
     owner_generation: 0,
     at: input.now,
     result_ref: Json.parse({ pending, result }),
   });
   if (!created) return recorded(tx, opKey, operation);
-  return { kind: "ok", result };
-}
-
-export interface PendingProfileOp {
-  op_key: string;
-  request: PendingRequest;
-}
-
-export async function pendingProfileOps(
-  repo: Repo,
-): Promise<PendingProfileOp[]> {
-  const rows = await repo.listOperations(["config_apply"], ["pending"]);
-  return rows.flatMap((row) => {
-    const parsed = RecordedPending.safeParse(row.result_ref);
-    return parsed.success
-      ? [{ op_key: row.op_key, request: parsed.data.pending }]
-      : [];
-  });
-}
-
-export interface ProfileSource {
-  comment_id: string;
-  author: string;
-  readback_at: string;
-}
-
-export async function activatePendingProfile(
-  tx: Repo,
-  opKey: string,
-  source: ProfileSource,
-  context: { at: Date; host: string },
-): Promise<string | null> {
-  const operation = await tx.getOperation(opKey);
-  const parsed = RecordedPending.safeParse(operation?.result_ref);
-  if (operation?.status !== "pending" || !parsed.success) return null;
-  const { pending, result } = parsed.data;
-  const { scope, scope_ref, kind, name, revision_id, expected } = pending;
-  const outcome = await tx.activate({
-    scope,
-    scope_ref,
-    kind,
-    name,
-    expected,
-    revision_id,
-    bundle_id: null,
-    activated_by: source.author,
-    activated_at: context.at,
-  });
-  if (!outcome.ok) {
-    await tx.moveOperation(
-      opKey,
-      "refused",
-      { code: "revision_conflict", active: outcome.active },
-      context.at,
-    );
-    return `revision_conflict: profile request ${JSON.stringify(pending.comment)} expected ${expected ?? "none"} but the active policy is ${outcome.active ?? "none"}; apply the profile again with --expected-revision ${outcome.active ?? "none"}`;
-  }
-  const activation: AppliedActivation = {
-    scope,
-    scope_ref,
-    kind,
-    name,
-    revision_id,
-    previous_revision_id: outcome.previous,
-    bundle_id: null,
-    op_key: opKey,
-  };
   await tx.appendEvent({
-    type: "activation",
-    ts: context.at,
-    host: context.host,
+    type: "activation_requested",
+    ts: input.now,
+    host,
     run_id: null,
     task_id: null,
     dispatch_id: null,
@@ -367,19 +344,173 @@ export async function activatePendingProfile(
       scope_ref,
       kind,
       name,
-      revision_id,
+      revision_id: id,
+      expected,
+      ticket,
+      actor: input.actor,
+      comment,
+    },
+    source: { kind: "command", verb: input.verb ?? "config apply" },
+  });
+  return { kind: "ok", result };
+}
+
+export interface PendingActivation {
+  op_key: string;
+  request: ActivationRequest;
+  result: ApplyResult;
+}
+
+export async function pendingActivations(
+  repo: Repo,
+): Promise<PendingActivation[]> {
+  const rows = await repo.listOperations(requestIntents, ["pending"]);
+  return rows.flatMap((row) => {
+    const parsed = RecordedRequest.safeParse(row.result_ref);
+    return parsed.success
+      ? [
+          {
+            op_key: row.op_key,
+            request: parsed.data.pending,
+            result: parsed.data.result,
+          },
+        ]
+      : [];
+  });
+}
+
+export type ActivationSource =
+  | {
+      kind: "tracker_comment";
+      comment_id: string;
+      author: string;
+      readback_at: string;
+    }
+  | { kind: "command"; verb: ConfigVerb };
+
+async function closeRequests(
+  tx: Repo,
+  requests: readonly PendingActivation[],
+  activation: AppliedActivation,
+  source: ActivationSource,
+  at: Date,
+): Promise<void> {
+  for (const row of requests)
+    await tx.moveOperation(
+      row.op_key,
+      "done",
+      Json.parse({
+        ...row.result,
+        activation: { ...activation, op_key: row.op_key },
+        pending: null,
+        source,
+      }),
+      at,
+    );
+}
+
+async function requestsFor(
+  tx: Repo,
+  revisionId: string,
+): Promise<PendingActivation[]> {
+  return (await pendingActivations(tx)).filter(
+    (row) => row.request.revision_id === revisionId,
+  );
+}
+
+async function refuseRequests(
+  tx: Repo,
+  requests: readonly PendingActivation[],
+  request: ActivationRequest,
+  active: string | null,
+  source: { comment_id: string },
+  at: Date,
+): Promise<string> {
+  for (const row of requests)
+    await tx.moveOperation(
+      row.op_key,
+      "refused",
+      { code: "revision_conflict", active, comment_id: source.comment_id },
+      at,
+    );
+  return `revision_conflict: config activate request for ${request.kind}.${request.name} Revision ${request.revision_id} expected ${request.expected ?? "none"} but the active Revision is ${active ?? "none"}; write it again from the active Revision and post the new comment`;
+}
+
+export async function activateRequested(
+  tx: Repo,
+  revisionId: string,
+  source: Extract<ActivationSource, { kind: "tracker_comment" }>,
+  context: { at: Date; host: string; activatedBy: string },
+): Promise<string | null> {
+  const requests = await requestsFor(tx, revisionId);
+  const [first] = requests;
+  if (first === undefined) return null;
+  const { scope, scope_ref, kind, name } = first.request;
+  const active =
+    (await tx.getActivation({ scope, scope_ref, kind, name }))?.revision_id ??
+    null;
+  const chosen = requests.find((row) => row.request.expected === active);
+  if (chosen === undefined)
+    return refuseRequests(
+      tx,
+      requests,
+      first.request,
+      active,
+      source,
+      context.at,
+    );
+  const outcome = await tx.activate({
+    scope,
+    scope_ref,
+    kind,
+    name,
+    expected: active,
+    revision_id: revisionId,
+    bundle_id: null,
+    activated_by: context.activatedBy,
+    activated_at: context.at,
+  });
+  if (!outcome.ok)
+    return refuseRequests(
+      tx,
+      requests,
+      first.request,
+      outcome.active,
+      source,
+      context.at,
+    );
+  const activation: AppliedActivation = {
+    scope,
+    scope_ref,
+    kind,
+    name,
+    revision_id: revisionId,
+    previous_revision_id: outcome.previous,
+    bundle_id: null,
+    op_key: chosen.op_key,
+  };
+  const { profile } = chosen.request;
+  await tx.appendEvent({
+    type: "activation",
+    ts: context.at,
+    host: context.host,
+    run_id: null,
+    task_id: null,
+    dispatch_id: null,
+    op_key: chosen.op_key,
+    payload: {
+      scope,
+      scope_ref,
+      kind,
+      name,
+      revision_id: revisionId,
       previous_revision_id: outcome.previous,
       bundle_id: null,
-      profile: pending.profile,
+      ...(profile === null ? {} : { profile }),
     },
-    source: { kind: "tracker_comment", ...source },
+    source,
   });
-  await tx.moveOperation(
-    opKey,
-    "done",
-    { ...result, activation, pending: null },
-    context.at,
-  );
+  await closeRequests(tx, requests, activation, source, context.at);
   return null;
 }
 
@@ -388,19 +519,32 @@ export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
   const { activate } = input;
   const { parent } = input.envelope;
   if (activate === null) {
+    const { request } = input;
     return db.transaction(async (tx): Promise<ApplyOutcome> => {
       if (!(await parentKnown(tx, parent)))
         return { kind: "parent_unknown", parent };
       const refusal = await processRefusal(tx, input.envelope);
       if (refusal !== null) return { kind: "process_invalid", refusal };
-      return {
-        kind: "ok",
-        result: resultOf(await storeRevision(tx, input, id), null),
-      };
+      if (request === undefined || request === null)
+        return {
+          kind: "ok",
+          result: resultOf(await storeRevision(tx, input, id), null),
+        };
+      return requestActivation(tx, input, id, request);
     });
   }
+  const direct =
+    input.verb === "config activate" || pendingProfile(input.envelope) === null;
   const opKey =
-    activate.opKey ?? deriveOpKey(input.envelope, activate.expected, id);
+    activate.opKey ??
+    (direct
+      ? deriveOpKey(input.envelope, activate.expected, id)
+      : requestOpKey(
+          input.envelope,
+          activate.expected,
+          id,
+          input.ticket ?? null,
+        ));
   return db.transaction(async (tx): Promise<ApplyOutcome> => {
     if (!(await parentKnown(tx, parent)))
       return { kind: "parent_unknown", parent };
@@ -408,8 +552,15 @@ export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
     if (existing !== null) return recorded(tx, opKey, existing);
     const refusal = await processRefusal(tx, input.envelope);
     if (refusal !== null) return { kind: "process_invalid", refusal };
-    const profile = pendingProfile(input.envelope);
-    if (profile !== null) return requestProfile(tx, input, opKey, id, profile);
+    if (!direct)
+      return openRequest(
+        tx,
+        input,
+        opKey,
+        id,
+        activate.expected,
+        activate.host,
+      );
     const { operation, created } = await tx.insertOperation({
       op_key: opKey,
       intent: "config_apply",
@@ -475,8 +626,42 @@ export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
     });
     const result = resultOf(stored, activation);
     await tx.moveOperation(opKey, "done", result, input.now);
+    await closeRequests(
+      tx,
+      await requestsFor(tx, id),
+      activation,
+      { kind: "command", verb: input.verb ?? "config apply" },
+      input.now,
+    );
     return { kind: "ok", result };
   });
+}
+
+async function requestActivation(
+  tx: Repo,
+  input: ApplyInput,
+  id: string,
+  request: NonNullable<ApplyInput["request"]>,
+): Promise<ApplyOutcome> {
+  const { scope, scope_ref, kind, name } = input.envelope;
+  const active =
+    (await tx.getActivation({ scope, scope_ref, kind, name }))?.revision_id ??
+    null;
+  if (active === id)
+    return {
+      kind: "ok",
+      result: resultOf(await storeRevision(tx, input, id), null),
+    };
+  const expected = request.expected === undefined ? active : request.expected;
+  const opKey = requestOpKey(
+    input.envelope,
+    expected,
+    id,
+    input.ticket ?? null,
+  );
+  const existing = await tx.getOperation(opKey);
+  if (existing !== null) return recorded(tx, opKey, existing);
+  return openRequest(tx, input, opKey, id, expected, request.host);
 }
 
 async function recorded(
@@ -484,12 +669,12 @@ async function recorded(
   opKey: string,
   operation: { intent: string; status: string; result_ref: Json | null },
 ): Promise<ApplyOutcome> {
-  if (operation.intent !== "config_apply")
+  if (!(requestIntents as readonly string[]).includes(operation.intent))
     return { kind: "duplicate_op", opKey, intent: operation.intent };
   if (operation.status === "done")
     return { kind: "ok", result: ApplyResult.parse(operation.result_ref) };
   if (operation.status === "pending") {
-    const pending = RecordedPending.safeParse(operation.result_ref);
+    const pending = RecordedRequest.safeParse(operation.result_ref);
     if (pending.success) return { kind: "ok", result: pending.data.result };
   }
   if (operation.status === "refused") {

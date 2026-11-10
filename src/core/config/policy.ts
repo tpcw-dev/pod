@@ -83,8 +83,40 @@ function gateProblem(gates: unknown, crewValue: unknown | null): Problem {
   return null;
 }
 
-const profileKeys = ["replaces", "requires", "deploy_production", "method"];
+const profileKeys = [
+  "replaces",
+  "requires",
+  "deploy_production",
+  "method",
+  "agent_activates",
+];
 const deploySettings = ["needs_human", "agent"];
+const agentKinds = ["crew", "decision"];
+const personKinds = ["policy", "process"];
+
+function agentActivatesProblem(
+  name: string,
+  profile: Record<string, unknown>,
+): Problem {
+  if (!("agent_activates" in profile)) return null;
+  const path = `profiles.${name}.agent_activates`;
+  const kinds = profile["agent_activates"];
+  if (!Array.isArray(kinds))
+    return { path, message: `${path}: must be a list of kinds` };
+  for (const kind of kinds) {
+    if (typeof kind === "string" && personKinds.includes(kind))
+      return {
+        path,
+        message: `${path}: an agent never activates ${personKinds.join(" or ")}, and ${kind} is listed`,
+      };
+    if (typeof kind !== "string" || !agentKinds.includes(kind))
+      return {
+        path,
+        message: `${path}: each kind must be ${agentKinds.join(" or ")}, got ${JSON.stringify(kind)}`,
+      };
+  }
+  return null;
+}
 
 function requiresProblem(
   name: string,
@@ -155,6 +187,8 @@ function profileProblem(profiles: unknown, gates: unknown): Problem {
     if (requires !== null) return requires;
     const method = methodProblem(name, fields(profile));
     if (method !== null) return method;
+    const agent = agentActivatesProblem(name, fields(profile));
+    if (agent !== null) return agent;
     const replaces = fields(fields(profile)["replaces"]);
     for (const [gate, to] of Object.entries(replaces)) {
       const path = `profiles.${name}.replaces.${gate}`;

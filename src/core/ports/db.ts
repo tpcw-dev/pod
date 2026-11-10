@@ -149,6 +149,7 @@ export interface Repo {
   ): Promise<Event | null>;
   dispatchEvent(dispatchId: string, type: EventType): Promise<Event | null>;
   messageRecorded(runId: string, messageId: string): Promise<boolean>;
+  commentSpent(commentId: string): Promise<boolean>;
   eventWith(
     type: EventType,
     payload: Record<string, Json>,

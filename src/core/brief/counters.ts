@@ -14,6 +14,7 @@ export const HAND_FILLED_VERBS = [
   "deploy record",
   "config apply",
   "config set",
+  "config activate",
   "takeover",
   "check --resume",
 ] as const;

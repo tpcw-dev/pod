@@ -35,6 +35,18 @@ function page(
   ].join("\n");
 }
 
+const BriefPending = z.object({
+  pending_requests: z.array(
+    z.object({
+      ref: z.string(),
+      scope: z.string(),
+      ticket: z.string().nullable(),
+      actor: z.string().nullable(),
+      comment: z.string(),
+    }),
+  ),
+});
+
 const BriefTables = z.object({
   stories: z.array(
     z.object({
@@ -207,9 +219,31 @@ function testTables(parsed: unknown): string {
   return tables.join("\n");
 }
 
+function pendingTable(parsed: unknown): string {
+  const brief = BriefPending.safeParse(parsed);
+  if (!brief.success || brief.data.pending_requests.length === 0) return "";
+  const rows = [
+    row(["Revision", "scope", "ticket", "requested by", "comment to post"]),
+    ...brief.data.pending_requests.map((request) =>
+      row([
+        request.ref,
+        request.scope,
+        request.ticket ?? "the Story of a live Run",
+        request.actor ?? "",
+        request.comment,
+      ]),
+    ),
+  ];
+  return `<table id="pending-requests">\n${rows.join("\n")}\n</table>`;
+}
+
 export function renderBriefHtml(resultJson: string): string {
   const parsed = parsedJson(resultJson);
-  const tables = [testTables(parsed), measurementTables(parsed)]
+  const tables = [
+    pendingTable(parsed),
+    testTables(parsed),
+    measurementTables(parsed),
+  ]
     .filter((table) => table !== "")
     .join("\n");
   return page("Brief", [["brief-json", resultJson]], tables);

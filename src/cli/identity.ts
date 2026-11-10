@@ -86,7 +86,7 @@ export async function writerOf(
   host: HostSettings,
   env: Env,
   activate: boolean,
-): Promise<string> {
+): Promise<Identity> {
   const podSeat = seatFromEnv(env);
   const handle = envValue(env, "ORCA_TERMINAL_HANDLE");
   const recordedSeat =
@@ -103,5 +103,5 @@ export async function writerOf(
   mayActivate(identity, activate);
   if (identity.kind === "person")
     await checkPrincipal(repo, identity.principal);
-  return actorOf(identity);
+  return identity;
 }

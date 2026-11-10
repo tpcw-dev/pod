@@ -12,13 +12,17 @@ value:
     staging_review: { keeper: human-gatekeeper, type: HQA }
   profiles:
     hands-on:
+      agent_activates: []
       deploy_production: needs_human
     standard:
+      agent_activates: []
       deploy_production: needs_human
     hands-off:
+      agent_activates: []
       replaces: { prd_review: decision-pair-aqa, design_clickthrough: decision-pair-aqa }
       deploy_production: needs_human
     autonomous:
+      agent_activates: []
       replaces: { prd_review: decision-pair-aqa, design_clickthrough: decision-pair-aqa }
       deploy_production: agent
   reserved:

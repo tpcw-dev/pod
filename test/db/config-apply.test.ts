@@ -342,6 +342,37 @@ describeDb("pod config apply and export", () => {
     expect(after[0]?.n).toBe(before[0]?.n);
   });
 
+  test("agent apply waits for config activate", async () => {
+    const path = file(
+      "agent.yaml",
+      "kind: policy\nname: agent\nschema_version: 1\nvalue:\n  steps: [a]\n",
+    );
+    const seat = { POD_SEAT: "developer" };
+    const bare = runCli(["config", "apply", path], seat);
+    expect(bare.status).toBe(2);
+    expect(bare.json.error?.code).toBe("usage");
+    expect(bare.json.error?.nextSteps.join(" ")).toContain("--ticket");
+    const result = runCli(["config", "apply", path, "--ticket", "TRK-9"], seat);
+    expect(result.status, result.json.error?.message).toBe(0);
+    const written = result.json.result as {
+      id: string;
+      pending: { op_key: string };
+    };
+    expect(result.json.result).toMatchObject({
+      ref: "policy.agent@1",
+      activation: null,
+      pending: {
+        comment: `config activate ${written.id}`,
+        ticket: "TRK-9",
+        profile: null,
+      },
+    });
+    expect(await operationStatus(written.pending.op_key)).toBe("pending");
+    const rows = await db.sql<{ n: number }[]>`
+      select count(*)::int as n from config.activation where name = 'agent'`;
+    expect(rows[0]?.n).toBe(0);
+  });
+
   test("flags that disagree are usage", () => {
     for (const args of [
       ["config", "apply", v1, "--activate", "--scope", "global"],
@@ -809,11 +840,22 @@ describeDb("pod config apply of a policy", () => {
   });
   afterAll(() => conn.close());
 
-  function policyFile(name: string, value: Record<string, unknown>, scope = "global") {
+  function policyFile(
+    name: string,
+    value: Record<string, unknown>,
+    scope = "global",
+  ) {
     const [kind, ref = ""] = scope.split(":");
     return file(
       `${name}.yaml`,
-      stringify({ kind: "policy", name, schema_version: 1, scope: kind, scope_ref: ref, value }),
+      stringify({
+        kind: "policy",
+        name,
+        schema_version: 1,
+        scope: kind,
+        scope_ref: ref,
+        value,
+      }),
     );
   }
 
@@ -857,13 +899,24 @@ describeDb("pod config apply of a policy", () => {
       "test/replay/integration-review/policy.yaml",
       "test/replay/lost-launch-reply/policy.yaml",
     ])
-      expect([path, runCli(["config", "apply", path]).status]).toEqual([path, 0]);
+      expect([path, runCli(["config", "apply", path]).status]).toEqual([
+        path,
+        0,
+      ]);
   });
 
   test.each([
     [
       "a replaces key outside the two Gates",
-      { gates: { ...gates, hqa_after_deploy: { keeper: "human-gatekeeper", type: "HQA" } }, profiles: { p: { replaces: { hqa_after_deploy: "decision-pair-aqa" } } } },
+      {
+        gates: {
+          ...gates,
+          hqa_after_deploy: { keeper: "human-gatekeeper", type: "HQA" },
+        },
+        profiles: {
+          p: { replaces: { hqa_after_deploy: "decision-pair-aqa" } },
+        },
+      },
       "profiles.p.replaces.hqa_after_deploy",
     ],
     [
@@ -876,14 +929,26 @@ describeDb("pod config apply of a policy", () => {
       { gates: { review: { keeper: ["a", "b"], type: "AQA" } } },
       "gates.review.keeper",
     ],
-    ["decision_rounds 4", { gates: [], limits: { decision_rounds: 4 } }, "limits.decision_rounds"],
+    [
+      "decision_rounds 4",
+      { gates: [], limits: { decision_rounds: 4 } },
+      "limits.decision_rounds",
+    ],
     [
       "an unparseable wall_clock",
       { gates: [], limits: { decision_budget: { wall_clock: "soon" } } },
       "limits.decision_budget.wall_clock",
     ],
-    ["a member name that is not snake_case", { gates: [], reserved: { deny: ["Bad-Name"] } }, "reserved.deny.0"],
-    ["a reserved class that is a scalar", { gates: [], reserved: { deny: "x" } }, "reserved.deny"],
+    [
+      "a member name that is not snake_case",
+      { gates: [], reserved: { deny: ["Bad-Name"] } },
+      "reserved.deny.0",
+    ],
+    [
+      "a reserved class that is a scalar",
+      { gates: [], reserved: { deny: "x" } },
+      "reserved.deny",
+    ],
     [
       "an authorization outside needs_existing_authorization",
       { gates: [], authorizations: { "S-1": { authorizes: ["spend"] } } },
@@ -902,10 +967,14 @@ describeDb("pod config apply of a policy", () => {
     const result = runCli([
       "config",
       "apply",
-      policyFile("hqa-seat", { gates: { hqa_after_deploy: { keeper: "rev-1", type: "HQA" } } }),
+      policyFile("hqa-seat", {
+        gates: { hqa_after_deploy: { keeper: "rev-1", type: "HQA" } },
+      }),
     ]);
     expect(result.status).toBe(2);
-    expect(result.json.error?.nextSteps).toEqual(["gates.hqa_after_deploy.keeper"]);
+    expect(result.json.error?.nextSteps).toEqual([
+      "gates.hqa_after_deploy.keeper",
+    ]);
   });
 
   test("a profile requiring a policy Revision that does not exist is revision_not_found", () => {
@@ -925,8 +994,11 @@ describeDb("pod config apply of a policy", () => {
 
   test("profiles that validate with no active_profile apply", () => {
     expect(
-      runCli(["config", "apply", policyFile("profiled", { gates, profiles: { p: lift } })])
-        .status,
+      runCli([
+        "config",
+        "apply",
+        policyFile("profiled", { gates, profiles: { p: lift } }),
+      ]).status,
     ).toBe(0);
   });
 
@@ -937,7 +1009,10 @@ describeDb("pod config apply of a policy", () => {
     expect(global.status).toBe(3);
     expect(global.json.error).toMatchObject({ code: "gate_lift_refused" });
     expect(global.json.error?.message).toContain("per project");
-    const project = activateAt(policyFile("lift", value, "project:p1"), "project:p1");
+    const project = activateAt(
+      policyFile("lift", value, "project:p1"),
+      "project:p1",
+    );
     expect(project.status, project.json.error?.message).toBe(0);
     expect(project.json.result).toMatchObject({
       ref: "policy.lift@1",
@@ -957,11 +1032,18 @@ describeDb("pod config apply of a policy", () => {
     await clearDb(conn);
     expect(
       activate(
-        policyFile("policy", { gates: [], reserved: { needs_human: ["vendor_contract"] } }),
+        policyFile("policy", {
+          gates: [],
+          reserved: { needs_human: ["vendor_contract"] },
+        }),
       ).status,
     ).toBe(0);
     const dropped = activateAt(
-      policyFile("policy", { gates: [], reserved: { needs_human: ["spend"] } }, "project:p1"),
+      policyFile(
+        "policy",
+        { gates: [], reserved: { needs_human: ["spend"] } },
+        "project:p1",
+      ),
       "project:p1",
     );
     expect(dropped.status).toBe(2);
@@ -972,7 +1054,10 @@ describeDb("pod config apply of a policy", () => {
         "policy",
         {
           gates: [],
-          reserved: { deny: ["vendor_contract"], needs_human: ["other_vendor"] },
+          reserved: {
+            deny: ["vendor_contract"],
+            needs_human: ["other_vendor"],
+          },
           authorizations: { "S-1": { authorizes: ["repo_create"] } },
         },
         "project:p1",
@@ -1160,7 +1245,7 @@ describeDb("profile activation", () => {
     expect(again.status).toBe(0);
     expect(again.json.result).toEqual(first.json.result);
     const rows = await conn.sql<{ n: number }[]>`
-      select count(*)::int as n from ledger.operation where intent = 'config_apply'`;
+      select count(*)::int as n from ledger.operation where intent = 'config_activate'`;
     expect(rows[0]?.n).toBe(1);
   });
 

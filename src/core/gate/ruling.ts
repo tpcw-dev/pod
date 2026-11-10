@@ -1,10 +1,18 @@
 import { singleActive } from "../config/active.ts";
-import type { PendingProfileOp, ProfileSource } from "../config/apply.ts";
+import {
+  activateComment,
+  type ActivationSource,
+  type PendingActivation,
+} from "../config/apply.ts";
 import { parseRuling, rulingConsumed, type Ruling } from "../decide/ruling.ts";
 import type { Run } from "../domain/ledger.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db } from "../ports/db.ts";
-import type { TrackerComment, TrackerPort } from "../ports/tracker.ts";
+import type {
+  StoryRef,
+  TrackerComment,
+  TrackerPort,
+} from "../ports/tracker.ts";
 import { readBypass } from "./bypass.ts";
 import {
   hashOf,
@@ -57,11 +65,15 @@ export async function waitingDecisions(
 
 export type HumanSource = (comment: TrackerComment) => Promise<string | null>;
 
-export function humanSource(
+type HumanPrincipal = (
+  comment: TrackerComment,
+) => Promise<{ ok: true; principal: string } | { ok: false; reason: string }>;
+
+function humanPrincipal(
   tracker: TrackerPort,
   policy: unknown,
   input: Pick<RulingInput, "hostName" | "bypassPath">,
-): HumanSource {
+): HumanPrincipal {
   const keepers = hqaKeepers(policy);
   const principals = principalsOf(policy);
   const bypass =
@@ -69,9 +81,21 @@ export function humanSource(
       ? null
       : readBypass(input.bypassPath, input.hostName);
   return (comment) =>
-    refusal(tracker, comment, keepers, (keeper) =>
+    verifiedKeeper(tracker, comment, keepers, (keeper) =>
       verifySource(comment, principals, keeper, bypass),
     );
+}
+
+export function humanSource(
+  tracker: TrackerPort,
+  policy: unknown,
+  input: Pick<RulingInput, "hostName" | "bypassPath">,
+): HumanSource {
+  const verify = humanPrincipal(tracker, policy, input);
+  return async (comment) => {
+    const checked = await verify(comment);
+    return checked.ok ? null : checked.reason;
+  };
 }
 
 export async function verifiedRulings(
@@ -128,9 +152,10 @@ export async function verifiedRulings(
   return { rulings, nextSteps };
 }
 
-export interface ProfileReadback {
-  op_key: string;
-  source: ProfileSource;
+export interface ActivationReadback {
+  revision_id: string;
+  source: Extract<ActivationSource, { kind: "tracker_comment" }>;
+  activated_by: string;
 }
 
 function requestLine(body: string): string {
@@ -142,42 +167,89 @@ function requestLine(body: string): string {
   );
 }
 
-export async function verifiedProfileRequests(
+function acceptedLines({ request }: PendingActivation): string[] {
+  const line = activateComment(request.revision_id);
+  return request.comment === line ? [line] : [line, request.comment];
+}
+
+function requestName({ request }: PendingActivation): string {
+  return `${request.profile === null ? "config activate" : "profile"} request ${JSON.stringify(request.comment)}`;
+}
+
+export interface ActivationInput extends RulingInput {
+  log: ReceiptLog;
+  storyComments: readonly TrackerComment[];
+}
+
+async function ticketComments(
+  tracker: TrackerPort,
+  input: ActivationInput,
+  ticket: string | null,
+): Promise<StoryComments> {
+  if (ticket === null) return { ok: true, comments: [...input.storyComments] };
+  const ref: StoryRef = {
+    provider: input.run.story_provider,
+    external_id: ticket,
+  };
+  input.log.at({ run_id: input.run.run_id, task_id: null, op_key: null });
+  const read = await tracker.readback(ref);
+  if (!read.ok || read.result?.kind !== "story")
+    return { ok: false, error: read.error ?? "no story" };
+  return { ok: true, comments: read.result.comments };
+}
+
+export async function verifiedActivations(
   db: Db,
   tracker: TrackerPort,
-  comments: readonly TrackerComment[],
-  pending: readonly PendingProfileOp[],
-  input: RulingInput,
-): Promise<{ readbacks: ProfileReadback[]; nextSteps: string[] }> {
-  const readbacks: ProfileReadback[] = [];
+  pending: readonly PendingActivation[],
+  input: ActivationInput,
+): Promise<{ readbacks: ActivationReadback[]; nextSteps: string[] }> {
+  const readbacks: ActivationReadback[] = [];
   const nextSteps: string[] = [];
-  for (const { op_key, request } of pending) {
-    const posted = comments.filter(
-      (comment) => requestLine(comment.body) === request.comment,
-    );
-    if (posted.length === 0) continue;
-    const current = await singleActive(
-      db,
-      "policy",
-      request.scope,
-      request.scope_ref,
-    );
-    const verify = humanSource(tracker, current?.value, input);
-    for (const comment of posted) {
-      const reason = await verify(comment);
-      if (reason !== null) {
+  const global = await singleActive(db, "policy", "global", "");
+  const verify = humanPrincipal(tracker, global?.value, input);
+  const reads = new Map<string | null, StoryComments>();
+  const spent = new Set<string>();
+  const settled = new Set<string>();
+  for (const row of pending) {
+    const { revision_id, ticket } = row.request;
+    if (settled.has(revision_id)) continue;
+    let read = reads.get(ticket);
+    if (read === undefined) {
+      read = await ticketComments(tracker, input, ticket);
+      reads.set(ticket, read);
+      if (!read.ok)
         nextSteps.push(
-          `receipt_unverified_source: profile request ${JSON.stringify(request.comment)} comment ${comment.ref.comment_id} by ${comment.authorId ?? "an unknown author"} is not a verified human source (${reason}); the request stays pending`,
+          `tracker readback of ticket ${ticket ?? ""} failed: ${read.error}; its config activate requests wait for the next pod check`,
+        );
+    }
+    if (!read.ok) continue;
+    const lines = acceptedLines(row);
+    for (const comment of read.comments) {
+      const id = comment.ref.comment_id;
+      if (!lines.includes(requestLine(comment.body))) continue;
+      if (spent.has(id) || (await db.commentSpent(id))) continue;
+      const checked =
+        comment.editedAt === null
+          ? await verify(comment)
+          : ({ ok: false, reason: "edited" } as const);
+      if (!checked.ok) {
+        nextSteps.push(
+          `receipt_unverified_source: ${requestName(row)} comment ${id} by ${comment.authorId ?? "an unknown author"} is not a verified human source (${checked.reason}); the request stays pending`,
         );
         continue;
       }
+      spent.add(id);
+      settled.add(revision_id);
       readbacks.push({
-        op_key,
+        revision_id,
         source: {
-          comment_id: comment.ref.comment_id,
+          kind: "tracker_comment",
+          comment_id: id,
           author: comment.authorId ?? "",
           readback_at: input.now().toISOString(),
         },
+        activated_by: `person:${checked.principal}`,
       });
       break;
     }
@@ -185,13 +257,13 @@ export async function verifiedProfileRequests(
   return { readbacks, nextSteps };
 }
 
-async function refusal(
+async function verifiedKeeper(
   tracker: TrackerPort,
   comment: TrackerComment,
   keepers: readonly string[],
   verify: (keeper: string) => ReturnType<typeof verifySource>,
-): Promise<string | null> {
-  if (keepers.length === 0) return "no_hqa_keeper";
+): Promise<{ ok: true; principal: string } | { ok: false; reason: string }> {
+  if (keepers.length === 0) return { ok: false, reason: "no_hqa_keeper" };
   let reason: string | null = null;
   for (const keeper of keepers) {
     const source = verify(keeper);
@@ -205,8 +277,11 @@ async function refusal(
       confirm.result === null ||
       hashOf(confirm.result.body, source.relayed_by) !== source.content_hash
     )
-      return "readback_differs";
-    return null;
+      return { ok: false, reason: "readback_differs" };
+    return {
+      ok: true,
+      principal: source.relayed_by === null ? keeper : "relay",
+    };
   }
-  return reason;
+  return { ok: false, reason: reason ?? "not_a_human_source" };
 }

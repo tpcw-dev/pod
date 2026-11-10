@@ -255,7 +255,15 @@ describe("pod config set", () => {
 
   test("a Seat writes as seat:<address> and cannot activate", async () => {
     const written = runCli(
-      ["config", "set", "crew.team", "seats[1].model=m-2", ...reason],
+      [
+        "config",
+        "set",
+        "crew.team",
+        "seats[1].model=m-2",
+        "--ticket",
+        "TRK-9",
+        ...reason,
+      ],
       { POD_SEAT: "developer" },
     );
     expect(written.status).toBe(0);

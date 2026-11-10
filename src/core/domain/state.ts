@@ -56,6 +56,7 @@ export const PoliciesSection = z.object({
   pending_profile: z.array(
     z.object({ profile: z.string(), policy: z.string(), comment: z.string() }),
   ),
+  pending_requests: z.int().nonnegative(),
   reserved: z.object({
     deny: z.array(z.string()),
     needs_human: z.array(z.string()),

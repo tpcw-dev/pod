@@ -1411,6 +1411,26 @@ function makeRepo(x: Executor): Repo {
       return rows.length > 0;
     },
 
+    async commentSpent(commentId) {
+      const source = JSON.stringify({
+        kind: "tracker_comment",
+        comment_id: commentId,
+      });
+      const refused = JSON.stringify({ comment_id: commentId });
+      const done = JSON.stringify({ source: { comment_id: commentId } });
+      const rows = await x.execute<{ spent: boolean }>(sql`
+        select exists (
+          select 1 from ledger.event
+          where type = 'activation' and source @> ${source}::jsonb
+        ) or exists (
+          select 1 from ledger.operation
+          where intent in ('config_apply', 'config_activate')
+            and status in ('done', 'refused')
+            and (result_ref @> ${refused}::jsonb or result_ref @> ${done}::jsonb)
+        ) as spent`);
+      return rows[0]?.spent === true;
+    },
+
     async eventWith(type, payload) {
       const [row] = await x
         .select()

@@ -269,7 +269,7 @@ export function policiesSection(
   ctx: StateContext,
   policy: Revision | null,
   crew: Revision | null,
-  pending: PoliciesSection["pending_profile"],
+  pending: Pick<PoliciesSection, "pending_profile" | "pending_requests">,
 ): PoliciesSection {
   const reserved = Fields.safeParse(
     Fields.safeParse(policy?.value).data?.["reserved"],
@@ -278,7 +278,7 @@ export function policiesSection(
     policy: revisionRef(policy),
     crew: revisionRef(crew),
     profile: policy === null ? null : activeProfile(policy.value),
-    pending_profile: pending,
+    ...pending,
     reserved: {
       deny: strings(reserved?.["deny"]),
       needs_human: strings(reserved?.["needs_human"]),

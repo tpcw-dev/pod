@@ -470,7 +470,7 @@ test("the policies section names the object members of specs/policy/default.yaml
     { repo: {} as never, docs: null, now: () => now },
     revision,
     null,
-    [],
+    { pending_profile: [], pending_requests: 0 },
   );
   expect(section.profile).toBeNull();
   expect(section.reserved).toEqual({
