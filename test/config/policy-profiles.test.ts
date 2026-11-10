@@ -68,7 +68,7 @@ test.each([["human"], ["yes"], [true], [null]])(
   },
 );
 
-test("a profile key outside replaces, requires, and deploy_production is refused", () => {
+test("a profile key outside replaces, requires, deploy_production, and method is refused", () => {
   expect(refusedAt(withProfiles({ p: { pause_at: "deploy" } }))).toEqual([
     "schema_invalid",
     "profiles.p.pause_at",
@@ -94,6 +94,31 @@ test.each([
 test("requires names only a policy_revision", () => {
   expect(
     refusedAt(withProfiles({ p: { requires: { policy_revision: "rev_1" } } })),
+  ).toBeNull();
+});
+
+test.each([
+  [
+    { review: "Read the diff.\nThen run the tests." },
+    "profiles.p.method.review",
+  ],
+  [{ review: "x".repeat(201) }, "profiles.p.method.review"],
+  [{ review: "" }, "profiles.p.method.review"],
+  [{ review: 7 }, "profiles.p.method.review"],
+  ["Read the diff.", "profiles.p.method"],
+  [["Read the diff."], "profiles.p.method"],
+])("method %j is refused", (method, path) => {
+  expect(refusedAt(withProfiles({ p: { method } }))).toEqual([
+    "schema_invalid",
+    path,
+  ]);
+});
+
+test("a profile method overrides any step id", () => {
+  expect(
+    refusedAt(
+      withProfiles({ p: { method: { review: "Read the diff twice." } } }),
+    ),
   ).toBeNull();
 });
 
@@ -150,7 +175,7 @@ describeDb("autonomous activation", () => {
   });
   afterAll(() => conn.close());
 
-  test("is gate_lift_refused with the Gate-lift next step", async () => {
+  test("is gate_lift_refused naming the north star conditions", async () => {
     const envelope: RevisionEnvelope = {
       kind: "policy",
       name: "default",
@@ -173,8 +198,12 @@ describeDb("autonomous activation", () => {
     });
     if (outcome.kind !== "process_invalid") return;
     expect(outcome.refusal.message).toContain("active_profile autonomous");
+    expect(outcome.refusal.message).toContain(
+      "groom, plan, the operate loop, the gate set with its needs-human exit, and policy attention all land",
+    );
+    expect(outcome.refusal.message).not.toContain("method");
     expect(outcome.refusal.nextSteps.join("\n")).toContain(
-      "Gate-lift in docs/tech-spec.md",
+      "The autonomous north star in docs/tech-spec.md",
     );
   });
 });

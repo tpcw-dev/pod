@@ -16,6 +16,7 @@ import {
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
 import { fixtures } from "../orca/temp-fixtures.ts";
+import { envelope, storeRevision } from "./fixtures.ts";
 import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import {
   batch,
@@ -30,6 +31,7 @@ import {
   workers,
   worktreeId,
 } from "./run-fixture.ts";
+import { processValue } from "./seed.ts";
 
 const gitStatus = "## main...origin/main\n M src/a.ts";
 const retryArgv = [
@@ -146,6 +148,40 @@ describeDb("pod retry", () => {
         input({ opKey: outcome.opKey }),
       ),
     ).toEqual(outcome);
+  });
+
+  test("the retry task view prints the step's Method line after the git status", async () => {
+    const pinned = await storeRevision(
+      conn.db,
+      envelope("process", "impl", {
+        ...processValue,
+        steps: processValue.steps.map((step) =>
+          step.id === "build"
+            ? { ...step, method: "Keep each commit small." }
+            : step,
+        ),
+      }),
+    );
+    await conn.sql`update config.snapshot set process_revision_id = ${pinned.id} where run_id = 'run_1'`;
+    const outcome = await run([
+      ok("worker-start", started("ctx_2"), retryArgv),
+    ]);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.result.task_view).toMatch(
+      /^## main\.\.\.origin\/main\n M src\/a\.ts\nMethod: Keep each commit small\.\nTests\n/,
+    );
+    expect((await conn.db.getDispatch("ctx_2"))?.prompt_bytes).toBe(
+      Buffer.byteLength(outcome.result.task_view, "utf8"),
+    );
+  });
+
+  test("a retry task view has no Method line when the step has none", async () => {
+    const outcome = await run([
+      ok("worker-start", started("ctx_2"), retryArgv),
+    ]);
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(outcome.result.task_view).not.toContain("Method:");
   });
 
   test("a late worker_done from the stopped Dispatch moves nothing after the retry", async () => {

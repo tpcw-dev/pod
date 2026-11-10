@@ -19,6 +19,7 @@ import {
 import { renderTaskView } from "../manifest/task-view.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
+import { stepMethod } from "../process/method.ts";
 import { replayed } from "./dispatch.ts";
 import {
   recordReceipt,
@@ -146,11 +147,12 @@ function launchFor(
   };
 }
 
-function taskViewOf(references: unknown): string {
+function taskViewOf(references: unknown, method: string | null): string {
   const rows = References.parse(references);
   const git = rows.find((row) => row.source === "git_status");
   return renderTaskView({
     ...(git === undefined ? {} : { gitStatus: git.excerpt }),
+    ...(method === null ? {} : { method }),
     policies: [],
     reserved: [],
     decisions: [],
@@ -197,6 +199,7 @@ export async function retry(
     );
   const superseded = await supersededRefusal(db, task);
   if (superseded !== null) return superseded;
+  const method = await stepMethod(db, task.run_id, task.step_id);
   let seats: Seat[];
   try {
     seats = readSeats(crew.value);
@@ -387,12 +390,12 @@ export async function retry(
     const manifest = await db.getManifest(again.result.manifest_id);
     return {
       ...again,
-      result: finish(again.result, taskViewOf(manifest?.references)),
+      result: finish(again.result, taskViewOf(manifest?.references, method)),
     };
   }
 
   const { launch } = gate;
-  const taskView = taskViewOf(gate.references);
+  const taskView = taskViewOf(gate.references, method);
   log.at({ run_id: task.run_id, task_id: task.task_id, op_key: opKey });
   const receipt = await orca.workerStart({
     task: task.task_id,

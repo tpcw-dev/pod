@@ -20,6 +20,7 @@ export interface TaskViewSource {
 
 export interface TaskViewInput {
   gitStatus?: string;
+  method?: string;
   policies: readonly string[];
   reserved: readonly string[];
   decisions: readonly TaskViewDecision[];
@@ -67,6 +68,7 @@ const testInstruction = [
 export function renderTaskView(input: TaskViewInput): TaskView {
   const prefixParts: string[] = [];
   if (input.gitStatus !== undefined) prefixParts.push(input.gitStatus);
+  if (input.method !== undefined) prefixParts.push(`Method: ${input.method}`);
   prefixParts.push(testInstruction);
   prefixParts.push(section("Policies", input.policies));
   prefixParts.push(section("Reserved categories", input.reserved));
