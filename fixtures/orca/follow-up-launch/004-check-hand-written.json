@@ -1,0 +1,19 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_89963994885a",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"ok\": true,\n  \"result\": {\n    \"deliveryId\": \"delivery_follow_up\",\n    \"messages\": [\n      {\n        \"id\": \"msg_follow_up_done\",\n        \"run_id\": \"run_89963994885a\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_2f9a2019-cfba-4f72-ad6e-589d4a4a5550\",\n        \"to_handle\": \"run:run_89963994885a\",\n        \"subject\": \"Task completed\",\n        \"body\": \"Follow-up turn finished.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\": \\\"task_4641da7560c7\\\", \\\"dispatchId\\\": \\\"ctx_70c80bb55c02\\\", \\\"outcome\\\": \\\"succeeded\\\"}\",\n        \"created_at\": \"2026-11-09T01:20:00Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"acknowledged\": null\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "1970-01-01T00:00:00.000Z"
+}

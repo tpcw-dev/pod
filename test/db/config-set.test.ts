@@ -11,7 +11,7 @@ import { applyConfig } from "../../src/core/config/apply.ts";
 import { deriveSet } from "../../src/core/config/set.ts";
 import type { Revision } from "../../src/core/domain/config.ts";
 import { clearDb, openDb, resetDb, runCli } from "./helpers.ts";
-import { operator } from "./identity-fixture.ts";
+import { operator, seatRun } from "./identity-fixture.ts";
 import { activeRevision, crewValue } from "./seed.ts";
 
 const reason = ["--reason", "test edit"];
@@ -294,5 +294,52 @@ describe("pod config set", () => {
     expect(result.status).toBe(3);
     expect(result.json.error?.code).toBe("identity_missing");
     expect(result.json.error?.nextSteps.join(" ")).toContain("someone");
+  });
+
+  async function heldBy(payload: Record<string, string>): Promise<void> {
+    await seatRun(db.db, "run-held");
+    await db.db.setRunState("run-held", "hold");
+    await db.db.appendEvent({
+      type: "unknown_launch",
+      ts: new Date(),
+      host: "local",
+      run_id: "run-held",
+      task_id: null,
+      dispatch_id: "ctx_stray",
+      op_key: null,
+      payload: { worker_task_id: "task_s", worker_state: "ready", ...payload },
+      source: { kind: "command", verb: "check" },
+    });
+  }
+
+  const edit = ["config", "set", "crew.team", "seats[1].model=m-2", ...reason];
+
+  test("a Run on this host held by an unresolved unknown_launch makes a config write identity_missing", async () => {
+    await heldBy({});
+    const result = runCli(edit);
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("identity_missing");
+    expect(result.json.error?.nextSteps.join(" ")).toContain("ctx_stray");
+  });
+
+  test("an unknown_launch of a follow-up does not block a config write", async () => {
+    await heldBy({ follow_up_of: "ctx_parent" });
+    expect(runCli(edit).status).toBe(0);
+  });
+
+  test("an unknown_launch the operator resumed does not block, though the Run is held again", async () => {
+    await heldBy({});
+    await db.db.appendEvent({
+      type: "resume",
+      ts: new Date(),
+      host: "local",
+      run_id: "run-held",
+      task_id: null,
+      dispatch_id: null,
+      op_key: null,
+      payload: { reason: "operator", to: "active" },
+      source: { kind: "command", verb: "check --resume" },
+    });
+    expect(runCli(edit).status).toBe(0);
   });
 });

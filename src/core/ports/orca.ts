@@ -212,6 +212,7 @@ export const OrcaMessage = z.looseObject({
   id: z.string().min(1),
   type: z.string(),
   subject: z.string().nullish(),
+  from_handle: z.string().nullish(),
   payload: Payload,
 });
 export type OrcaMessage = z.infer<typeof OrcaMessage>;
@@ -228,6 +229,8 @@ export const WorkerRow = z.looseObject({
   taskId: z.string().nullish(),
   workerState: z.string(),
   terminalState: z.string().nullish(),
+  agentTerminalHandle: z.string().nullish(),
+  followUpOf: z.string().nullish(),
   resource: z.looseObject({ worktreeId: z.string().nullish() }).nullish(),
 });
 export type WorkerRow = z.infer<typeof WorkerRow>;

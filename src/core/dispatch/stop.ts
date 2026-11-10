@@ -111,7 +111,7 @@ export async function stopForSupersede(
   );
 }
 
-function errorCode(raw: unknown): string {
+export function errorCode(raw: unknown): string {
   if (typeof raw !== "object" || raw === null || !("error" in raw))
     return "no readable reply";
   const { error } = raw;

@@ -528,6 +528,162 @@ describeDb("pod check", () => {
     expect(await events(conn, "unknown_launch")).toHaveLength(1);
   });
 
+  const followUp = (over: { workerState?: string; followUpOf?: string } = {}) =>
+    workers([
+      { dispatchId: "ctx_1", workerState: "succeeded" },
+      {
+        dispatchId: "ctx_f",
+        taskId: "task_o",
+        workerState: over.workerState ?? "starting",
+        agentTerminalHandle: "term_ctx_1",
+        ...(over.followUpOf === undefined
+          ? {}
+          : { followUpOf: over.followUpOf }),
+      },
+    ]);
+  const stopF = ["--dispatch", "ctx_f"];
+  const stopReasons = async () =>
+    (await events(conn, "stop")).map((row) => [
+      row.dispatch_id,
+      row.payload["outcome"],
+      row.payload["follow_up_of"],
+    ]);
+
+  test("a same-terminal worker whose followUpOf names another Dispatch records unknown_launch and holds", async () => {
+    const outcome = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", followUp({ followUpOf: "ctx_other" }), run),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { unknown_workers: ["ctx_f"] },
+    });
+    expect((await conn.db.getRun("run_1"))?.state).toBe("hold");
+    expect(
+      (await events(conn, "unknown_launch"))[0]?.payload,
+    ).not.toHaveProperty("follow_up_of");
+  });
+
+  test("a same-terminal follow-up is recorded with follow_up_of, stopped once, and does not hold the Run", async () => {
+    const outcome = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", followUp(), run),
+      ok("worker-stop", { dispatchId: "ctx_f", state: "stopped" }, stopF),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { unknown_workers: [] },
+    });
+    if (!outcome.ok) throw new Error("check refused");
+    expect(outcome.result.nextSteps).toContain(
+      "follow-up ctx_f of ctx_1 stopped; resend to an open Dispatch if the message still matters",
+    );
+    expect((await conn.db.getRun("run_1"))?.state).toBe("active");
+    expect(await taskState(conn, "task_b")).toBe("dispatched");
+    expect(await events(conn, "hold")).toHaveLength(0);
+    expect(
+      (await events(conn, "unknown_launch")).map((row) => [
+        row.dispatch_id,
+        row.payload["follow_up_of"],
+      ]),
+    ).toEqual([["ctx_f", "ctx_1"]]);
+    expect(await stopReasons()).toEqual([["ctx_f", "stopped", "ctx_1"]]);
+    await pass([ok("check", empty(), run), ok("worker-list", followUp(), run)]);
+    expect(await events(conn, "unknown_launch")).toHaveLength(1);
+    expect(await events(conn, "stop")).toHaveLength(1);
+  });
+
+  test("a follow-up that already ended is recorded stopped without a worker-stop", async () => {
+    await pass([
+      ok("check", empty(), run),
+      ok("worker-list", followUp({ workerState: "succeeded" }), run),
+    ]);
+    expect(await stopReasons()).toEqual([["ctx_f", "stopped", "ctx_1"]]);
+  });
+
+  test("an unknown worker-stop reply is settled by request-show, not a second worker-stop", async () => {
+    const first = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", followUp(), run),
+      ok(
+        "worker-stop",
+        { dispatchId: "ctx_f", state: "outcome_unknown", requestId: "req_1" },
+        stopF,
+      ),
+    ]);
+    if (!first.ok) throw new Error("check refused");
+    expect(first.result.nextSteps).toContain(
+      "worker-stop of follow-up ctx_f of ctx_1 has no known outcome; pod check settles it from request req_1 or the worker list",
+    );
+    expect(await stopReasons()).toEqual([["ctx_f", "unknown", "ctx_1"]]);
+    expect((await events(conn, "stop"))[0]?.payload["request_id"]).toBe(
+      "req_1",
+    );
+    await pass([
+      ok("check", empty(), run),
+      ok("worker-list", followUp(), run),
+      ok("request-show", { requestId: "req_1", state: "completed" }, [
+        "--request",
+        "req_1",
+      ]),
+    ]);
+    expect(await stopReasons()).toEqual([
+      ["ctx_f", "unknown", "ctx_1"],
+      ["ctx_f", "stopped", "ctx_1"],
+    ]);
+  });
+
+  test("a failed worker-stop records nothing and the next pass stops again", async () => {
+    const first = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", followUp(), run),
+      {
+        verb: "worker-stop",
+        argv: stopF,
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          error: { code: "runtime_busy", message: "busy" },
+        }),
+      },
+    ]);
+    if (!first.ok) throw new Error("check refused");
+    expect(first.result.nextSteps).toContain(
+      "worker-stop of follow-up ctx_f of ctx_1 failed: runtime_busy; run pod check again",
+    );
+    expect(await events(conn, "stop")).toHaveLength(0);
+    await pass([
+      ok("check", empty(), run),
+      ok("worker-list", followUp(), run),
+      ok("worker-stop", { dispatchId: "ctx_f", state: "stopped" }, stopF),
+    ]);
+    expect(await stopReasons()).toEqual([["ctx_f", "stopped", "ctx_1"]]);
+  });
+
+  test("a follow-up worker_done in the pass that first lists it is ignored with reason follow_up", async () => {
+    const said = {
+      ...(done("msg_f", "ctx_f") as Record<string, unknown>),
+      from_handle: "term_ctx_1",
+    };
+    await pass([
+      ok("check", batch("delivery_1", [said]), run),
+      ok("check", empty("delivery_1"), ack("delivery_1")),
+      ok("worker-list", followUp(), run),
+      ok("worker-stop", { dispatchId: "ctx_f", state: "stopped" }, stopF),
+    ]);
+    expect(
+      (await events(conn, "ignored")).map((row) => [
+        row.payload["message_id"],
+        row.payload["type"],
+        row.payload["reason"],
+        row.payload["follow_up_of"],
+      ]),
+    ).toEqual([["msg_f", "worker_done", "follow_up", "ctx_1"]]);
+    expect(await events(conn, "delivery")).toHaveLength(0);
+    expect(await taskState(conn, "task_b")).toBe("dispatched");
+    expect((await conn.db.getDispatch("ctx_1"))?.settlement).toBe("open");
+  });
+
   test("worker-list follows nextCursor across pages", async () => {
     const outcome = await pass([
       ok("check", empty(), run),

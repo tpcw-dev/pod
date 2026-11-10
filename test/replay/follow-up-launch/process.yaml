@@ -1,0 +1,14 @@
+kind: process
+name: follow-up-launch
+schema_version: 1
+value:
+  summary: follow-up-launch replay scenario, one review Task whose worker gets a same-terminal follow-up
+  selector: { stage: impl, size: [xs, s] }
+  roles: [reviewer]
+  steps:
+    - { id: integration_review, type: worker, role: reviewer }
+  edges:
+    - { from: integration_review, on: done, to: done }
+    - { from: integration_review, on: [timeout, cancel, unknown], to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+  escalation: { to: operator }

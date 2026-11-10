@@ -156,7 +156,7 @@ export interface Repo {
   latestEvent(
     runId: string,
     type: EventType,
-    options?: { taskId?: string },
+    options?: { taskId?: string; dispatchId?: string },
   ): Promise<Event | null>;
   listEvents(runId: string, type: EventType): Promise<Event[]>;
   insertOperation(

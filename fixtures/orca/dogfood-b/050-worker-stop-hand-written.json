@@ -1,0 +1,19 @@
+{
+  "verb": "worker-stop",
+  "match": {
+    "argv": [
+      "orchestration",
+      "worker-stop",
+      "--dispatch",
+      "ctx_70c80bb55c02",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"ok\": true,\n  \"result\": {\n    \"dispatchId\": \"ctx_70c80bb55c02\",\n    \"state\": \"stopped\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "1970-01-01T00:00:00.000Z"
+}
