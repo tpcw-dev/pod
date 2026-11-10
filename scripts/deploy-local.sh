@@ -44,7 +44,10 @@ reason=$(node --no-warnings --experimental-transform-types --input-type=module -
   refuse "${reason:-cannot load src/cli/host-profile.ts}"
 
 pnpm build >&2 || refuse "pnpm build failed"
-node dist/index.js db migrate >&2 || refuse "db migrate failed"
+if ! node dist/index.js db migrate >&2; then
+  echo "refused: db migrate failed" >&2
+  exit 1
+fi
 pnpm link --global >&2 || refuse "pnpm link --global failed"
 
 [ -n "$local_commit" ] || git tag -a "$tag" -m "pod $tag"
