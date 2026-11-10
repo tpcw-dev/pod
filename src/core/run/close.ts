@@ -159,7 +159,8 @@ function question(
         : `Dispatch ${dispatchId}'s terminal ${handle} has text in its composer: ${text}`,
     nextSteps: [
       `orca terminal read --terminal ${handle} --screen`,
-      "answer or clear the composer, then run the close again",
+      "answer or clear the composer",
+      "run the close again",
     ],
   };
 }

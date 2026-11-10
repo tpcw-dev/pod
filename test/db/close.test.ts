@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -671,6 +672,33 @@ describeDb("pod run close", () => {
           state: "done",
           report_hash: emptyHash,
           report: { learnings: 0, leftovers: 0, decisions: 0 },
+        },
+      },
+    });
+  });
+
+  test("the CLI takes --keep-files-reviewed past needs_file and records the operator", async () => {
+    await readyToClose();
+    const worktree = mkdtempSync(join(tmpdir(), "pod-close-cli-"));
+    expect(spawnSync("git", ["-C", worktree, "init", "-q"]).status).toBe(0);
+    writeFileSync(join(worktree, "notes.txt"), "draft\n");
+    await conn.sql`update ledger.dispatch set terminal_handle = null, requested_launch = jsonb_set(requested_launch, '{worktree}', to_jsonb(${`id:repo-1::${worktree}`}::text)) where dispatch_id = 'ctx_1'`;
+    const args = ["run", "close", "story:S-1", ...generation];
+    const refused = await cliReplay(conn, args);
+    expect(refused.status).toBe(3);
+    expect(refused.json.error?.code).toBe("needs_file");
+    const kept = await cliReplay(conn, [...args, "--keep-files-reviewed"]);
+    expect(kept).toMatchObject({
+      status: 0,
+      json: {
+        ok: true,
+        result: {
+          state: "done",
+          keep_files_reviewed: {
+            actor: "operator",
+            host: "local",
+            worktrees: [{ path: worktree, files: ["notes.txt"], ahead: 0 }],
+          },
         },
       },
     });
