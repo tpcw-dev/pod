@@ -203,6 +203,12 @@ function limitsProblem(limits: unknown): Problem {
       path: "limits.decision_rounds",
       message: "limits.decision_rounds: must be an integer from 1 to 3",
     };
+  const digest = given["digest_per_day"];
+  if (digest !== undefined && !z.int().min(1).max(10).safeParse(digest).success)
+    return {
+      path: "limits.digest_per_day",
+      message: "limits.digest_per_day: must be an integer from 1 to 10",
+    };
   const budget = parseBudget(given["decision_budget"]);
   if (!budget.ok)
     return {
