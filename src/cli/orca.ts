@@ -10,6 +10,7 @@ import {
 } from "../core/domain/scrub.ts";
 import type { OrcaPort, ReceiptSink } from "../core/ports/orca.ts";
 import { usageError } from "./errors.ts";
+import { readCredentials, type HostSettings } from "./host-profile.ts";
 
 function env(name: string): string | null {
   const value = process.env[name];
@@ -36,7 +37,7 @@ export interface OrcaWiring {
   recordRefusals(): readonly FixtureRefused[];
 }
 
-export function orcaFor(sink: ReceiptSink, hostId: string): OrcaWiring {
+export function orcaFor(sink: ReceiptSink, host: HostSettings): OrcaWiring {
   const fixtures = env("POD_ORCA_FIXTURES");
   if (fixtures !== null)
     return {
@@ -68,11 +69,12 @@ export function orcaFor(sink: ReceiptSink, hostId: string): OrcaWiring {
       dir,
       kill: env("POD_ORCA_RECORD_KILL"),
       scrubber: makeScrubber({
-        hosts: [hostname(), hostId],
+        hosts: [hostname(), host.hostId],
         users: [userInfo().username],
         roots: [process.cwd()],
         denylist: terms,
         replacements: pairs,
+        credentials: readCredentials(host).values(),
       }),
     },
   });

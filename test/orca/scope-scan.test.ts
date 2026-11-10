@@ -18,3 +18,17 @@ test("the scope scan uses the scrubber boundary, including a serialized escape",
     [join(root, "nested", "escaped.txt"), join(root, "word.txt")].sort(),
   );
 });
+
+test("a file holding a userinfo password is reported", () => {
+  const root = mkdtempSync(join(tmpdir(), "pod-scope-"));
+  writeFileSync(
+    join(root, "url.md"),
+    "connect to scheme://user:example-not-a-secret@db.invalid/pod\n",
+  );
+  writeFileSync(
+    join(root, "redacted.md"),
+    "connect to scheme://user:[credential]@db.invalid/pod\n",
+  );
+  writeFileSync(join(root, "plain.md"), "connect to https://db.invalid/pod\n");
+  expect(denylistFiles([], [root])).toEqual([join(root, "url.md")]);
+});

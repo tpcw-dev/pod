@@ -7,6 +7,9 @@ import {
   makeScrubber,
   writeFixture,
 } from "../../src/adapters/orca/scrub.ts";
+import { makeTrackerScrubber } from "../../src/adapters/linear/scrub.ts";
+import { makeDocsScrubber } from "../../src/adapters/notion/scrub.ts";
+import { hasUserinfoPassword } from "../../src/core/domain/scrub.ts";
 import type { ReceiptRecord } from "../../src/core/ports/orca.ts";
 
 function record(stdout: string): ReceiptRecord {
@@ -169,4 +172,59 @@ test("a terminal-show fixture keeps no title, branch, or preview text", () => {
     readFileSync(join(dir, "002-worker-start.json"), "utf8"),
   ) as { stdout: string };
   expect(other.stdout).toBe(stdout);
+});
+
+const none = { hosts: [], users: [], roots: [], denylist: [] };
+
+test("a value equal to a credential this process read becomes [credential]", () => {
+  const scrubber = makeScrubber({
+    ...none,
+    credentials: ["example-not-a-secret", "example-not-a-secret-longer"],
+  });
+  expect(
+    scrubber.scrub(
+      '{"token":"example-not-a-secret-longer","auth":"Bearer example-not-a-secret"}',
+    ),
+  ).toBe('{"token":"[credential]","auth":"Bearer [credential]"}');
+});
+
+test("a URL userinfo password becomes [credential] with no credential list", () => {
+  const scrubber = makeScrubber(none);
+  expect(
+    scrubber.scrub("url scheme://user:example-not-a-secret@db.invalid/pod"),
+  ).toBe("url scheme://user:[credential]@db.invalid/pod");
+  expect(scrubber.scrub("https://db.invalid:5432/pod")).toBe(
+    "https://db.invalid:5432/pod",
+  );
+});
+
+test("a credential holding a tracker or docs id becomes [credential] whole", () => {
+  const uuid = "0f1e2d3c-4b5a-4968-8776-655443322110";
+  const tracker = makeTrackerScrubber({
+    ...none,
+    workspace: [],
+    teamKeys: [],
+    credentials: [`example-${uuid}`],
+  });
+  expect(tracker.scrub(`token example-${uuid} and ${uuid}`)).toBe(
+    "token [credential] and 00000000-0000-4000-8000-000000000001",
+  );
+  const hex = "0f1e2d3c4b5a49688776655443322110";
+  const docs = makeDocsScrubber({
+    ...none,
+    workspace: [],
+    credentials: [`example_${hex}`],
+  });
+  expect(docs.scrub(`token example_${hex}`)).toBe("token [credential]");
+});
+
+test("hasUserinfoPassword finds a password but not a redacted one", () => {
+  expect(
+    hasUserinfoPassword("scheme://user:example-not-a-secret@db.invalid/pod"),
+  ).toBe(true);
+  expect(hasUserinfoPassword("scheme://user:[credential]@db.invalid/pod")).toBe(
+    false,
+  );
+  expect(hasUserinfoPassword("scheme://user@db.invalid/pod")).toBe(false);
+  expect(hasUserinfoPassword("https://db.invalid:5432/pod")).toBe(false);
 });

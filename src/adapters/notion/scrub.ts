@@ -1,4 +1,8 @@
-import { makeScrubber, type Scrubber } from "../../core/domain/scrub.ts";
+import {
+  makeScrubber,
+  redactCredentials,
+  type Scrubber,
+} from "../../core/domain/scrub.ts";
 
 export interface DocsScrubTerms {
   hosts: readonly string[];
@@ -6,6 +10,7 @@ export interface DocsScrubTerms {
   roots: readonly string[];
   workspace: readonly string[];
   denylist: readonly string[];
+  credentials?: readonly string[];
 }
 
 const id =
@@ -31,9 +36,10 @@ export function makeDocsScrubber(terms: DocsScrubTerms): Scrubber {
   });
   const ids = new Map<string, string>();
   const workspace = terms.workspace.filter((term) => term.trim() !== "");
+  const credentials = terms.credentials ?? [];
   return {
     scrub(text) {
-      let out = text.replace(id, (hit) => {
+      let out = redactCredentials(text, credentials).replace(id, (hit) => {
         const key = hit.toLowerCase().replaceAll("-", "");
         let mapped = ids.get(key);
         if (mapped === undefined) {

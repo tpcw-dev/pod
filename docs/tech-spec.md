@@ -31,7 +31,7 @@ These constraints come from the PRD and the tech spec ticket, and they bind ever
 - Pod does not schedule. The operator's claim authority decides claim and dispatch. Pod executes that authorization and refuses a second crew for the same Story.
 - A Revision is immutable. No verb and no admin path updates an existing Revision.
 - A completed Task is not a PASS. A Gate passes only on a verified Gate receipt.
-- No secret and no transcript enters a table, an Evidence manifest, a fixture, or a view. Connection strings and tokens are read from environment variables that a profile names.
+- No secret and no transcript enters a table, an Evidence manifest, a fixture, or a view. Connection strings and tokens are read from the credentials file that the host profile names in `credentials_file`. The session environment is read only when that file is absent.
 - v1 does not rely on `LISTEN/NOTIFY`. Connection mode, CAS conflicts, atomic bundle reads, disconnect recovery, and backup and restore are tested on a test database before any story relies on them.
 - Linear is the only v1 tracker adapter. Notion is the only v1 docs adapter, and it is read-only.
 - Pod does not wrap or duplicate the operator's existing grooming, planning, or docs commands. Until Sessions land, Pod does not wrap or duplicate the operator's kickoff command either.
@@ -99,7 +99,7 @@ Pod uses two Postgres schemas, `config` and `ledger`, in one database. `pod db m
 
 S2 may create one database project and one test branch on the existing database account's current plan. No plan upgrade and no new spend. Anything beyond that is a needs-human decision.
 
-The connection string is read from the environment variable that the host profile names in `db.url_env`. Pod never stores it.
+The connection string is the credentials file line whose name the host profile gives in `db.url_env`, read from the environment only when the file named by `credentials_file` is absent. Pod never stores it.
 
 `config.revision` and `ledger.event` are append-only. A trigger on each raises on UPDATE and DELETE. The triggers live in a custom SQL migration. `config.activation` is the one `config` table a row replaces, under CAS, and every replacement records an event. Other ledger tables accept the state updates their state machines allow and nothing else.
 
@@ -781,6 +781,9 @@ When the test fails on a host, every human receipt on that host stays waiting, a
 Spec clarification: TPC-1478. Pod reads who runs a `pod config` write from identity. A run with `POD_SEAT` set is the agent Seat it names. Otherwise a run whose `ORCA_TERMINAL_HANDLE` the ledger records on this host, as a Dispatch's terminal or a Run's coordinator, is that Seat; Orca 1.4.253 takes no environment flag on `worker-start`, so this lookup is how Pod marks the terminals it starts. Pod records a Dispatch's terminal from the receipt's top-level `terminalHandle`, else from its `effects` entry of kind `terminal` and role `agent`, which is where Orca 1.4.253 reports it. While this host has an unsettled Dispatch with no terminal, or a `dispatch`, `retry`, or `decide_seat` operation still pending or unknown, any other run is refused `identity_missing`, because it cannot be told apart from that worker. Spec clarification: TPC-1511. The same refusal holds while a Run on this host is in `hold` with an `unknown_launch` that has no `follow_up_of` and no later Run `resume`. Only after that is a run the host profile's `operator`. The premise, like the bypass premise above, is that a worker runs in the terminal Pod recorded or is covered by that refusal, does not unset `ORCA_TERMINAL_HANDLE` or `POD_SEAT`, and that a Seat Pod did not start sets `POD_SEAT`. An agent Seat's `--activate` is refused `activation_needs_person`, and the bypass test checks it from a worker terminal, a terminal-less worker, and a launch in flight.
 
 Spec clarification: TPC-1479. A pending `config_activate` request is activated by an accepted human source from the table above, read back by `pod check`. Each pass reads the comments of each ticket that holds a pending request, once per ticket. A request with no ticket, which only a TPC-1413 profile request can have, reads the Run's Story. A comment counts only when all of these hold: its first non-empty line, trimmed, is `config activate <revision-id>` (or the request's `profile <project> <name> <policy ref>` synonym); it was never edited; it passes `verifySource` against the HQA keepers and principals of the active global policy and this host's bypass line, with the confirming comment read; and its id is not already spent. A comment id is spent once it is on an `activation` event's source or on a settled request row. A refused comment leaves the request pending, with a `receipt_unverified_source` next step naming the reason. A counted comment applies once. The activation is recorded as `person:<keeper>`, or `person:relay` for a relayed comment. When no pending request for that revision id expects the Revision active now, every such request is refused with `revision_conflict`. A worker Seat's comment never counts, and an agent Seat cannot run `pod config activate`. A TPC-1413 profile request refused before this rule stored no comment id, so its comment cannot be told apart from a new one. From TPC-1479 on, every refusal stores it.
+
+Spec clarification: TPC-1531. The premise is that the session environment carries no credential, so the environment a Seat inherits is clean. Pod reads the database URL and the tokens from the credentials file, and does not scrub a Seat's environment, because the runtime starts the Seat process. A recorder replaces every credential value the process read, and the password in a URL's userinfo, with `[credential]` before it writes a fixture, and the scope scan fails on such a password. This stops accidental disclosure only. A Seat that runs under the operator's OS account can still read the credentials file. Closing that needs a separate OS account or a broker, and is later work.
+
 ### Process spec loading and the selector
 
 A process spec is a YAML file. zod parses it into the process schema.
@@ -1214,7 +1217,7 @@ A local deploy is `pnpm deploy:local`, which runs `scripts/deploy-local.sh`. Eve
 
 1. Fetch origin, and refuse unless the tree is clean and HEAD equals `origin/main`.
 2. Read `version` from `package.json`. The tag is `v<version>`. Refuse when the commit a local or origin tag of that name peels to is not HEAD.
-3. Preflight. Refuse unless `pnpm bin --global` prints a directory, and unless the database URL env var the host profile names (`db.url_env`, default `POD_DB_URL`) is set. The check runs `src/cli/host-profile.ts`, so a malformed or unreadable `host.yaml` refuses with its own message.
+3. Preflight. Refuse unless `pnpm bin --global` prints a directory, and unless the database URL the host profile names (`db.url_env`, default `POD_DB_URL`) can be read from the credentials file, or from the environment when that file is absent. The check runs `src/cli/host-profile.ts`, so a malformed or unreadable `host.yaml` refuses with its own message.
 4. `pnpm build` into `.deploy/dist`, then `node .deploy/dist/index.js db migrate` with that build, then move it into `dist`, then `pnpm link --global`. The migrate result goes to stderr. A failed migrate refuses with `db migrate failed` and leaves `dist`, the build the linked `pod` runs, as it was.
 5. Write the annotated tag `v<version>` when it is missing locally, and push it when origin lacks it. A rerun on the same HEAD runs every step again: `db migrate` applies nothing, and the tag step skips a tag that already peels to HEAD.
 6. Print one JSON line, `{"environment":"local","deployment_id":"v<version>","deployed_revision":"<HEAD sha>","source_commit":"<HEAD sha>"}`, which carries the four `event_fields` of the deploy step for the coordinator's deploy delivery.
@@ -1250,16 +1253,19 @@ The host profile is a local file outside the repo at `$POD_HOME/host.yaml`, defa
 | --- | --- |
 | `host_id` | this host's id in the ledger |
 | `orca.server` | the Orca selector |
-| `db.url_env` | the name of the environment variable that holds the connection string |
+| `credentials_file` | optional, the credentials file, default `$POD_HOME/credentials`; a relative path is read under `$POD_HOME` |
+| `db.url_env` | the name of the credential that holds the connection string |
 | `tracker.kind` | `linear` |
-| `tracker.token_env` | the name of the environment variable that holds the tracker token |
+| `tracker.token_env` | the name of the credential that holds the tracker token |
 | `docs.kind` | `notion` |
-| `docs.token_env` | the name of the environment variable that holds the docs token |
+| `docs.token_env` | the name of the credential that holds the docs token |
 | `capacity` | the Seat quota on this host |
 | `operator` | optional, the principal who runs this host's shell, recorded as `person:<operator>`; it must name a principal of the active global policy when that policy lists any |
 | `record_dir` | optional, the fixture record directory |
 
-The file holds no secrets. It names environment variables instead. The host profile is not a Revision because it names local secrets and a local Orca, and a Revision is meant to be shared and pinned.
+The host profile holds no secrets. It names credentials instead. The host profile is not a Revision because it names local secrets and a local Orca, and a Revision is meant to be shared and pinned.
+
+The credentials file holds the secrets, one `NAME=value` line each, under the names `db.url_env`, `tracker.token_env`, and `docs.token_env` give. Blank lines and `#` lines are skipped, and the value is everything after the first `=`. When the file exists, `pod` reads credentials only from it. A file that group or other can read or write is a usage error whose next step is `chmod 600 <path>`. When the file is absent, `pod` reads the same names from the environment and writes a warning to stderr. When the file exists and the session still exports one of those names, `pod check` and `pod brief` add the next step `<NAME> is exported in this session; Seats inherit it. Remove it from the session environment`. No error, warning, or next step prints a value.
 
 #### Crew profile
 
@@ -1291,8 +1297,8 @@ The operator applies it with `pod config apply crew.yaml --activate --scope proj
 
 1. Clone the Pod repo.
 2. Run `pnpm install`.
-3. Set the environment variables for the database URL, the tracker token, and the docs token.
-4. Write `$POD_HOME/host.yaml` with the names of those variables.
+3. Write the credentials file, `$POD_HOME/credentials` by default, with mode 0600 and one `NAME=value` line each for the database URL, the tracker token, and the docs token. The session environment exports none of those names, so a Seat inherits no credential.
+4. Write `$POD_HOME/host.yaml` with the names of those credentials, and `credentials_file` when the file is elsewhere.
 5. Run `pod db migrate`.
 6. Apply the policy first with `pod config apply specs/policy/policy.yaml --activate --scope global --expected-revision none`.
 7. Copy `specs/crew/crew.example.yaml`, fill it, and apply it with `pod config apply crew.yaml --activate --scope project:<id> --expected-revision none`.
@@ -1301,6 +1307,8 @@ The operator applies it with `pod config apply crew.yaml --activate --scope proj
 10. From a worktree that the operator's claim authority chose, run `pod run create story:<id>`. It returns `ownerGeneration` 1 in `meta`.
 11. Run `pod dispatch --task T --seat S --generation 1` for each ready Task the claim authority authorizes.
 12. Run `pod check --generation 1 --wait` to record deliveries and project the next Tasks.
+
+Rotate a credential: change the value at the provider, edit its line in the credentials file, and run a verb that reads the database, such as `pod db migrate`, to confirm. Then remove the old value from every session that still exports it.
 
 The operator's existing grooming, planning, kickoff, and docs tools stay outside Pod and keep working as they do. Pod refuses to start a second crew for a Story that already has a Run.
 

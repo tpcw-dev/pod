@@ -1,5 +1,6 @@
 import {
   makeScrubber,
+  redactCredentials,
   type Replacement,
   type Scrubber,
 } from "../../core/domain/scrub.ts";
@@ -18,6 +19,7 @@ export interface TrackerScrubTerms {
   teamKeys: readonly string[];
   denylist: readonly string[];
   replacements?: readonly Replacement[];
+  credentials?: readonly string[];
 }
 
 const identifier =
@@ -49,9 +51,11 @@ export function makeTrackerScrubber(terms: TrackerScrubTerms): Scrubber {
   const ids = new Map<string, string>();
   const teamKeys = new Set(terms.teamKeys);
   const workspace = terms.workspace.filter((term) => term.trim() !== "");
+  const credentials = terms.credentials ?? [];
   return {
     scrub(text) {
-      let out = text.replace(identifier, (hit, key: string) => {
+      let out = redactCredentials(text, credentials);
+      out = out.replace(identifier, (hit, key: string) => {
         if (!teamKeys.has(key)) return hit;
         let mapped = issues.get(hit);
         if (mapped === undefined) {

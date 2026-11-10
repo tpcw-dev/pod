@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import { makeReplayTracker } from "../../src/adapters/linear/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
+import { podHome, type HostSettings } from "../../src/cli/host-profile.ts";
 import { orcaFor } from "../../src/cli/orca.ts";
 import { trackerFor } from "../../src/cli/tracker.ts";
 import { checkWait, type WaitInput } from "../../src/core/check/check.ts";
@@ -70,7 +72,19 @@ describeDb("decision-fallback", () => {
       if (recording && story === "")
         throw new Error("recording needs POD_TRACKER_STORY");
       const log = receiptLog(conn.db, "rec");
-      const orcaWired = recording ? orcaFor(log.sink, "rec") : null;
+      const recHost: HostSettings = {
+        hostId: "rec",
+        urlEnv: "POD_DB_URL",
+        credentialsFile: join(podHome(), "credentials"),
+        capacity: 2,
+        trackerKind: "linear",
+        trackerTokenEnv: "POD_TRACKER_TOKEN",
+        estimateScale: "fibonacci",
+        docsKind: "notion",
+        docsTokenEnv: "POD_DOCS_TOKEN",
+        operator: null,
+      };
+      const orcaWired = recording ? orcaFor(log.sink, recHost) : null;
       const orcaReplay = recording
         ? null
         : makeReplayOrca({ dir: orcaDir, sink: log.sink });
@@ -78,17 +92,7 @@ describeDb("decision-fallback", () => {
       if (chosen === null) throw new Error("no Orca port");
       const orca: OrcaPort = chosen;
       const trackerWired = recording
-        ? await trackerFor(log.trackerSink, {
-            hostId: "rec",
-            urlEnv: "POD_DB_URL",
-            capacity: 2,
-            trackerKind: "linear",
-            trackerTokenEnv: "POD_TRACKER_TOKEN",
-            estimateScale: "fibonacci",
-            docsKind: "notion",
-            docsTokenEnv: "POD_DOCS_TOKEN",
-            operator: null,
-          })
+        ? await trackerFor(log.trackerSink, recHost)
         : null;
       const trackerReplay = recording
         ? null

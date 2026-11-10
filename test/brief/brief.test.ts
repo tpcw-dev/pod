@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +34,7 @@ function unescapeHtml(text: string): string {
 function runBrief(
   cwd: string,
   args: string[],
+  home = podHome,
 ): { status: number | null; stdout: string } {
   return spawnSync(
     join(repo, "node_modules/.bin/tsx"),
@@ -35,7 +42,7 @@ function runBrief(
     {
       cwd,
       encoding: "utf8",
-      env: { ...process.env, POD_DB_URL: dbUrl(), POD_HOME: podHome },
+      env: { ...process.env, POD_DB_URL: dbUrl(), POD_HOME: home },
     },
   );
 }
@@ -181,6 +188,26 @@ describeDb("pod brief", () => {
     expect(opsAfter?.n).toBe(opsBefore?.n);
   });
 
+  test("brief warns when a credential the credentials file holds is still exported", () => {
+    const plain = JSON.parse(runBrief(cwd, ["brief", "story:S-1"]).stdout) as {
+      result: Record<string, unknown>;
+    };
+    expect(plain.result).not.toHaveProperty("nextSteps");
+    const home = mkdtempSync(join(tmpdir(), "pod-home-"));
+    copyFileSync(join(podHome, "host.yaml"), join(home, "host.yaml"));
+    writeFileSync(join(home, "credentials"), `POD_DB_URL=${dbUrl()}\n`, {
+      mode: 0o600,
+    });
+    const result = runBrief(cwd, ["brief", "story:S-1"], home);
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      result: { nextSteps?: string[] };
+    };
+    expect(parsed.result.nextSteps).toEqual([
+      "POD_DB_URL is exported in this session; Seats inherit it. Remove it from the session environment",
+    ]);
+  });
+
   test("brief lists delivered tests in JSON and as a two-row table", async () => {
     await conn.db.insertManifest({
       id: "manifest-tests",
@@ -262,7 +289,9 @@ describeDb("pod brief", () => {
     expect(unescapeHtml(pre?.[1] ?? "")).toBe(JSON.stringify(parsed.result));
     const table = file.match(/<table id="tests-ctx-1">([\s\S]*?)<\/table>/);
     expect(table?.[1]?.match(/<tr>/g)).toHaveLength(2);
-    expect(table?.[0]).toContain("<td>pnpm test</td><td>0</td><td>1</td><td></td>");
+    expect(table?.[0]).toContain(
+      "<td>pnpm test</td><td>0</td><td>1</td><td></td>",
+    );
     expect(table?.[0]).toContain(
       "<td>timeout 60 pnpm test</td><td>1</td><td>2.5</td><td>60</td>",
     );
@@ -327,8 +356,16 @@ describeDb("pod brief", () => {
     const parsed = JSON.parse(result.stdout);
     expect(parsed.result.stories[0].runs[0].measurement).toEqual({
       pair: {
-        decider: { seat: "decider-seat", prompt_bytes: 812, cold_start_ms: 2500 },
-        auditor: { seat: "auditor-seat", prompt_bytes: 640, cold_start_ms: 4000 },
+        decider: {
+          seat: "decider-seat",
+          prompt_bytes: 812,
+          cold_start_ms: 2500,
+        },
+        auditor: {
+          seat: "auditor-seat",
+          prompt_bytes: 640,
+          cold_start_ms: 4000,
+        },
       },
       decisions: [
         {

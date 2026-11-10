@@ -41,6 +41,7 @@ import { gitStatus, worktreeStatus } from "./git.ts";
 import {
   databaseUrl,
   podHome,
+  readCredentials,
   readHostProfile,
   type HostSettings,
 } from "./host-profile.ts";
@@ -64,7 +65,7 @@ export async function withOrca<R extends { ok: true }>(
   const connection = connect(databaseUrl(host));
   try {
     const log = receiptLog(connection.db, host.hostId);
-    const orca = orcaFor(log.sink, host.hostId);
+    const orca = orcaFor(log.sink, host);
     const tracker = await trackerFor(log.trackerSink, host);
     const docs = await docsFor(log.docsSink, host);
     const outcome = await work({
@@ -418,8 +419,10 @@ export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
     return { ...result, owner_generation: generation, orca: null };
   }
   const run = input.run ?? "";
+  let warnings: string[] = [];
   const { result, orca } = await withOrca(
     ({ db, orca: port, tracker, log, host }) => {
+      warnings = readCredentials(host).warnings();
       const pass = {
         run,
         generation,
@@ -442,7 +445,12 @@ export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
         : checkPass(db, port, tracker, log, pass);
     },
   );
-  return { ...result, owner_generation: generation, orca };
+  return {
+    ...result,
+    nextSteps: [...result.nextSteps, ...warnings],
+    owner_generation: generation,
+    orca,
+  };
 }
 
 export function checkMeta(output: {

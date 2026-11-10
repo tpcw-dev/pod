@@ -4,7 +4,11 @@ import { receiptLog, type ReceiptLog } from "../core/ledger/receipts.ts";
 import { docsSectionNotFound, type Section } from "../core/ports/docs.ts";
 import { docsFor } from "./docs.ts";
 import { PodError, throwRecordRefusal } from "./errors.ts";
-import { databaseUrl, readHostProfile } from "./host-profile.ts";
+import {
+  credentialStep,
+  databaseUrl,
+  readHostProfile,
+} from "./host-profile.ts";
 
 export const DocsReadInput = z.strictObject({
   args: z.tuple([]),
@@ -56,7 +60,7 @@ export async function docsRead(input: DocsReadInput): Promise<Section> {
       3,
       "this host has no docs token and no docs fixtures",
       [
-        `set ${host.docsTokenEnv} to the docs token`,
+        credentialStep(host, host.docsTokenEnv, "docs token"),
         "or set POD_DOCS_FIXTURES to a fixture directory",
       ],
     );

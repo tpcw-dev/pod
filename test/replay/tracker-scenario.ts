@@ -11,6 +11,7 @@ import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { dispatch } from "../../src/core/dispatch/dispatch.ts";
 import type { OutboxPayload } from "../../src/core/domain/ledger.ts";
 import { receiptLog, type ReceiptLog } from "../../src/core/ledger/receipts.ts";
+import { podHome } from "../../src/cli/host-profile.ts";
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import type { TrackerPort } from "../../src/core/ports/tracker.ts";
 import { runCreate } from "../../src/core/run/create.ts";
@@ -58,6 +59,7 @@ export async function scenario(
     ? await trackerFor(log.trackerSink, {
         hostId: "rec",
         urlEnv: "POD_DB_URL",
+        credentialsFile: join(podHome(), "credentials"),
         capacity: 2,
         trackerKind: "linear",
         trackerTokenEnv: "POD_TRACKER_TOKEN",

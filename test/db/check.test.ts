@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -19,7 +19,14 @@ import { noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
 import { fixtures } from "../orca/temp-fixtures.ts";
 import { fakeTracker, trackerStory, type FakeTracker } from "./fake-tracker.ts";
 import { gatedRun, headSha } from "./gate-fixture.ts";
-import { describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import {
+  dbUrl,
+  describeDb,
+  openDb,
+  podHome,
+  resetDb,
+  runCli,
+} from "./helpers.ts";
 import {
   batch,
   dispatched,
@@ -779,6 +786,25 @@ describeDb("pod check", () => {
         nextSteps: expect.arrayContaining(["Orca error consumer_fenced"]),
       },
     });
+  });
+
+  test("the CLI warns when a credential the credentials file holds is still exported", () => {
+    const home = mkdtempSync(join(tmpdir(), "pod-home-"));
+    copyFileSync(join(podHome, "host.yaml"), join(home, "host.yaml"));
+    writeFileSync(join(home, "credentials"), `POD_DB_URL=${dbUrl()}\n`, {
+      mode: 0o600,
+    });
+    const checked = runCli(["check", "--run", "run_1", "--generation", "1"], {
+      POD_HOME: home,
+      POD_ORCA_FIXTURES: fixtures([
+        ok("check", empty(), run),
+        ok("worker-list", workers([]), run),
+      ]),
+    });
+    expect(checked.status).toBe(0);
+    expect(checked.json.result?.["nextSteps"]).toContain(
+      "POD_DB_URL is exported in this session; Seats inherit it. Remove it from the session environment",
+    );
   });
 
   test("the CLI takes --run, rejects mixed forms, and refuses a resume of a Run not in hold", () => {
