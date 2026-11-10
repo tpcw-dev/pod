@@ -2,7 +2,7 @@ import { readFileSync, statSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
-import { schemaError, usageError } from "./errors.ts";
+import { schemaError, usageError, type PodError } from "./errors.ts";
 import { issuesOf, parseYaml } from "./yaml-file.ts";
 
 const HostProfile = z.looseObject({
@@ -103,12 +103,20 @@ function fromEnv(name: string): string | null {
   return value === undefined || value === "" ? null : value;
 }
 
+function unreadable(path: string, error: unknown): PodError {
+  return usageError(`${path} cannot be read`, [
+    (error as NodeJS.ErrnoException).code === "EACCES"
+      ? `chmod 600 ${path}`
+      : `replace ${path} with a NAME=value file`,
+  ]);
+}
+
 function fileStat(path: string): Stats | null {
   try {
     return statSync(path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw usageError(`${path} cannot be read`, [`chmod 600 ${path}`]);
+    throw unreadable(path, error);
   }
 }
 
@@ -144,8 +152,8 @@ function readCredentialsFile(path: string): Map<string, string> | null {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
-  } catch {
-    throw usageError(`${path} cannot be read`, [`chmod 600 ${path}`]);
+  } catch (error) {
+    throw unreadable(path, error);
   }
   return parseCredentials(path, text);
 }

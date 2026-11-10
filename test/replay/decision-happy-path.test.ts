@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import { makeReplayTracker } from "../../src/adapters/linear/replay.ts";
@@ -15,7 +14,6 @@ import { decisionLimits } from "../../src/core/config/limits.ts";
 import { openDecision } from "../../src/core/decide/open.ts";
 import { dispatch } from "../../src/core/dispatch/dispatch.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
-import { podHome } from "../../src/cli/host-profile.ts";
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import type { TrackerPort } from "../../src/core/ports/tracker.ts";
 import { runCreate } from "../../src/core/run/create.ts";
@@ -108,7 +106,7 @@ describeDb("decision-happy-path", () => {
         ? await trackerFor(log.trackerSink, {
             hostId: "rec",
             urlEnv: "POD_DB_URL",
-            credentialsFile: join(podHome(), "credentials"),
+            credentialsFile: "/nonexistent/credentials",
             capacity: 2,
             trackerKind: "linear",
             trackerTokenEnv: "POD_TRACKER_TOKEN",

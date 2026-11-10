@@ -1,10 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import { makeReplayTracker } from "../../src/adapters/linear/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
-import { podHome, type HostSettings } from "../../src/cli/host-profile.ts";
+import type { HostSettings } from "../../src/cli/host-profile.ts";
 import { orcaFor } from "../../src/cli/orca.ts";
 import { trackerFor } from "../../src/cli/tracker.ts";
 import { checkWait, type WaitInput } from "../../src/core/check/check.ts";
@@ -75,7 +74,7 @@ describeDb("decision-fallback", () => {
       const recHost: HostSettings = {
         hostId: "rec",
         urlEnv: "POD_DB_URL",
-        credentialsFile: join(podHome(), "credentials"),
+        credentialsFile: "/nonexistent/credentials",
         capacity: 2,
         trackerKind: "linear",
         trackerTokenEnv: "POD_TRACKER_TOKEN",

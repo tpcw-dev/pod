@@ -295,6 +295,17 @@ test("a credentials file of mode 0644 is refused with chmod 600", () => {
   expect(error.message).not.toContain("example-not-a-secret");
 });
 
+test("an owner-unreadable credentials file is refused with chmod 600", () => {
+  home(null);
+  cleanEnv();
+  const path = credentials("POD_DB_URL=x\n", 0o000);
+  expect(podError(() => readCredentials(readHostProfile()))).toMatchObject({
+    code: "usage",
+    message: `${path} cannot be read`,
+    nextSteps: [`chmod 600 ${path}`],
+  });
+});
+
 test("a malformed line is refused by its number, not its text", () => {
   home(null);
   cleanEnv();
