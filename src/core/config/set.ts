@@ -38,11 +38,15 @@ class EditError extends Error {}
 
 type Container = Json[] | { [key: string]: Json };
 
+type Slot =
+  | { list: Json[]; index: number }
+  | { map: { [key: string]: Json }; key: string };
+
 function isContainer(value: Json | undefined): value is Container {
   return typeof value === "object" && value !== null;
 }
 
-export function pathText(path: readonly PathPart[]): string {
+function pathText(path: readonly PathPart[]): string {
   return path
     .map((part, index) =>
       typeof part === "number" ? `[${part}]` : index === 0 ? part : `.${part}`,
@@ -50,59 +54,72 @@ export function pathText(path: readonly PathPart[]): string {
     .join("");
 }
 
-function child(
+function slotOf(
   container: Container,
   part: PathPart,
   path: readonly PathPart[],
-): Json | undefined {
+): Slot {
   if (Array.isArray(container)) {
     if (typeof part !== "number" || part >= container.length)
       throw new EditError(`${pathText(path)}: no element ${String(part)}`);
-    return container[part];
+    return { list: container, index: part };
   }
   if (typeof part === "number")
     throw new EditError(`${pathText(path)}: [${part}] indexes a map`);
-  return container[part];
+  return { map: container, key: part };
 }
 
-function parentOf(root: Json, path: readonly PathPart[], create: boolean) {
+function notContainer(path: readonly PathPart[], length: number): EditError {
+  return new EditError(
+    `${pathText(path)}: ${pathText(path.slice(0, length))} is not a map or a list`,
+  );
+}
+
+function parentOf(
+  root: Json,
+  path: readonly PathPart[],
+  create: boolean,
+): Container {
   let node: Json = root;
   for (const [index, part] of path.slice(0, -1).entries()) {
-    if (!isContainer(node))
-      throw new EditError(`${pathText(path)}: ${pathText(path.slice(0, index))} is not a map or a list`);
-    let next = child(node, part, path);
-    if (next === undefined) {
-      if (!create) throw new EditError(`${pathText(path)}: no such path`);
-      next = {};
-      (node as Record<string, Json>)[part as string] = next;
+    if (!isContainer(node)) throw notContainer(path, index);
+    const slot = slotOf(node, part, path);
+    if ("list" in slot) {
+      node = slot.list[slot.index] ?? null;
+      continue;
     }
-    node = next;
+    const next = slot.map[slot.key];
+    if (next !== undefined) {
+      node = next;
+      continue;
+    }
+    if (!create) throw new EditError(`${pathText(path)}: no such path`);
+    node = slot.map[slot.key] = {};
   }
-  if (!isContainer(node))
-    throw new EditError(`${pathText(path)}: ${pathText(path.slice(0, -1))} is not a map or a list`);
+  if (!isContainer(node)) throw notContainer(path, path.length - 1);
   return node;
 }
 
 function applyEdit(root: Json, edit: Edit): void {
   const last = edit.path.at(-1);
   if (last === undefined) throw new EditError("an empty path");
-  const parent = parentOf(root, edit.path, edit.op === "set");
-  if (Array.isArray(parent)) {
-    child(parent, last, edit.path);
-    const index = last as number;
-    if (edit.op === "set") parent[index] = edit.value;
-    else parent.splice(index, 1);
+  const slot = slotOf(
+    parentOf(root, edit.path, edit.op === "set"),
+    last,
+    edit.path,
+  );
+  if ("list" in slot) {
+    if (edit.op === "set") slot.list[slot.index] = edit.value;
+    else slot.list.splice(slot.index, 1);
     return;
   }
-  if (typeof last === "number")
-    throw new EditError(`${pathText(edit.path)}: [${last}] indexes a map`);
   if (edit.op === "set") {
-    parent[last] = edit.value;
+    slot.map[slot.key] = edit.value;
     return;
   }
-  if (!(last in parent))
+  if (!(slot.key in slot.map))
     throw new EditError(`${pathText(edit.path)}: no such path`);
-  delete parent[last];
+  delete slot.map[slot.key];
 }
 
 export function editValue(
@@ -117,7 +134,8 @@ export function editValue(
   try {
     for (const edit of ordered) applyEdit(copy, edit);
   } catch (error) {
-    if (error instanceof EditError) return { ok: false, message: error.message };
+    if (error instanceof EditError)
+      return { ok: false, message: error.message };
     throw error;
   }
   if (canonicalJson(copy) === canonicalJson(value))

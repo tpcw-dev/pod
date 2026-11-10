@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { applyConfig } from "../../src/core/config/apply.ts";
 import { deriveSet } from "../../src/core/config/set.ts";
@@ -23,7 +30,9 @@ describe("pod config set", () => {
     source = await activeRevision(db.db, "crew", "team", crewValue);
   });
 
-  async function revision(id: unknown): Promise<Revision & { ticket?: unknown }> {
+  async function revision(
+    id: unknown,
+  ): Promise<Revision & { ticket?: unknown }> {
     const found = await db.db.getRevision(String(id));
     if (found === null) throw new Error(`no Revision ${String(id)}`);
     return found;

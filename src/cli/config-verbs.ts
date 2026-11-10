@@ -274,9 +274,12 @@ export async function configSet(
           ["pod config apply FILE", "pass --from kind.name@rev"],
         );
       case "from_unknown":
-        throw new PodError("revision_not_found", 3, `no Revision ${input.from ?? ""}`, [
-          "pod config apply FILE",
-        ]);
+        throw new PodError(
+          "revision_not_found",
+          3,
+          `no Revision ${input.from ?? ""}`,
+          ["pod config apply FILE"],
+        );
       case "scope_mismatch":
         throw usageError(
           `--scope ${input.scope ?? ""} differs from ${revisionRef(derived.source)}'s scope ${scopeText(derived.source)}`,
@@ -304,8 +307,11 @@ export async function configSet(
         ? { expected: derived.expected, opKey: null, host: host.hostId }
         : null,
     });
-    return settle(outcome, target, () => [
-      `pod config set ${input.args.join(" ")} --reason ...`,
+    return settle(outcome, target, (active) => [
+      ...(active === null
+        ? []
+        : [`pod config export ${revisionRef(active)} --out FILE`]),
+      `pod config set ${target} again, which derives from the Revision active now`,
     ]);
   } finally {
     await connection.close();

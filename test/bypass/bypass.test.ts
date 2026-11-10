@@ -1,7 +1,14 @@
 import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
 import { stringify } from "yaml";
 import { z } from "zod";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
@@ -209,10 +216,7 @@ async function post(
 
 describe("a worker-level terminal cannot activate as the operator", () => {
   let db: Connection;
-  const file = join(
-    mkdtempSync(join(tmpdir(), "pod-bypass-")),
-    "crew.yaml",
-  );
+  const file = join(mkdtempSync(join(tmpdir(), "pod-bypass-")), "crew.yaml");
   writeFileSync(
     file,
     stringify(

@@ -5,8 +5,7 @@ import { PodError } from "./errors.ts";
 import type { HostSettings } from "./host-profile.ts";
 
 export type Identity =
-  | { kind: "seat"; address: string }
-  | { kind: "person"; principal: string };
+  { kind: "seat"; address: string } | { kind: "person"; principal: string };
 
 export interface IdentityFacts {
   podSeat: string | null;
@@ -78,9 +77,7 @@ async function checkPrincipal(repo: Repo, principal: string): Promise<void> {
   if (names.length === 0 || names.includes(principal)) return;
   throw identityMissing(
     `operator ${principal} is not a principal of the active global policy`,
-    [
-      `set operator: in $POD_HOME/host.yaml to one of ${names.join(", ")}`,
-    ],
+    [`set operator: in $POD_HOME/host.yaml to one of ${names.join(", ")}`],
   );
 }
 
@@ -104,6 +101,7 @@ export async function writerOf(
     operator: host.operator,
   });
   mayActivate(identity, activate);
-  if (identity.kind === "person") await checkPrincipal(repo, identity.principal);
+  if (identity.kind === "person")
+    await checkPrincipal(repo, identity.principal);
   return actorOf(identity);
 }
