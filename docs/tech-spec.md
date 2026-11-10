@@ -1327,7 +1327,7 @@ A process step takes an optional `method: <string>`, and a profile may override 
 
 `deploy_production` works as "Gate-lift" ships it. The global `deploy_production` needs_human member stays. Only an active profile whose `deploy_production` is `agent` removes that member, and only for its project. A project policy that drops a global deny or needs_human member from its own `reserved` list is still refused with `schema_invalid`.
 
-Policy `attention`, with `pause_at` and `max_unattended_hours`, waits for M2. Per-project needs_human members and the digest cap belong to a later section. Until Pod owns the profile, an adopter may keep its own interim profile configuration.
+Policy `attention`, with `pause_at` and `max_unattended_hours`, waits for M2. Per-project needs_human members and the digest cap are in "Refusals are the last rung" under Gate-lift. Until Pod owns the profile, an adopter may keep its own interim profile configuration.
 
 #### The autonomous north star
 
