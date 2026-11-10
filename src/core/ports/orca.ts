@@ -14,6 +14,7 @@ export interface OrcaPort {
   requestShow(req: RequestShowRequest): Promise<Receipt<RequestShowResult>>
   workerList(req: WorkerListRequest): Promise<Receipt<WorkerListResult>>
   terminalShow(req: TerminalShowRequest): Promise<Receipt<TerminalShowResult>>
+  terminalRead(req: TerminalReadRequest): Promise<Receipt<TerminalReadResult>>
 }
 
 export interface Receipt<T> {
@@ -71,6 +72,10 @@ export interface RunShowRequest {
 }
 
 export interface TerminalShowRequest {
+  terminal: string;
+}
+
+export interface TerminalReadRequest {
   terminal: string;
 }
 
@@ -274,6 +279,15 @@ export const TerminalShowResult = z.looseObject({
   }),
 });
 export type TerminalShowResult = z.infer<typeof TerminalShowResult>;
+
+export const TerminalReadResult = z.looseObject({
+  terminal: z.looseObject({
+    handle: z.string(),
+    tail: z.array(z.string()),
+    source: z.string().optional(),
+  }),
+});
+export type TerminalReadResult = z.infer<typeof TerminalReadResult>;
 
 export const LooseResult = z.looseObject({});
 export type SendResult = z.infer<typeof LooseResult>;

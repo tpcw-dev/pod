@@ -34,6 +34,9 @@ export type ErrorCode =
   | "deploy_not_waiting"
   | "identity_missing"
   | "activation_needs_person"
+  | "owed_work"
+  | "unanswered_question"
+  | "needs_file"
   | "failed";
 
 const exits: Partial<Record<ErrorCode, number>> = {

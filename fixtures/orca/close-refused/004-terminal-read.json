@@ -1,0 +1,19 @@
+{
+  "verb": "terminal-read",
+  "match": {
+    "argv": [
+      "terminal",
+      "read",
+      "--terminal",
+      "term_fffa698b-af31-4063-9b90-aac6f58561d5",
+      "--screen",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"cb96c39e-31d5-4501-9267-32b64d034325\",\n  \"ok\": true,\n  \"result\": {\n    \"terminal\": {\n      \"handle\": \"term_fffa698b-af31-4063-9b90-aac6f58561d5\",\n      \"status\": \"running\",\n      \"tail\": [\n        \"w1 user-1-dev/w1  ? ❯ read -e -p '❯ ' answer\",\n        \"❯ yes, take option A\"\n      ],\n      \"truncated\": false,\n      \"limited\": false,\n      \"oldestCursor\": \"0\",\n      \"nextCursor\": \"2\",\n      \"latestCursor\": \"2\",\n      \"returnedLineCount\": 2,\n      \"tailRows\": [\n        {\n          \"wrapped\": false,\n          \"trailingSpaces\": 0\n        },\n        {\n          \"wrapped\": false,\n          \"trailingSpaces\": 0\n        }\n      ],\n      \"source\": \"screen-unavailable\"\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-10T09:23:02.132Z"
+}

@@ -6,6 +6,7 @@ import type {
   RunUseRequest,
   SendRequest,
   TaskCreateRequest,
+  TerminalReadRequest,
   TerminalShowRequest,
   WorkerListRequest,
   WorkerReleaseRequest,
@@ -114,6 +115,15 @@ export const argvFor = {
     ]),
   terminalShow: (req: TerminalShowRequest) =>
     flags("show", [["--terminal", req.terminal]], "terminal"),
+  terminalRead: (req: TerminalReadRequest) =>
+    flags(
+      "read",
+      [
+        ["--terminal", req.terminal],
+        ["--screen", true],
+      ],
+      "terminal",
+    ),
 };
 
 export function verbOf(argv: readonly string[]): string {

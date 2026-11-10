@@ -158,6 +158,7 @@ export interface Repo {
     type: EventType,
     options?: { taskId?: string },
   ): Promise<Event | null>;
+  listEvents(runId: string, type: EventType): Promise<Event[]>;
   insertOperation(
     row: NewOperation,
   ): Promise<{ operation: Operation; created: boolean }>;

@@ -81,6 +81,7 @@ function parse() {
         dispatch: { type: "string" },
         retain: { type: "boolean" },
         end: { type: "boolean" },
+        "keep-files-reviewed": { type: "boolean" },
         area: { type: "string" },
         project: { type: "string" },
         story: { type: "string" },

@@ -1,0 +1,18 @@
+{
+  "verb": "terminal-show",
+  "match": {
+    "argv": [
+      "terminal",
+      "show",
+      "--terminal",
+      "term_fffa698b-af31-4063-9b90-aac6f58561d5",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"c0f3995d-b904-4e4f-9f9c-8c4fc0aa255a\",\n  \"ok\": true,\n  \"result\": {\n    \"terminal\": {\n      \"handle\": \"term_fffa698b-af31-4063-9b90-aac6f58561d5\",\n      \"ptyId\": \"902f0fc5-edba-4879-a032-58e853f081bb::/w/1@@20732c81\",\n      \"incarnationId\": \"d5f38d8e-3158-4509-bc80-9a35951f4ee6\",\n      \"orphaned\": false,\n      \"worktreeId\": \"902f0fc5-edba-4879-a032-58e853f081bb::/w/1\",\n      \"worktreePath\": \"/w/1\",\n      \"branch\": \"\",\n      \"tabId\": \"22dbc6ee-ff7a-4663-b1a7-1e7b43b2db72\",\n      \"leafId\": \"e909b2b8-f86f-4e45-a37f-b9e7b9b58d89\",\n      \"title\": \"\",\n      \"connected\": true,\n      \"writable\": true,\n      \"lastOutputAt\": 1794302563717,\n      \"preview\": \"\",\n      \"executionHostId\": \"local\",\n      \"paneRuntimeId\": -1,\n      \"rendererGraphEpoch\": 0,\n      \"agentWait\": null\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-10T09:22:58.930Z"
+}
