@@ -193,9 +193,9 @@ async function policyRefusal(
         : `Run ${run} has an open Decision or an unsettled Task, and `;
     return {
       code: "gate_lift_refused",
-      message: `active_profile ${profile}: ${held}activating ${profile} waits on the step method override`,
+      message: `active_profile ${profile}: ${held}activating ${profile} waits until groom, plan, the operate loop, the gate set with its needs-human exit, and policy attention all land`,
       nextSteps: [
-        "see Gate-lift in docs/tech-spec.md",
+        "see The autonomous north star in docs/tech-spec.md",
         "choose hands-on, standard, or hands-off and apply again",
       ],
     };

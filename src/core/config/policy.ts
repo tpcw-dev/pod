@@ -8,6 +8,7 @@ import {
   type ReservedClass,
 } from "../domain/policy.ts";
 import { GateEntry } from "../gate/receipt.ts";
+import { isMethod, methodRule } from "../process/schema.ts";
 
 const Fields = z.record(z.string(), z.unknown());
 
@@ -82,7 +83,7 @@ function gateProblem(gates: unknown, crewValue: unknown | null): Problem {
   return null;
 }
 
-const profileKeys = ["replaces", "requires", "deploy_production"];
+const profileKeys = ["replaces", "requires", "deploy_production", "method"];
 const deploySettings = ["needs_human", "agent"];
 
 function requiresProblem(
@@ -113,6 +114,24 @@ function requiresProblem(
   return null;
 }
 
+function methodProblem(
+  name: string,
+  profile: Record<string, unknown>,
+): Problem {
+  if (!("method" in profile)) return null;
+  const path = `profiles.${name}.method`;
+  const method = profile["method"];
+  if (!isMap(method))
+    return { path, message: `${path}: must be a map of step id to method` };
+  for (const [step, value] of Object.entries(fields(method)))
+    if (!isMethod(value))
+      return {
+        path: `${path}.${step}`,
+        message: `${path}.${step}: ${methodRule}`,
+      };
+  return null;
+}
+
 function profileProblem(profiles: unknown, gates: unknown): Problem {
   const ids = gateIds(gates);
   for (const [name, profile] of Object.entries(fields(profiles))) {
@@ -134,6 +153,8 @@ function profileProblem(profiles: unknown, gates: unknown): Problem {
     }
     const requires = requiresProblem(name, fields(profile));
     if (requires !== null) return requires;
+    const method = methodProblem(name, fields(profile));
+    if (method !== null) return method;
     const replaces = fields(fields(profile)["replaces"]);
     for (const [gate, to] of Object.entries(replaces)) {
       const path = `profiles.${name}.replaces.${gate}`;

@@ -21,6 +21,17 @@ export type Outcome = z.infer<typeof Outcome>;
 
 const Name = z.string().min(1);
 
+export const methodRule = "a method is one line of 1 to 200 characters";
+
+export function isMethod(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 200 &&
+    !/[\r\n]/.test(value)
+  );
+}
+
 export const Step = z
   .strictObject({
     id: Name,
@@ -34,6 +45,7 @@ export const Step = z
     event_fields: z.array(Name).default([]),
     binds: Name.optional(),
     spec: z.string().optional(),
+    method: z.string().refine(isMethod, methodRule).optional(),
   })
   .superRefine((step, ctx) => {
     if (step.type === "worker" && step.role === undefined)

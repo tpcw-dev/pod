@@ -10,6 +10,7 @@ import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
+import { stepMethod, withMethod } from "./method.ts";
 import {
   edgeOutcomes,
   ProcessValue,
@@ -78,13 +79,14 @@ function defaultSpec(
 }
 
 async function callTaskCreate(
-  ctx: Pick<ProjectContext, "orca" | "log" | "process">,
+  ctx: Pick<ProjectContext, "db" | "orca" | "log" | "process">,
   plan: Pick<TaskPlan, "runId" | "step" | "opKey" | "deps">,
 ) {
   const { runId, step, opKey, deps } = plan;
+  const method = await stepMethod(ctx.db, runId, step.id);
   ctx.log.at({ run_id: runId, task_id: null, op_key: opKey });
   const receipt = await ctx.orca.taskCreate({
-    spec: step.spec ?? defaultSpec(ctx.process, step),
+    spec: withMethod(step.spec ?? defaultSpec(ctx.process, step), method),
     run: runId,
     ...(deps.length > 0 ? { deps } : {}),
     taskTitle: step.id,
