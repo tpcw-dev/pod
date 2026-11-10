@@ -27,6 +27,7 @@ import {
 import { canonicalJson, sha256Hex } from "../core/config/canonical-json.ts";
 import { CloseReport, CloseResult } from "../core/domain/close.ts";
 import { closeRun } from "../core/run/close.ts";
+import { writerOf } from "./identity.ts";
 import { runCreate } from "../core/run/create.ts";
 import { docsFor } from "./docs.ts";
 import {
@@ -299,18 +300,21 @@ export async function runCloseVerb(
 ): Promise<RunCloseOutput> {
   const [story, file] = input.args;
   const report = closeReport(file);
-  const { result, opKey } = await withOrca(({ db, orca, log, host }) =>
-    closeRun(db, orca, log, {
-      story: story.slice("story:".length),
-      provider: host.trackerKind,
-      generation: Number(input.generation),
-      report,
-      reportHash: sha256Hex(canonicalJson(report)),
-      keepFilesReviewed: input["keep-files-reviewed"] === true,
-      host: host.hostId,
-      worktreeStatus,
-      now: () => new Date(),
-    }),
+  const { result, opKey } = await withOrca(
+    async ({ db, orca, log, host, tracker }) =>
+      closeRun(db, orca, log, {
+        story: story.slice("story:".length),
+        provider: host.trackerKind,
+        generation: Number(input.generation),
+        report,
+        reportHash: sha256Hex(canonicalJson(report)),
+        keepFilesReviewed: input["keep-files-reviewed"] === true,
+        host: host.hostId,
+        worktreeStatus,
+        now: () => new Date(),
+        tracker,
+        actor: await writerOf(db, host, process.env, false),
+      }),
   );
   return { ...result, op_key: opKey };
 }

@@ -47,7 +47,14 @@ export const KeepFilesReviewed = z.object({
 });
 export type KeepFilesReviewed = z.infer<typeof KeepFilesReviewed>;
 
-export const CloseStepName = z.enum(["archive", "done"]);
+export const CloseStepName = z.enum([
+  "archive",
+  "learnings",
+  "escalate",
+  "status",
+  "comment",
+  "done",
+]);
 export type CloseStepName = z.infer<typeof CloseStepName>;
 
 export const CloseResult = z.object({
@@ -74,6 +81,9 @@ export const CloseResult = z.object({
   ),
   keep_files_reviewed: KeepFilesReviewed.nullable(),
   gone: z.array(z.string()),
+  retro_due: z.boolean(),
+  learning_ids: z.array(z.int()),
+  escalations: z.array(z.object({ kind: P0Kind, text: z.string() })),
   already_closed: z.boolean(),
   nextSteps: z.array(z.string()),
 });

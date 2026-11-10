@@ -15,6 +15,7 @@ import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { closeRun, type CloseInput } from "../../src/core/run/close.ts";
 import { describeDb, openDb, resetDb } from "../db/helpers.ts";
 import { dispatched, events, freshRun } from "../db/run-fixture.ts";
+import { fakeTracker } from "../db/fake-tracker.ts";
 
 const dir = process.env["POD_ORCA_FIXTURES"] ?? "fixtures/orca/close-refused";
 
@@ -69,6 +70,8 @@ describeDb("close-refused", () => {
       host: "local",
       worktreeStatus,
       now: () => new Date(),
+      tracker: fakeTracker(),
+      actor: "person:operator-1",
       ...over,
     });
     const terminal = (handle: string) =>

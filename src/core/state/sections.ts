@@ -37,6 +37,7 @@ export interface WithRouting<T> {
 const Fields = z.record(z.string(), z.unknown());
 const satisfied = new Set(["passed", "done"]);
 const listed = new Set(["active", "hold"]);
+const Escalation = z.looseObject({ kind: z.string(), text: z.string() });
 
 function observed(ctx: StateContext): string {
   return ctx.now().toISOString();
@@ -364,6 +365,23 @@ export async function needsHumanSection(
             reason: `decision needs_human: ${decision.reason ?? "unknown"}`,
             at: (decision.closed_at ?? decision.created_at).toISOString(),
           });
+      for (const event of await ctx.repo.listEvents(
+        run.run.run_id,
+        "escalate",
+      )) {
+        const p0 = Escalation.safeParse(event.payload);
+        if (p0.success)
+          open.push({
+            story: story.story.external_id,
+            run_id: run.run.run_id,
+            task_id: "",
+            gate: `p0 ${p0.data.kind}`,
+            keeper: "operator",
+            open: true,
+            reason: p0.data.text,
+            at: event.ts.toISOString(),
+          });
+      }
       const policy = run.snapshot?.policy ?? null;
       if (policy === null) continue;
       const receipts = await ctx.repo.listGateReceipts(run.run.run_id);

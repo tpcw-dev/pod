@@ -8,12 +8,14 @@ import {
 } from "../domain/learning.ts";
 import type { Operation } from "../domain/ledger.ts";
 import { refuse, RefusalCode, type Refusal } from "../domain/outcome.ts";
-import type { Db } from "../ports/db.ts";
+import type { Db, Repo } from "../ports/db.ts";
 
 export interface AddLearningInput {
   row: Omit<NewLearning, "created_at">;
   host: string;
   now: () => Date;
+  run_id?: string;
+  verb?: string;
 }
 
 export type Added =
@@ -80,8 +82,8 @@ function replayed(
   return { ok: true, id: ref.data.result.id, replayed: true, opKey };
 }
 
-export async function addLearning(
-  db: Db,
+export async function writeLearning(
+  tx: Repo,
   input: AddLearningInput,
 ): Promise<Added> {
   const request: LearningIdentity = {
@@ -91,41 +93,43 @@ export async function addLearning(
     project_id: input.row.project_id,
   };
   const opKey = learningOpKey(request);
-  return db.transaction(async (tx) => {
-    const existing = await tx.getOperation(opKey);
-    if (existing !== null) return replayed(existing, opKey, request);
-    const now = input.now();
-    const inserted = await tx.insertOperation({
-      op_key: opKey,
-      intent: "learning",
-      owner_generation: 0,
-      at: now,
-      result_ref: Json.parse({ request }),
-    });
-    if (!inserted.created) return replayed(inserted.operation, opKey, request);
-    const stored = await tx.insertLearning({ ...input.row, created_at: now });
-    await tx.appendEvent({
-      type: "learning",
-      ts: now,
-      host: input.host,
-      run_id: null,
-      task_id: null,
-      dispatch_id: null,
-      op_key: opKey,
-      payload: Json.parse({
-        learning_id: stored.id,
-        source_story: request.source_story,
-        area: request.area,
-        project_id: request.project_id,
-      }),
-      source: Json.parse({ kind: "command", verb: "learning add" }),
-    });
-    await tx.moveOperation(
-      opKey,
-      "done",
-      Json.parse({ request, result: { id: stored.id, replayed: false } }),
-      now,
-    );
-    return { ok: true, id: stored.id, replayed: false, opKey };
+  const existing = await tx.getOperation(opKey);
+  if (existing !== null) return replayed(existing, opKey, request);
+  const now = input.now();
+  const inserted = await tx.insertOperation({
+    op_key: opKey,
+    intent: "learning",
+    owner_generation: 0,
+    at: now,
+    result_ref: Json.parse({ request }),
   });
+  if (!inserted.created) return replayed(inserted.operation, opKey, request);
+  const stored = await tx.insertLearning({ ...input.row, created_at: now });
+  await tx.appendEvent({
+    type: "learning",
+    ts: now,
+    host: input.host,
+    run_id: input.run_id ?? null,
+    task_id: null,
+    dispatch_id: null,
+    op_key: opKey,
+    payload: Json.parse({
+      learning_id: stored.id,
+      source_story: request.source_story,
+      area: request.area,
+      project_id: request.project_id,
+    }),
+    source: Json.parse({ kind: "command", verb: input.verb ?? "learning add" }),
+  });
+  await tx.moveOperation(
+    opKey,
+    "done",
+    Json.parse({ request, result: { id: stored.id, replayed: false } }),
+    now,
+  );
+  return { ok: true, id: stored.id, replayed: false, opKey };
+}
+
+export function addLearning(db: Db, input: AddLearningInput): Promise<Added> {
+  return db.transaction((tx) => writeLearning(tx, input));
 }

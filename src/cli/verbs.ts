@@ -197,7 +197,7 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     input: RunCloseInput,
     output: RunCloseOutput,
     handler: runCloseVerb,
-    sideEffect: "ledger",
+    sideEffect: "tracker",
     cancelBy: ["nobody"],
     evidenceRequired: [
       "every Task done, superseded, or failed; no running Dispatch other than the Run's coordinator Dispatch; no open or needs_human Decision; no text in the composer of an open Dispatch terminal other than the coordinator's, read from a rendered screen; and no untracked file and no branch ahead of its upstream in the Run's worktrees, unless `--keep-files-reviewed` is passed",

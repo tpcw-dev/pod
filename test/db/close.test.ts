@@ -10,6 +10,7 @@ import {
 } from "../../src/core/config/canonical-json.ts";
 import {
   CloseReport,
+  CloseStepName,
   type WorktreeStatus,
 } from "../../src/core/domain/close.ts";
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
@@ -23,6 +24,9 @@ import { cliReplay, generation } from "./decision-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
 import { residentSeat } from "./resident-fixture.ts";
 import { dispatched, events, freshRun, replay } from "./run-fixture.ts";
+import { closeBody, closeCommentTracker } from "./close-tracker.ts";
+import { fakeTracker } from "./fake-tracker.ts";
+import { operator } from "./identity-fixture.ts";
 
 let conn: Connection;
 
@@ -41,6 +45,8 @@ function input(over: Partial<CloseInput> = {}): CloseInput {
     host: "local",
     worktreeStatus: () => clean,
     now: () => new Date(),
+    tracker: fakeTracker(),
+    actor: "person:operator-1",
     ...over,
   };
 }
@@ -81,6 +87,9 @@ const grokBox = (text: string) => [
 ];
 
 const term = "term_ctx_1";
+
+const closeTracker = () =>
+  closeCommentTracker("S-1", closeBody(`person:${operator}`, "run_1"));
 
 async function operations() {
   return conn.sql<{ op_key: string; status: string }[]>`
@@ -449,10 +458,12 @@ describeDb("pod run close", () => {
         owner_generation: 1,
         report_hash: emptyHash,
         report: { learnings: 0, leftovers: 0, decisions: 0 },
-        steps: [
-          { step: "archive", op_key: archive, status: "done", replayed: false },
-          { step: "done", op_key: done, status: "done", replayed: false },
-        ],
+        steps: CloseStepName.options.map((step) => ({
+          step,
+          op_key: closeStepKey("run_1", step),
+          status: "done",
+          replayed: false,
+        })),
         pr_events: [],
         keep_files_reviewed: null,
         gone: [],
@@ -540,10 +551,10 @@ describeDb("pod run close", () => {
       ok: true,
       result: {
         state: "done",
-        steps: [
-          { step: "archive", replayed: true },
-          { step: "done", replayed: false },
-        ],
+        steps: CloseStepName.options.map((step) => ({
+          step,
+          replayed: step === "archive",
+        })),
       },
     });
     const closes = await events(conn, "close");
@@ -658,12 +669,12 @@ describeDb("pod run close", () => {
 
   test("the CLI closes with an omitted FILE as the empty report", async () => {
     await finishTasks();
-    const result = await cliReplay(conn, [
-      "run",
-      "close",
-      "story:S-1",
-      ...generation,
-    ]);
+    const result = await cliReplay(
+      conn,
+      ["run", "close", "story:S-1", ...generation],
+      [],
+      { POD_TRACKER_FIXTURES: closeTracker() },
+    );
     expect(result).toMatchObject({
       status: 0,
       json: {
@@ -687,7 +698,9 @@ describeDb("pod run close", () => {
     const refused = await cliReplay(conn, args);
     expect(refused.status).toBe(3);
     expect(refused.json.error?.code).toBe("needs_file");
-    const kept = await cliReplay(conn, [...args, "--keep-files-reviewed"]);
+    const kept = await cliReplay(conn, [...args, "--keep-files-reviewed"], [], {
+      POD_TRACKER_FIXTURES: closeTracker(),
+    });
     expect(kept).toMatchObject({
       status: 0,
       json: {
