@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,10 +16,19 @@ import { beforeEach, expect, test } from "vitest";
 const script = fileURLToPath(
   new URL("../../scripts/deploy-local.sh", import.meta.url),
 );
+const src = fileURLToPath(new URL("../../src", import.meta.url));
+const deployCalls = [
+  "bin --global",
+  "build",
+  "node dist/index.js db migrate",
+  "link --global",
+];
 
 let root: string;
 let work: string;
 let calls: string;
+let globalBin: string;
+let migrateFails: string;
 let env: NodeJS.ProcessEnv;
 
 function git(cwd: string, ...args: string[]): string {
@@ -39,24 +49,52 @@ function tags(cwd: string): string {
   return git(cwd, "tag", "--list");
 }
 
-function pnpmCalls(): string[] {
+function stubCalls(): string[] {
   return readFileSync(calls, "utf8").split("\n").filter(Boolean);
 }
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "pod-deploy-"));
   const bin = join(root, "bin");
-  calls = join(root, "pnpm-calls");
+  calls = join(root, "calls");
+  globalBin = join(root, "global-bin");
+  migrateFails = join(root, "migrate-fails");
   mkdirSync(bin);
+  mkdirSync(join(root, "pod-home"));
   writeFileSync(calls, "");
+  writeFileSync(globalBin, join(root, "pnpm-home"));
   writeFileSync(
     join(bin, "pnpm"),
-    `#!/bin/sh\necho "$*" >> "${calls}"\n[ "$1" = --version ] && echo stub\nexit 0\n`,
+    [
+      "#!/bin/sh",
+      `echo "$*" >> "${calls}"`,
+      '[ "$1" = --version ] && echo stub',
+      `[ "$*" = "bin --global" ] && cat "${globalBin}"`,
+      "exit 0",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(
+    join(bin, "node"),
+    [
+      "#!/bin/sh",
+      'if [ "$1" = dist/index.js ]; then',
+      `  echo "node $*" >> "${calls}"`,
+      `  [ -e "${migrateFails}" ] && exit 3`,
+      `  echo '{"journal":1,"applied":1}'`,
+      "  exit 0",
+      "fi",
+      `exec "${process.execPath}" "$@"`,
+      "",
+    ].join("\n"),
   );
   chmodSync(join(bin, "pnpm"), 0o755);
+  chmodSync(join(bin, "node"), 0o755);
   env = {
     ...process.env,
     PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+    POD_HOME: join(root, "pod-home"),
+    POD_DB_URL: "postgres://pod.invalid/pod",
     GIT_AUTHOR_NAME: "test",
     GIT_AUTHOR_EMAIL: "test@example.invalid",
     GIT_COMMITTER_NAME: "test",
@@ -71,6 +109,7 @@ beforeEach(() => {
   git(root, "clone", "-q", "origin.git", "work");
   mkdirSync(join(work, "scripts"));
   copyFileSync(script, join(work, "scripts/deploy-local.sh"));
+  symlinkSync(src, join(work, "src"));
   writeFileSync(
     join(work, "package.json"),
     JSON.stringify({ name: "pod", version: "1.2.3" }),
@@ -88,7 +127,7 @@ test("a branch that is not origin/main is refused before any tag", () => {
   expect(result.status).not.toBe(0);
   expect(result.stderr).toMatch(/^refused: HEAD [0-9a-f]{40} is not origin\/main/m);
   expect(tags(work)).toBe("");
-  expect(pnpmCalls()).toEqual([]);
+  expect(stubCalls()).toEqual([]);
 });
 
 test("a dirty tree is refused before any tag", () => {
@@ -112,22 +151,23 @@ test("an annotated tag of the version at another commit is refused, locally or o
   const remote = deploy();
   expect(remote.status).not.toBe(0);
   expect(remote.stderr).toContain(`refused: tag v1.2.3 exists at ${base}`);
-  expect(pnpmCalls()).toEqual([]);
+  expect(stubCalls()).toEqual([]);
 });
 
-test("a fresh deploy tags, pushes, builds, links, and prints the four deploy fields", () => {
+test("a fresh deploy builds, migrates, links, then tags, pushes, and prints the four deploy fields", () => {
   const head = git(work, "rev-parse", "HEAD");
   const result = deploy();
-  expect(result.stderr).toBe("");
   expect(result.status).toBe(0);
+  expect(result.stderr).toContain('{"journal":1,"applied":1}');
+  expect(result.stderr).not.toContain("refused:");
   expect(git(work, "rev-parse", "v1.2.3^{commit}")).toBe(head);
   expect(git(work, "cat-file", "-t", "v1.2.3")).toBe("tag");
   expect(git(join(root, "origin.git"), "rev-parse", "v1.2.3^{commit}")).toBe(
     head,
   );
-  expect(pnpmCalls()).toEqual(["build", "link --global"]);
-  const last = result.stdout.trim().split("\n").at(-1) ?? "";
-  expect(JSON.parse(last)).toEqual({
+  expect(stubCalls()).toEqual(deployCalls);
+  expect(result.stdout.trim().split("\n")).toHaveLength(1);
+  expect(JSON.parse(result.stdout)).toEqual({
     environment: "local",
     deployment_id: "v1.2.3",
     deployed_revision: head,
@@ -135,7 +175,7 @@ test("a fresh deploy tags, pushes, builds, links, and prints the four deploy fie
   });
 });
 
-test("a run stopped after the local tag resumes: it pushes the tag and finishes", () => {
+test("a run stopped after the local tag finishes on rerun: it runs every step and pushes the tag", () => {
   const head = git(work, "rev-parse", "HEAD");
   git(work, "tag", "-a", "v1.2.3", "-m", "pod v1.2.3");
   const result = deploy();
@@ -143,5 +183,48 @@ test("a run stopped after the local tag resumes: it pushes the tag and finishes"
   expect(git(join(root, "origin.git"), "rev-parse", "v1.2.3^{commit}")).toBe(
     head,
   );
-  expect(pnpmCalls()).toEqual(["build", "link --global"]);
+  expect(stubCalls()).toEqual(deployCalls);
+});
+
+test("no global bin directory is refused before the build and before any tag", () => {
+  writeFileSync(globalBin, "");
+  const result = deploy();
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain("refused: pnpm has no global bin directory");
+  expect(tags(work)).toBe("");
+  expect(stubCalls()).toEqual(["bin --global"]);
+});
+
+test("an unset database URL or an unreadable host profile is refused before the build and before any tag", () => {
+  delete env["POD_DB_URL"];
+  const unset = deploy();
+  expect(unset.status).not.toBe(0);
+  expect(unset.stderr).toContain("refused: POD_DB_URL is not set");
+  writeFileSync(join(root, "pod-home", "host.yaml"), "db: [\n");
+  env["POD_DB_URL"] = "postgres://pod.invalid/pod";
+  const malformed = deploy();
+  expect(malformed.status).not.toBe(0);
+  expect(malformed.stderr).toMatch(/^refused: .*host\.yaml is not valid YAML$/m);
+  expect(tags(work)).toBe("");
+  expect(stubCalls()).toEqual(["bin --global", "bin --global"]);
+});
+
+test("a failed migrate is refused with db migrate failed, before the link and before any tag", () => {
+  writeFileSync(migrateFails, "");
+  const result = deploy();
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain("refused: db migrate failed");
+  expect(tags(work)).toBe("");
+  expect(tags(join(root, "origin.git"))).toBe("");
+  expect(stubCalls()).toEqual(deployCalls.slice(0, 3));
+});
+
+test("a rerun on the same HEAD runs every step again and prints the same deploy line", () => {
+  const first = deploy();
+  expect(first.status).toBe(0);
+  const second = deploy();
+  expect(second.status).toBe(0);
+  expect(second.stdout).toBe(first.stdout);
+  expect(git(work, "tag", "--list")).toBe("v1.2.3");
+  expect(stubCalls()).toEqual([...deployCalls, ...deployCalls]);
 });

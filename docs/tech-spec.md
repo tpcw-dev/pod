@@ -1189,9 +1189,10 @@ A local deploy is `pnpm deploy:local`, which runs `scripts/deploy-local.sh`. Eve
 
 1. Fetch origin, and refuse unless the tree is clean and HEAD equals `origin/main`.
 2. Read `version` from `package.json`. The tag is `v<version>`. Refuse when the commit a local or origin tag of that name peels to is not HEAD.
-3. Write the annotated tag `v<version>` when it is missing locally, and push it when origin lacks it. A run stopped between the two writes resumes on the same HEAD.
-4. `pnpm build`, then `pnpm link --global`.
-5. Print one JSON line, `{"environment":"local","deployment_id":"v<version>","deployed_revision":"<HEAD sha>","source_commit":"<HEAD sha>"}`, which carries the four `event_fields` of the deploy step for the coordinator's deploy delivery.
+3. Preflight. Refuse unless `pnpm bin --global` prints a directory, and unless the database URL env var the host profile names (`db.url_env`, default `POD_DB_URL`) is set. The check runs `src/cli/host-profile.ts`, so a malformed or unreadable `host.yaml` refuses with its own message.
+4. `pnpm build`, then `node dist/index.js db migrate` with the build just made, then `pnpm link --global`. The migrate result goes to stderr. A failed migrate refuses with `db migrate failed`, and the build linked before it stays linked.
+5. Write the annotated tag `v<version>` when it is missing locally, and push it when origin lacks it. A rerun on the same HEAD runs every step again: `db migrate` applies nothing, and the tag step skips a tag that already peels to HEAD.
+6. Print one JSON line, `{"environment":"local","deployment_id":"v<version>","deployed_revision":"<HEAD sha>","source_commit":"<HEAD sha>"}`, which carries the four `event_fields` of the deploy step for the coordinator's deploy delivery.
 
 The version bump belongs to the deployed story's own PR, not to the script. Pod has no `pod deploy` verb and no deploy adapter in v1.
 
