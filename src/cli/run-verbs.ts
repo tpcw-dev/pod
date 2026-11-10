@@ -27,7 +27,7 @@ import {
 import { canonicalJson, sha256Hex } from "../core/config/canonical-json.ts";
 import { CloseReport, CloseResult } from "../core/domain/close.ts";
 import { closeRun } from "../core/run/close.ts";
-import { writerOf } from "./identity.ts";
+import { actorOf, writerOf } from "./identity.ts";
 import { runCreate } from "../core/run/create.ts";
 import { docsFor } from "./docs.ts";
 import {
@@ -313,7 +313,7 @@ export async function runCloseVerb(
         worktreeStatus,
         now: () => new Date(),
         tracker,
-        actor: await writerOf(db, host, process.env, false),
+        actor: actorOf(await writerOf(db, host, process.env, false)),
       }),
   );
   return { ...result, op_key: opKey };
