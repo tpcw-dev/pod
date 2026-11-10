@@ -1,0 +1,19 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_89963994885a",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"d632bc7c-1d96-4120-b1fc-5d4859dce99e\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_89963994885a\",\n    \"deliveryId\": \"delivery_2c5f8d5aff90\",\n    \"messages\": [\n      {\n        \"id\": \"msg_3f2fcef9e5d6\",\n        \"run_id\": \"run_89963994885a\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"dispatch:ctx_4a855dbfe911\",\n        \"to_handle\": \"run:run_89963994885a\",\n        \"subject\": \"Question\",\n        \"body\": \"task_bb08dec9ef7d's TASK block only says 'Several Tasks, one per slice of the plan.' It looks like an unfilled template. Which plan (file path, Linear ticket, or Notion page) and which slice is mine for TPC-1413 (pod policy profiles)? What are the acceptance criteria and the expected deliverable (commits on user-1-dev/tpc-1413-pod-policy-profiles, a PR, or a report)? I found no plan file in the worktree, only docs/tech-spec.md and specs/.\",\n        \"type\": \"question\",\n        \"priority\": \"normal\",\n        \"thread_id\": \"msg_3f2fcef9e5d6\",\n        \"payload\": \"{\\\"taskId\\\":\\\"task_bb08dec9ef7d\\\",\\\"dispatchId\\\":\\\"ctx_4a855dbfe911\\\",\\\"question\\\":\\\"task_bb08dec9ef7d's TASK block only says 'Several Tasks, one per slice of the plan.' It looks like an unfilled template. Which plan (file path, Linear ticket, or Notion page) and which slice is mine for TPC-1413 (pod policy profiles)? What are the acceptance criteria and the expected deliverable (commits on user-1-dev/tpc-1413-pod-policy-profiles, a PR, or a report)? I found no plan file in the worktree, only docs/tech-spec.md and specs/.\\\",\\\"options\\\":[]}\",\n        \"created_at\": \"2026-11-08T22:41:28Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"deliveryAcknowledged\": true,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"df9eeb9d-5015-4a1d-8761-c4e56ba57e5b\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-08T22:41:35.234Z"
+}

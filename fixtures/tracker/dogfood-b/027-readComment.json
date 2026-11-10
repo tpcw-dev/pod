@@ -1,0 +1,13 @@
+{
+  "method": "readComment",
+  "match": {
+    "operation": "Comment",
+    "variables": {
+      "id": "00000000-0000-4000-8000-000000000013"
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"comment\":{\"id\":\"00000000-0000-4000-8000-000000000013\",\"body\":\"keeper: merge PASS\\n\\nHQA PR review of PR #41 (head 0cbc3ee) on 2026-11-09. The three commits match the agreed plan and TRK-1's Completion check; D1 (optional `pod run create --project` and the snapshot `project` column) is accepted as the one addition beyond the Constraints. Merge, deploy with `pnpm deploy:host-a`, and hand `hqa_after_deploy` back to me.\\n\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"},\"issue\":{\"identifier\":\"TRK-1\"}}}}\n",
+  "error": null,
+  "recordedAt": "2026-11-09T15:24:08.309Z"
+}

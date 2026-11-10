@@ -1,0 +1,19 @@
+{
+  "verb": "task-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "task-create",
+      "--run",
+      "run_89963994885a",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"c7c01833-6905-4718-a896-707bcc6a0ae4\",\n  \"ok\": true,\n  \"result\": {\n    \"task\": {\n      \"id\": \"task_efad0212de1d\",\n      \"run_id\": \"run_89963994885a\",\n      \"parent_id\": null,\n      \"created_by_terminal_handle\": \"term_ab7cfa0f-a59d-4362-bfb8-36761f51da8b\",\n      \"created_by_pane_key\": \"0e1376f8-cccb-4fff-a8dc-9fdcf7367565:4f826a62-4d1b-40fc-8c0b-485dfb0d2eb1\",\n      \"created_by_process_incarnation\": \"902f0fc5-edba-4879-a032-58e853f081bb::/w/1@@f77d1207:f0a0c777-c1f2-43bc-ad86-31c326d2ca7c\",\n      \"created_by_run_generation\": 1,\n      \"task_title\": \"decision decider\",\n      \"display_name\": \"decision decider\",\n      \"spec\": \"This is your assigned Orca task. You are the coordinator of Pod Run run_89963994885a for story:TPC-1413 under process.impl-xlarge@1, and the decider Seat of its decision pair. The Run's owner generation is 1.\\nRun the pod verbs for this Run yourself, and pass --generation 1 to every verb that takes one. Start now with the Bash tool:\\n\\npod check --run run_89963994885a --generation 1\\n\\nDecision rounds for this Run arrive as messages; answer them as the decider, citing the Evidence manifest. When a verb refuses with owner_generation_stale, stop: another coordinator owns the Run.\\nRestore view, when a takeover opened this Seat: \\n\",\n      \"status\": \"ready\",\n      \"deps\": \"[]\",\n      \"result\": null,\n      \"created_at\": \"2026-11-08 22:26:41\",\n      \"completed_at\": null\n    },\n    \"mutation\": {\n      \"requestId\": \"1706b258-00b5-4973-8653-31b27714cd66\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-08T22:26:41.059Z"
+}

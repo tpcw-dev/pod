@@ -1,0 +1,19 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_89963994885a",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"a3ce9ed2-d262-4909-a089-177a134c587c\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_89963994885a\",\n    \"deliveryId\": \"delivery_816d84658928\",\n    \"messages\": [\n      {\n        \"id\": \"msg_followup_b054eee99fbd9dc6a8784e39\",\n        \"run_id\": \"run_89963994885a\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"dispatch:ctx_85c7c8a811f8\",\n        \"to_handle\": \"run:run_89963994885a\",\n        \"subject\": \"Mail did not reach the finished worker\",\n        \"body\": \"Orca could not continue the worker of \\\"integration_review\\\" (task_671078ef82bd) with the mail it had not read before reporting: timeout. The mail is kept for your next send to dispatch:ctx_85c7c8a811f8.\",\n        \"type\": \"escalation\",\n        \"priority\": \"high\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"dispatchId\\\":\\\"ctx_85c7c8a811f8\\\",\\\"reason\\\":\\\"timeout\\\"}\",\n        \"created_at\": \"2026-11-09T01:12:04Z\",\n        \"delivered_at\": null\n      },\n      {\n        \"id\": \"msg_afd621eda11a\",\n        \"run_id\": \"run_89963994885a\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_2f9a2019-cfba-4f72-ad6e-589d4a4a5550\",\n        \"to_handle\": \"run:run_89963994885a\",\n        \"subject\": \"Blocked: integration_review held before verdict post\",\n        \"body\": \"worker_done msg_34a169af0d80 was recorded and moved task_671078ef82bd to delivered, then event 94 unknown_launch of Orca task_4641da7560c7 dispatch ctx_70c80bb55c02 held the Run and moved this Task from delivered to hold. The PASS file is /w/h/.pod/dogfood-b/integration-verdict.yaml (gate integration_review, reviewer integrator, head 0cbc3ee2bca8c5da657ee80ff746674c9280b02e). Verdict post needs the Task delivered again: resume from that hold, then run pod verdict post /w/h/.pod/dogfood-b/integration-verdict.yaml --generation 1.\",\n        \"type\": \"status\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_671078ef82bd\\\",\\\"dispatchId\\\":\\\"ctx_85c7c8a811f8\\\"}\",\n        \"created_at\": \"2026-11-09T01:12:32Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 2,\n    \"replayed\": false,\n    \"deliveryAcknowledged\": true,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"eae49528-4ab8-43bc-8889-db626fd3e913\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-09T01:28:36.476Z"
+}

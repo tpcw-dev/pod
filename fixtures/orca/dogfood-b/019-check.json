@@ -1,0 +1,19 @@
+{
+  "verb": "check",
+  "match": {
+    "argv": [
+      "orchestration",
+      "check",
+      "--run",
+      "run_89963994885a",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"8dc92759-bfad-4e68-a3b9-fc1e199d8aea\",\n  \"ok\": true,\n  \"result\": {\n    \"runId\": \"run_89963994885a\",\n    \"deliveryId\": \"delivery_071345945b45\",\n    \"messages\": [\n      {\n        \"id\": \"msg_7b867a015e92\",\n        \"run_id\": \"run_89963994885a\",\n        \"delivery_contract\": \"current_delivery\",\n        \"from_handle\": \"term_25ee039a-083e-49cb-a3b3-be524865574a\",\n        \"to_handle\": \"run:run_89963994885a\",\n        \"subject\": \"TPC-1413 plan ready for the pair's accept_plan Decision\",\n        \"body\": \"I wrote the impl-xlarge@1 plan for TPC-1413 at the report path: decisions D1 to D9 and Tasks T1 (rules), T2 (activation), and T3 (surfaces and proof), one per Checkpoint, run in order. The base is still 07093ab and every code claim was rechecked, so the plan the pair agreed in Run run_4fa85deae9c8 (dec_cbbf711d) carries over unchanged, plus one new section on forward compatibility with S16b (TPC-1479), which was filed after that Decision and moves this ticket's pending path onto config_activate. Left: the pair decides accept_plan (including D1's extra snapshot project column and leaving it out of snapshotHash), and no code has been written.\",\n        \"type\": \"worker_done\",\n        \"priority\": \"normal\",\n        \"thread_id\": null,\n        \"payload\": \"{\\\"taskId\\\":\\\"task_856242e637c3\\\",\\\"dispatchId\\\":\\\"ctx_5f067191a14f\\\",\\\"outcome\\\":\\\"succeeded\\\",\\\"reportPath\\\":\\\"/w/2/scratchpad/tpc-1413-plan.md\\\"}\",\n        \"created_at\": \"2026-11-08T22:29:22Z\",\n        \"delivered_at\": null\n      }\n    ],\n    \"count\": 1,\n    \"replayed\": false,\n    \"deliveryAcknowledged\": true,\n    \"acknowledged\": null,\n    \"timedOut\": false,\n    \"cancelled\": false,\n    \"connectionLost\": false,\n    \"mutation\": {\n      \"requestId\": \"f8b1bc31-40d3-4b42-bfde-6b71bcc56aa7\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-08T22:29:49.324Z"
+}
