@@ -76,34 +76,38 @@ describeDb("dogfood-b", () => {
   test("the recorded xl Run replays through the hqa_after_deploy receipt and its measurement", async () => {
     const log = receiptLog(conn.db, host);
     const orca = makeReplayOrca({ dir: orcaDir, sink: log.sink });
-    const recorded = makeReplayTracker({
+    const replayTracker = makeReplayTracker({
       dir: trackerDir,
       sink: log.trackerSink,
       estimateScale: "fibonacci",
     });
-    // The recorder rewrote the Story key inside comment bodies, but the
-    // outbox and receipt hashes were taken over the bodies as posted.
-    const posted = (comment: TrackerComment): TrackerComment => ({
+    const restoreLiveKey = (comment: TrackerComment): TrackerComment => ({
       ...comment,
       body: comment.body.replaceAll(story, liveKey),
     });
     const tracker: TrackerPort = {
-      ...recorded,
+      ...replayTracker,
       readComment: async (ref) => {
-        const read = await recorded.readComment(ref);
+        const read = await replayTracker.readComment(ref);
         return read.result === null
           ? read
-          : { ...read, result: posted(read.result) };
+          : { ...read, result: restoreLiveKey(read.result) };
       },
       readback: async (ref) => {
-        const read = await recorded.readback(ref);
+        const read = await replayTracker.readback(ref);
         if (read.result === null) return read;
         return {
           ...read,
           result:
             read.result.kind === "story"
-              ? { ...read.result, comments: read.result.comments.map(posted) }
-              : { ...read.result, comment: posted(read.result.comment) },
+              ? {
+                  ...read.result,
+                  comments: read.result.comments.map(restoreLiveKey),
+                }
+              : {
+                  ...read.result,
+                  comment: restoreLiveKey(read.result.comment),
+                },
         };
       },
     };
@@ -189,9 +193,9 @@ describeDb("dogfood-b", () => {
       return recorded.result;
     };
 
-    // The decider Seat ran the Run's first check itself, and Orca refused it.
-    const refused = await check().catch((error: unknown) => error);
-    expect(JSON.stringify(refused)).toContain(
+    const deciderSelfCheck = await check();
+    expect(deciderSelfCheck.ok).toBe(false);
+    expect(JSON.stringify(deciderSelfCheck)).toContain(
       "worker_cannot_coordinate_own_run",
     );
 
@@ -370,12 +374,10 @@ describeDb("dogfood-b", () => {
       expect(decisionSeats).not.toContain(row.keeper);
     }
     expect(
-      (await conn.db.listGateReceipts(run_id)).find(
-        (row) => row.gate_id === "hqa_after_deploy",
-      )?.source,
+      receipts.find((row) => row.gate_id === "hqa_after_deploy")?.source,
     ).toMatchObject({ author_id: keeper });
 
     orca.assertDone();
-    recorded.assertDone();
+    replayTracker.assertDone();
   }, 300_000);
 });
