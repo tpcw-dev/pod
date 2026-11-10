@@ -15,6 +15,7 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Role**: what a seat does in a process: developer, reviewer, planner, decider, auditor, and so on. Pod knows roles. Names of people and bots live in a crew profile.
 - **Process**: the steps, edges, roles, limits, and selector that run a story of one stage and size range. A process is a revision.
 - **Step**: one unit of a process. A worker step runs a role, an external action waits on an outside event, and a human wait waits on a person.
+- **Method**: an optional string on a step that names how its role does the work. A profile may override it. Pod stores it and does not interpret it.
 - **Edge**: a rule that sends a step's outcome to the next step, to hold, or to done.
 - **Lineage**: the tasks of one step in one run, the first task and each rework task that replaced it.
 - **Projector**: the part of Pod that turns process steps into tasks and moves them along the edges.
@@ -33,6 +34,7 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Fallback**: the crew seat Pod opens for a decider or auditor Seat when that Seat's own launch is refused. The launch is marked fallback_of in its start event and in the brief.
 - **Replacement Task**: the Task a change_spec Decision creates in the same lineage, with the new Task spec Revision and rework_of the Task it supersedes.
 - **Snapshot**: the three revision ids and the effective gate map a run pinned at start.
+- **Profile**: a policy profile, a named set of policy settings a project activates: which gates it lifts, what it requires, and who deploys to production. One of hands-on, standard, hands-off, autonomous. A crew profile and a host profile are other things.
 - **Reserved**: policy classes a decision cannot settle on its own: deny, needs a human, needs an existing authorization.
 - **Area**: the classification of a learning, one of product, design, impl, process.
 - **Learning**: a record of one agent-only lesson, with a source story, evidence, text, and an adoption state.
