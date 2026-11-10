@@ -34,7 +34,7 @@ These constraints come from the PRD and the tech spec ticket, and they bind ever
 - No secret and no transcript enters a table, an Evidence manifest, a fixture, or a view. Connection strings and tokens are read from environment variables that a profile names.
 - v1 does not rely on `LISTEN/NOTIFY`. Connection mode, CAS conflicts, atomic bundle reads, disconnect recovery, and backup and restore are tested on a test database before any story relies on them.
 - Linear is the only v1 tracker adapter. Notion is the only v1 docs adapter, and it is read-only.
-- Pod does not wrap or duplicate the operator's existing grooming, planning, kickoff, or docs commands.
+- Pod does not wrap or duplicate the operator's existing grooming, planning, or docs commands, or its kickoff command until Sessions land.
 - Pod never builds an IDE, terminal, diff, browser, or mobile surface, and never adds a second scheduler, an exactly-once promise, or agent authority over production, money, or credentials.
 
 ## Design
@@ -1110,13 +1110,17 @@ What a project policy may add to these classes, and the rung a new guardrail tak
 - A policy change is a needs-human category. It takes effect only as a new policy Revision that the human gatekeeper applies.
 - An agent cannot choose a profile.
 
+The four profiles and their columns are in "Operator pages and profiles".
+
 Spec clarification: S13a. Pod has no Story Revision. A Story's existing authorization is the `authorizations` map of the policy Revision the Run's snapshot pins, keyed by the Story's external id: `authorizations: { <story>: { authorizes: [repo_create, vps_ssh], story_kind: infrastructure } }`. `repo_create` is authorized when the Run's Story entry lists it in `authorizes`. `vps_ssh` is authorized when the entry lists it and carries `story_kind: infrastructure`. Anything else, an absent entry included, ends `needs_human` with reason `policy-required`. `pod config apply` refuses with `schema_invalid` an `authorizes` item that is not a needs_existing_authorization member of that policy, a `story_kind` other than `infrastructure`, an entry with any other key, and an `authorizations` that is not a map. An absent map is `{}` on that policy alone and is never read from the global policy, and the project-scope rule that keeps the global deny and needs_human members does not cover it. The operator applies the policy with `pod config apply` before `pod run create`.
 
 #### Gate-lift
 
 The policy schema validates `profiles`. A profile may replace only `prd_review` and `design_clickthrough` with a Decision-pair automated Gate. `hqa_after_deploy` and `staging_review` stay with the human gatekeeper. A lifted Gate records an automated PASS, never a human one. In v1 the executor refuses every `autonomous` activation and every lift outside the two Gates, and it activates `hands-on`, `standard`, and `hands-off` per project only after a human readback. The schema fixtures cover a lift outside the two Gates, a lift on a running Run, an added Gate, and a missing policy Revision, and each is refused.
 
-Spec clarification: policy profiles. `specs/policy/default.yaml` defines four profiles. `hands-on` and `standard` lift no Gate. `hands-off` and `autonomous` lift `prd_review` and `design_clickthrough` to `decision-pair-aqa`. A profile carries only `replaces`, `requires`, and `deploy_production`, which is `needs_human` or `agent`, and `active_profile` must name a profile the same Revision defines. A project activates a profile with a project-scope policy Revision that sets `active_profile`, applied with `pod config apply --activate`. The apply stores the Revision and leaves its `config_apply` operation pending. It writes no activation, and it replies with the comment a person posts, `profile <project> <name> <policy ref>`, and with the live Runs still on the old profile. Pod never posts that comment. The request stays pending until a `pod check` pass on some live Run reads that comment back on the Run's Story. The comment is source-verified as a Decision ruling is, against the HQA keepers and principals of the policy currently active at the request's scope, never against the pending Revision. Only then does Pod activate the Revision, with an `activation` event whose source is the tracker comment. `active_profile` at global scope is refused: a profile is activated per project. `autonomous` is still refused with `gate_lift_refused` until the step method override lands. Its `deploy_production: agent` drops the `deploy_production` needs_human member only under that active profile. `pod run create --project <ref>` resolves crew and policy at that project with global fallback. The Run snapshot pins the project and the active profile name, and a later activation changes neither. A switch during a live Run is accepted: the Run keeps its snapshot. In v1 lifts are not enforced: `effective_gate_map` stays `{}`, and Gate keepers are unchanged.
+What each profile lifts and keeps, and the bar `autonomous` must clear, are in "Operator pages and profiles".
+
+Spec clarification: policy profiles. `specs/policy/default.yaml` defines four profiles. `hands-on` and `standard` lift no Gate. `hands-off` and `autonomous` lift `prd_review` and `design_clickthrough` to `decision-pair-aqa`. A profile carries only `replaces`, `requires`, and `deploy_production`, which is `needs_human` or `agent`, and `active_profile` must name a profile the same Revision defines. A project activates a profile with a project-scope policy Revision that sets `active_profile`, applied with `pod config apply --activate`. The apply stores the Revision and leaves its `config_apply` operation pending. It writes no activation, and it replies with the comment a person posts, `profile <project> <name> <policy ref>`, and with the live Runs still on the old profile. Pod never posts that comment. The request stays pending until a `pod check` pass on some live Run reads that comment back on the Run's Story. The comment is source-verified as a Decision ruling is, against the HQA keepers and principals of the policy currently active at the request's scope, never against the pending Revision. Only then does Pod activate the Revision, with an `activation` event whose source is the tracker comment. `active_profile` at global scope is refused: a profile is activated per project. `autonomous` is still refused with `gate_lift_refused` until the activation conditions in "Operator pages and profiles" hold. Its `deploy_production: agent` drops the `deploy_production` needs_human member only under that active profile. `pod run create --project <ref>` resolves crew and policy at that project with global fallback. The Run snapshot pins the project and the active profile name, and a later activation changes neither. A switch during a live Run is accepted: the Run keeps its snapshot. In v1 lifts are not enforced: `effective_gate_map` stays `{}`, and Gate keepers are unchanged.
 
 #### Refusals are the last rung
 
@@ -1287,6 +1291,52 @@ The order is S1, then S2, then S3 with S4, then S5 with S6, then S7 with S8, the
 
 There are fifteen stories, 2 of size xs, 5 of size s, 7 of size m, and 1 of size l. In position 7, S11 merges before S12 because the Decision manifest reads the state view.
 
+### Operator pages and profiles
+
+This section is the contract that the M2 operator pages and policy profiles build against. It writes no verb and no field. The code lands in later tickets.
+
+#### Operator pages
+
+An operator page is `pod page <kind> <id>`. It reads the same JSON the matching `pod` read returns from the database and renders one self-contained HTML file with the `pod brief --html` renderer. The file loads nothing from a CDN. A page stores nothing and writes nothing outside its HTML file, and a later UI reuses the same JSON. `pod page` is not in the Verbs table yet. It joins the registry when its ticket lands.
+
+| Kind | Object | What the page shows |
+| --- | --- | --- |
+| `decision` | a Decision | the options, each round's proposal and stance, the citations, and the outcome |
+| `escalation` | a needs-human item | the reason, the Reserved class or threshold that raised it, and the options |
+| `story-review` | a Story at its HQA Gate | the one-pager for the human gatekeeper, with the review packet diff since the last human PASS |
+| `run` | a Run | the snapshot, the Tasks by lineage, the Gate receipts, and the open needs-human items |
+
+`pod brief` is unchanged. The groom page and the standup page stay with the operator's tooling until Pod owns grooming and the standup.
+
+A page that asks for a verdict has a copy-verdict button. The button copies the tracker comment text and posts nothing. A person posts the comment, and `pod check` or `pod hqa record` reads it back and verifies its source, as "Trust boundary and the bypass test" requires. The page is never the source of a verdict.
+
+#### Step method
+
+A process step takes an optional `method: <string>`, and a profile may override it. Pod stores the method and does not interpret it. The task view prints one `Method: <string>` line when the step has one. This is contract text only. The field lands in its own ticket.
+
+#### Policy profiles
+
+`specs/policy/default.yaml` defines the four profiles below. The activator is always a person, through the readback that "Gate-lift" describes.
+
+| Profile | `replaces` | `requires` | Human Gates kept | `deploy_production` | Default page | Activatable today |
+| --- | --- | --- | --- | --- | --- | --- |
+| `hands-on` | none | none | `prd_review`, `design_clickthrough`, `hqa_after_deploy`, `staging_review` | `needs_human` | groom page; Story review page at HQA | yes, after a person's readback |
+| `standard` | none | none | `prd_review`, `design_clickthrough`, `hqa_after_deploy`, `staging_review` | `needs_human` | terminal; Story review page at HQA | yes, after a person's readback |
+| `hands-off` | `prd_review` and `design_clickthrough` to `decision-pair-aqa` | none | `hqa_after_deploy`, `staging_review` | `needs_human` | auto; Story review page at HQA | yes, after a person's readback |
+| `autonomous` | `prd_review` and `design_clickthrough` to `decision-pair-aqa` | none | `hqa_after_deploy`, `staging_review` | `agent` | auto; Story review page at HQA | no, refused with `gate_lift_refused` |
+
+`deploy_production` works as "Gate-lift" ships it. The global `deploy_production` needs_human member stays. Only an active profile whose `deploy_production` is `agent` removes that member, and only for its project. A project policy that drops a global deny or needs_human member from its own `reserved` list is still refused with `schema_invalid`.
+
+Policy `attention`, with `pause_at` and `max_unattended_hours`, waits for M2. Per-project needs_human members and the digest cap belong to a later section. Until Pod owns the profile, an adopter may keep its own interim profile configuration.
+
+#### The autonomous north star
+
+`autonomous` is the target state. A Story enters from an initial prompt, a roadmap goal, or E2E-HQA feedback. The loop grooms, plans, operates, and keeps its automated Gates without a person. It stops for a person at authentication, a third-party integration, any spend, and every deny member. It ends when the Story is ready for staging review.
+
+`autonomous` stays refused with `gate_lift_refused` until groom, plan, the operate loop, the gate set with its needs-human exit, and policy `attention` all land. Lifting the refusal is a separate ticket that a person decides.
+
+Operator-facing strings in pages, `nextSteps`, and brief lines follow "Operator-facing strings" in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+
 ### Later milestones this spec keeps room for
 
 Some parts of the layout, schema, and interfaces exist only so that phase 2 and later are not designed out. This section names them and gives no designs.
@@ -1317,8 +1367,9 @@ The story order table in "Story order and what each adds" is the checkpoint plan
 
 ## Verification
 
-Three checks verify this spec and the code that follows it.
+Four checks verify this spec and the code that follows it.
 
 1. The completion check reads this file and confirms that the nine required sections exist as `###` headings under `## Design`, in the ticket's order, with the later milestones section after them. The nine are "Repo layout and packages", "Config schema and ledger schema sketch", "CLI framework, verb list, and error shape", "Runtime adapter boundary and fixture replay", "Process spec loading and the selector", "The decision layer seats", "Versioning, release, and migration policy", "Adoption with a crew profile and a host profile", and "Story order and what each adds".
 2. The scope scan runs the denylist that `POD_SCRUB_DENYLIST` names over this file, `specs/`, `fixtures/`, `docs/`, and `src/db/schema/`. It matches whole words, case-insensitive, and passes only at zero matches.
 3. The registry contract test, from S1 on, asserts that every verb row with a side effect appears in `docs/contract.md` with its `cancelBy` and `evidenceRequired`, and that each of the 17 verbs in the table under "Verbs" exists in the registry. The 17 are `db migrate`, `config apply`, `config export`, `run create`, `dispatch`, `check` with `--resume`, `retry`, `release`, `verdict post`, `hqa record`, `decide`, `state`, `takeover`, `brief`, `drain`, `learning add` with `--area`, and `learning query`.
+4. The docs test `test/docs/tech-spec-operator.test.ts` asserts that "Operator pages and profiles" exists, that its profile table has exactly one row for each of the four profiles, and that it states the conditions that keep `autonomous` refused.
