@@ -898,7 +898,23 @@ function makeRepo(x: Executor): Repo {
           ),
         )
         .orderBy(asc(operation.opKey));
-      return [...terminalless, ...launching].map((row) => row.id);
+      const held = await x
+        .select({ id: event.dispatchId })
+        .from(event)
+        .innerJoin(run, eq(run.runId, event.runId))
+        .where(
+          and(
+            eq(run.host, host),
+            eq(run.state, "hold"),
+            eq(event.type, "unknown_launch"),
+            sql`${event.payload}->>'follow_up_of' is null`,
+            sql`not exists (select 1 from ledger.event resumed where resumed.run_id = ${event.runId} and resumed.type = 'resume' and resumed.task_id is null and resumed.id > ${event.id})`,
+          ),
+        )
+        .orderBy(asc(event.dispatchId));
+      return [...terminalless, ...launching, ...held].flatMap((row) =>
+        row.id === null ? [] : [row.id],
+      );
     },
 
     async lockQuota(host) {
@@ -1421,6 +1437,9 @@ function makeRepo(x: Executor): Repo {
             options?.taskId === undefined
               ? undefined
               : eq(event.taskId, options.taskId),
+            options?.dispatchId === undefined
+              ? undefined
+              : eq(event.dispatchId, options.dispatchId),
           ),
         )
         .orderBy(desc(event.id))

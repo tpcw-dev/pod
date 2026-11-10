@@ -142,6 +142,8 @@ export function workers(
     taskId?: string;
     workerState: string;
     worktreeId?: string;
+    agentTerminalHandle?: string;
+    followUpOf?: string;
   }[],
   nextCursor: string | null = null,
 ): unknown {
@@ -152,6 +154,10 @@ export function workers(
       workerState: row.workerState,
       terminalState: "active",
       resource: { worktreeId: row.worktreeId ?? worktreeId },
+      ...(row.agentTerminalHandle === undefined
+        ? {}
+        : { agentTerminalHandle: row.agentTerminalHandle }),
+      ...(row.followUpOf === undefined ? {} : { followUpOf: row.followUpOf }),
     })),
     page: {
       limit: 100,

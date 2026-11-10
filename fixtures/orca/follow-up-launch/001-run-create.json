@@ -1,0 +1,17 @@
+{
+  "verb": "run-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "run-create",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"81cd5790-70ed-4736-8012-1d0337eaab47\",\n  \"ok\": true,\n  \"result\": {\n    \"run\": {\n      \"id\": \"run_89963994885a\",\n      \"objective\": \"Pod Run for story:TPC-1413\",\n      \"coordinator_handle\": \"term_ab7cfa0f-a59d-4362-bfb8-36761f51da8b\",\n      \"consumer_generation\": 1,\n      \"legacy\": 0,\n      \"created_at\": \"2026-11-08T22:26:29Z\",\n      \"updated_at\": \"2026-11-08T22:26:29Z\"\n    },\n    \"mutation\": {\n      \"requestId\": \"ad6059be-3483-4bd0-be22-33b9ca0fee6d\",\n      \"replayed\": false\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-08T22:26:29.411Z"
+}

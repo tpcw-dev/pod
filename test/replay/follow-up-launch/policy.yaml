@@ -1,0 +1,5 @@
+kind: policy
+name: follow-up-launch
+schema_version: 1
+value:
+  gates: []

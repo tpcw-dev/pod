@@ -1,0 +1,6 @@
+kind: crew
+name: follow-up-launch
+schema_version: 1
+value:
+  seats:
+    - { id: integrator, roles: [reviewer], runtime: grok, model: grok-4.7, effort: medium }

@@ -7,7 +7,7 @@ import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import { BriefOutput } from "../../src/cli/brief.ts";
 import { makeReplayTracker } from "../../src/adapters/linear/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
-import { checkPass, resume } from "../../src/core/check/check.ts";
+import { checkPass } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { singleActive } from "../../src/core/config/active.ts";
 import { decisionLimits } from "../../src/core/config/limits.ts";
@@ -254,16 +254,15 @@ describeDb("dogfood-b", () => {
     expect(await state("integration_review")).toBe("ready");
 
     await launch("integration_review", "integrator");
-    expect((await checked()).unknown_workers).toHaveLength(1);
-    expect((await conn.db.getRun(run_id))?.state).toBe("hold");
-    await resume(conn.db, {
-      run: run_id,
-      task: null,
-      generation: 1,
-      host,
-      now,
-    });
+    expect((await checked()).unknown_workers).toEqual([]);
+    expect(
+      (await events(conn, "unknown_launch")).map(
+        (row) => row.payload["follow_up_of"],
+      ),
+    ).toEqual(["ctx_85c7c8a811f8"]);
+    expect((await conn.db.getRun(run_id))?.state).toBe("active");
     expect(await state("integration_review")).toBe("delivered");
+    expect(await events(conn, "resume")).toEqual([]);
     await verdict("integration-verdict.yaml");
 
     await launch("pr", "developer");

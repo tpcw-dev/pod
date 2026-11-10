@@ -42,6 +42,12 @@ import {
 } from "../gate/ruling.ts";
 import { syncVerdictReceipts } from "../gate/verdict.ts";
 import { fence, StaleGeneration } from "./fence.ts";
+import {
+  followUpParent,
+  messageFollowUp,
+  stopFollowUps,
+  type FollowUp,
+} from "./follow-up.ts";
 import { reconcileLaunches, type Reconciled } from "./reconcile.ts";
 import { reconcileTakeovers } from "./takeover-reconcile.ts";
 import { recordNoSource } from "./usage.ts";
@@ -233,6 +239,15 @@ export async function checkPass(
       const recorded = await recordWorkers(db, run, rows, input);
       result.stopped = recorded.stopped;
       result.unknown_workers = recorded.unknown;
+      result.nextSteps.push(
+        ...(await stopFollowUps(db, orca, log, {
+          run,
+          generation: input.generation,
+          host: input.host,
+          now: input.now,
+          followUps: recorded.followUps,
+        })),
+      );
     }
   } catch (error) {
     if (error instanceof StaleGeneration)
@@ -405,14 +420,18 @@ async function recordMessage(
     delivery_id: deliveryId,
     type: message.type,
   };
-  const ignore = async (reason: string) => {
+  const ignore = async (reason: string, extra: Record<string, Json> = {}) => {
     await tx.appendEvent({
       ...base,
       type: "ignored",
-      payload: { ...said, reason },
+      payload: { ...said, reason, ...extra },
     });
     result.ignored += 1;
   };
+  if (known === null && row.kind === "ignored") {
+    const parent = await messageFollowUp(tx, run, message);
+    if (parent !== null) return ignore("follow_up", { follow_up_of: parent });
+  }
   if (row.kind === "ignored") return ignore(row.reason);
   if (known === null) return;
   let decision: Record<string, Json> = {};
@@ -561,12 +580,12 @@ async function recordWorkers(
   run: Run,
   rows: readonly WorkerRow[],
   input: CheckInput,
-): Promise<{ stopped: string[]; unknown: string[] }> {
+): Promise<{ stopped: string[]; unknown: string[]; followUps: FollowUp[] }> {
   return db.transaction(async (tx) => {
     await fence(tx, run.run_id, input.generation);
     return {
       stopped: await recordStops(tx, run, rows, input),
-      unknown: await recordUnknownWorkers(tx, run, rows, input),
+      ...(await recordUnknownWorkers(tx, run, rows, input)),
     };
   });
 }
@@ -614,18 +633,25 @@ async function recordUnknownWorkers(
   run: Run,
   rows: readonly WorkerRow[],
   input: CheckInput,
-): Promise<string[]> {
-  const known = new Set(
-    (await tx.listDispatches(run.run_id)).map((row) => row.dispatch_id),
-  );
+): Promise<{ unknown: string[]; followUps: FollowUp[] }> {
+  const dispatches = await tx.listDispatches(run.run_id);
+  const known = new Set(dispatches.map((row) => row.dispatch_id));
   const inFlight = new Set(
     (await openLaunches(tx)).map((row) => row.request?.task_id),
   );
   const at = input.now();
   const found: string[] = [];
+  const followUps: FollowUp[] = [];
   for (const row of rows) {
     if (known.has(row.dispatchId)) continue;
     if (row.taskId != null && inFlight.has(row.taskId)) continue;
+    const parent = followUpParent(row, dispatches);
+    if (parent !== null)
+      followUps.push({
+        dispatchId: row.dispatchId,
+        parent,
+        workerState: row.workerState,
+      });
     if ((await tx.dispatchEvent(row.dispatchId, "unknown_launch")) !== null)
       continue;
     await tx.appendEvent({
@@ -639,17 +665,18 @@ async function recordUnknownWorkers(
       payload: Json.parse({
         worker_task_id: row.taskId ?? null,
         worker_state: row.workerState,
+        ...(parent === null ? {} : { follow_up_of: parent }),
       }),
       source: { kind: "command", verb: "check" },
     });
-    found.push(row.dispatchId);
+    if (parent === null) found.push(row.dispatchId);
   }
   const current = await tx.getRun(run.run_id);
   if (
     found.length === 0 ||
     (current?.state !== "active" && current?.state !== "drained")
   )
-    return found;
+    return { unknown: found, followUps };
   const hold = (task_id: string | null, from: string) =>
     tx.appendEvent({
       type: "hold",
@@ -669,7 +696,7 @@ async function recordUnknownWorkers(
     await moveTask(tx, task.task_id, "hold");
     await hold(task.task_id, task.state);
   }
-  return found;
+  return { unknown: found, followUps };
 }
 
 const Refusal = z.looseObject({
