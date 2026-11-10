@@ -30,6 +30,7 @@ export interface NewRevision extends RevisionEnvelope {
   id: string;
   actor: string;
   reason: string;
+  ticket?: string | null;
 }
 
 export interface Revision extends NewRevision {

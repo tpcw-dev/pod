@@ -6,6 +6,8 @@ import {
   ConfigExportOutput,
   configApply,
   configExport,
+  configSet,
+  ConfigSetInput,
 } from "./config-verbs.ts";
 import { BriefInput, BriefOutput, brief } from "./brief.ts";
 import {
@@ -143,6 +145,17 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     cancelBy: ["nobody"],
     evidenceRequired: [
       "a file that passes its schema, every Role filled and every gate id present when the kind is process, and `expected_revision` equal to the active Revision when `--activate` is set",
+    ],
+  }),
+  row({
+    name: "config set",
+    input: ConfigSetInput,
+    output: ConfigApplyOutput,
+    handler: configSet,
+    sideEffect: "config",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "an existing source Revision, an edit that passes its kind's schema, and the active Revision unchanged since it was read when `--activate` is set",
     ],
   }),
   row({

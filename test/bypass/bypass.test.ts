@@ -1,8 +1,18 @@
-import { appendFileSync, mkdirSync } from "node:fs";
-import { hostname } from "node:os";
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { stringify } from "yaml";
 import { z } from "zod";
+import type { Connection } from "../../src/adapters/postgres/connection.ts";
+import { envelope } from "../db/fixtures.ts";
+import { clearDb, openDb, resetDb, runCli } from "../db/helpers.ts";
+import {
+  openLaunch,
+  operator,
+  seatDispatch,
+  seatRun,
+} from "../db/identity-fixture.ts";
 import { relayBody } from "./relay.ts";
 
 const envNames = [
@@ -196,3 +206,127 @@ async function post(
   const actor = comment?.user.id ?? "none";
   throw new Error(redact(`actor ${actor}`, token));
 }
+
+describe("a worker-level terminal cannot activate as the operator", () => {
+  let db: Connection;
+  const file = join(
+    mkdtempSync(join(tmpdir(), "pod-bypass-")),
+    "crew.yaml",
+  );
+  writeFileSync(
+    file,
+    stringify(
+      envelope("crew", "bypass", {
+        seats: [{ id: "dev", roles: ["developer"], runtime: "claude" }],
+      }),
+    ),
+  );
+  const activate = [
+    "config",
+    "apply",
+    file,
+    "--activate",
+    "--scope",
+    "global",
+    "--expected-revision",
+    "none",
+  ];
+
+  beforeAll(async () => {
+    await resetDb();
+    db = openDb();
+  });
+  afterAll(() => db.close());
+  beforeEach(async () => {
+    await clearDb(db);
+    await seatRun(db.db, "run-1");
+  });
+
+  async function stored(): Promise<number> {
+    const [row] = await db.sql<
+      { n: number }[]
+    >`select count(*)::int as n from config.revision`;
+    return row?.n ?? 0;
+  }
+
+  test("a worker in the terminal Pod recorded is refused activation_needs_person", async () => {
+    await seatDispatch(db.db, {
+      runId: "run-1",
+      dispatchId: "d-1",
+      seat: "dev",
+      terminal: "term-worker",
+    });
+    const result = runCli(activate, { ORCA_TERMINAL_HANDLE: "term-worker" });
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("activation_needs_person");
+    expect(await stored()).toBe(0);
+  });
+
+  test("the Run's coordinator terminal is refused activation_needs_person", async () => {
+    await seatRun(db.db, "run-2", { coordinator: "term-coordinator" });
+    const result = runCli(activate, {
+      ORCA_TERMINAL_HANDLE: "term-coordinator",
+    });
+    expect(result.json.error?.code).toBe("activation_needs_person");
+    expect(await stored()).toBe(0);
+  });
+
+  test("a worker with no terminal leaves every unresolved run identity_missing", async () => {
+    await seatDispatch(db.db, {
+      runId: "run-1",
+      dispatchId: "d-2",
+      seat: "dev",
+      terminal: null,
+    });
+    const result = runCli(activate);
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("identity_missing");
+    expect(result.json.error?.nextSteps.join(" ")).toContain("d-2");
+    expect(await stored()).toBe(0);
+  });
+
+  test("a launch in flight leaves every unresolved run identity_missing", async () => {
+    await openLaunch(db.db, "launch-in-flight");
+    const result = runCli(activate, { ORCA_TERMINAL_HANDLE: "term-new" });
+    expect(result.json.error?.code).toBe("identity_missing");
+    expect(result.json.error?.nextSteps.join(" ")).toContain(
+      "launch-in-flight",
+    );
+    expect(await stored()).toBe(0);
+  });
+
+  test("a recorded terminal on another host does not make this run a Seat", async () => {
+    await seatRun(db.db, "run-far", { host: "elsewhere" });
+    await seatDispatch(db.db, {
+      runId: "run-far",
+      dispatchId: "d-far",
+      seat: "dev",
+      terminal: "term-shared",
+    });
+    const result = runCli(activate, { ORCA_TERMINAL_HANDLE: "term-shared" });
+    expect(result.status).toBe(0);
+    expect(result.json.result?.["activation"]).not.toBeNull();
+  });
+
+  test("POD_SEAT is refused activation_needs_person", async () => {
+    const result = runCli(activate, { POD_SEAT: "dev" });
+    expect(result.json.error?.code).toBe("activation_needs_person");
+    expect(await stored()).toBe(0);
+  });
+
+  test("once the workers settle, the operator's own shell activates as the person", async () => {
+    await seatDispatch(db.db, {
+      runId: "run-1",
+      dispatchId: "d-3",
+      seat: "dev",
+      terminal: null,
+      settled: true,
+    });
+    const result = runCli(activate, { ORCA_TERMINAL_HANDLE: "term-operator" });
+    expect(result.status).toBe(0);
+    const [row] = await db.sql<
+      { activated_by: string }[]
+    >`select activated_by from config.activation where name = 'bypass'`;
+    expect(row?.activated_by).toBe(`person:${operator}`);
+  });
+});

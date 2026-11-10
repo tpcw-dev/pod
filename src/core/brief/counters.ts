@@ -13,6 +13,7 @@ export const HAND_FILLED_VERBS = [
   "hqa record",
   "deploy record",
   "config apply",
+  "config set",
   "takeover",
   "check --resume",
 ] as const;

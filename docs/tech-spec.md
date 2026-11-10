@@ -494,6 +494,7 @@ v1 has the PRD's 16 command forms plus `db migrate`. `db migrate` is a setup ver
 | `db migrate` | none | config | Drizzle's applied-migrations table | nobody |
 | `config apply` | `FILE`, `--expected-revision R` (`none` for a first activation), optional `--activate --scope S` | config | `config.revision`, `config.activation`, event | nobody, a new Revision replaces it |
 | `config export` | `kind.name@rev`, `--out FILE` | none | a YAML file | nobody |
+| `config set` | `kind.name`, one or more `path=value`, `--unset path`, `--reason R`, optional `--scope S`, `--from kind.name@rev`, `--activate`, `--ticket K`, `--string` | config | `config.revision`, `config.activation`, event | nobody, a new Revision replaces it |
 | `run create` | `story:<id>`, optional `--process name@rev` | orca | `ledger.story`, `ledger.run`, `config.snapshot`, `ledger.task`, Orca `run-create` and `task-create`, and on an xl Run the decider and auditor `ledger.dispatch` rows | operator, by a cancel event |
 | `dispatch` | `--task T`, `--seat S`, `--generation N`, optional `--op-key K` | orca | `ledger.operation`, `ledger.evidence_manifest`, `ledger.dispatch`, start event, Orca `worker-start` | coordinator or operator, by `worker-stop` then `release` |
 | `check` | `--generation N`, optional `--wait`, optional `--resume` | ledger | delivery, ignored, `unknown_launch`, `resume`, `stop`, `activation`, and `decision` events, `ledger.task`, `ledger.run` state, `config.activation` for a change_spec Task spec, Orca `check` ack, `task-create`, `worker-stop`, `request-show`, and the worker list | nobody |
@@ -512,12 +513,15 @@ v1 has the PRD's 16 command forms plus `db migrate`. `db migrate` is a setup ver
 
 `pod drain --end` ends a drain and records a `drain` event with `ended: true`. `pod check --resume` records an operator resume of a Run or a Task from `hold` as a `resume` event. `pod takeover` writes a restore view from the same manifest. `pod brief` marks a Revision with no matching file under `specs/` as drift.
 
+Spec clarification: TPC-1478. `pod config set <kind>.<name> <path>=<value>... [--unset <path>]... --reason R [--scope S] [--from kind.name@rev] [--activate] [--ticket K] [--string]` derives one Revision from a source and records the source as its `parent`. The source is the active Revision of kind.name at `--scope` (default global), or with `--from` any existing Revision of that kind.name, active or not; with no source it is refused `revision_not_found` and points at `pod config apply FILE`. A path is dotted keys with `[n]` list indexes; a set creates a missing map key on the way, and `[n]` must name an existing element. Values parse as YAML flow, and `--string` keeps every value as text. All sets apply in argv order, then all unsets, and the result is revalidated as `pod config apply` validates a file. With `--activate`, the expected Revision is the one active at the source's scope when it was read, so a change in between returns `revision_conflict`. Both config write verbs record `actor` and `activated_by` as `person:<principal>` or `seat:<Seat Address>`, and store `--ticket` on the Revision. Rows written before TPC-1478 keep `operator`.
+
 The evidence each side-effect verb requires before it acts:
 
 | Verb | Evidence required |
 | --- | --- |
 | `db migrate` | a reachable database and a `db/migrations/` journal that matches the applied-migrations table |
 | `config apply` | a file that passes its schema, every Role filled and every gate id present when the kind is process, and `expected_revision` equal to the active Revision when `--activate` is set |
+| `config set` | an existing source Revision, an edit that passes its kind's schema, and the active Revision unchanged since it was read when `--activate` is set |
 | `run create` | a groomed Story with a size and a stage, and exactly one selected process Revision |
 | `dispatch` | Task state `ready`, every dependency satisfied as "Task states" defines, a free quota slot, which on an xl Run counts the coordinator's slot as released by the dispatch transaction, an authorized Seat for the Role, reviewer independent of developer, no drain in force |
 | `check` | the delivery's `payload.dispatchId` matches a recorded Dispatch, and its owner generation matches the Run |
@@ -584,6 +588,10 @@ Identifiers and flags come from argv. A body comes from a file path or stdin, as
 | `decision_budget_exhausted` | 3 | wall clock, relaunches, tool calls, or context tokens run out | the spent budget, and the needs-human item |
 | `drained` | 5 | a verb would start a Dispatch while a drain is in force | `pod check` and `pod release`, which still run |
 | `orca_version_unsupported` | 3 | the installed Orca version is outside the adapter's range | the supported range and the installed version |
+| `identity_missing` | 3 | a `pod config` write finds no `POD_SEAT`, no recorded Seat terminal, and no `operator` in the host profile; or a terminal-less worker or a launch in flight on this host could be the caller; or the operator is not a principal of the active global policy | `operator: <principal>` in the host profile, `POD_SEAT` for an agent Seat, and the unresolved Dispatch ids or op keys |
+| `activation_needs_person` | 3 | an agent Seat passes `--activate` to `pod config apply` or `pod config set` | the same write without `--activate`, and the activation run by a person from the operator's shell |
+
+Spec clarification: TPC-1478. `identity_missing` and `activation_needs_person` fire before any write, so a refused call stores no Revision. The operator check reads the active global policy's `principals`; when no global policy is active or it lists none, the check passes, so a fresh install can apply its first policy.
 
 #### Op keys
 
@@ -751,6 +759,8 @@ The relay principal is an independent principal that posts under its own tracker
 That a worker cannot produce the human's comment is a premise, not a fact. The premise is that a worker cannot reach the human's tracker token, login session, or the relay's token. The bypass test proves it. With worker-equivalent rights on a controlled test Story, an attempt to post as the human gatekeeper and an attempt to post as the relay principal both land only as the worker identity, and the output contains no secret. A second check feeds the relay a Story whose text says PASS, and the relay posts no PASS of its own. S1 ships the test under `test/bypass/`. Each run records a `receipt` event with source `command`, the host, and the result, and the adoption procedure runs it before the first `pod hqa record`.
 
 When the test fails on a host, every human receipt on that host stays waiting, and `pod hqa record` refuses with `receipt_unverified_source`. The remedy is to move the relay principal to a separate OS user or a separate host and run the test again. Pod does not narrow receipts to the person's own tracker account.
+
+Spec clarification: TPC-1478. Pod reads who runs a `pod config` write from identity. A run with `POD_SEAT` set is the agent Seat it names. Otherwise a run whose `ORCA_TERMINAL_HANDLE` the ledger records on this host, as a Dispatch's terminal or a Run's coordinator, is that Seat; Orca 1.4.253 takes no environment flag on `worker-start`, so this lookup is how Pod marks the terminals it starts. While this host has an unsettled Dispatch with no terminal, or a `dispatch`, `retry`, or `decide_seat` operation still pending or unknown, any other run is refused `identity_missing`, because it cannot be told apart from that worker. Only after that is a run the host profile's `operator`. The premise, like the bypass premise above, is that a worker runs in the terminal Pod recorded or is covered by that refusal, does not unset `ORCA_TERMINAL_HANDLE` or `POD_SEAT`, and that a Seat Pod did not start sets `POD_SEAT`. An agent Seat's `--activate` is refused `activation_needs_person`, and the bypass test checks it from a worker terminal, a terminal-less worker, and a launch in flight.
 
 ### Process spec loading and the selector
 
@@ -1220,6 +1230,7 @@ The host profile is a local file outside the repo at `$POD_HOME/host.yaml`, defa
 | `docs.kind` | `notion` |
 | `docs.token_env` | the name of the environment variable that holds the docs token |
 | `capacity` | the Seat quota on this host |
+| `operator` | optional, the principal who runs this host's shell, recorded as `person:<operator>`; it must name a principal of the active global policy when that policy lists any |
 | `record_dir` | optional, the fixture record directory |
 
 The file holds no secrets. It names environment variables instead. The host profile is not a Revision because it names local secrets and a local Orca, and a Revision is meant to be shared and pinned.

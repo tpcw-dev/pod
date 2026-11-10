@@ -114,6 +114,8 @@ export interface Repo {
     change: { activity: Activity; settlement: string; settled_at: Date | null },
   ): Promise<boolean>;
   hostActivities(host: string): Promise<Activity[]>;
+  terminalSeat(host: string, handle: string): Promise<string | null>;
+  unresolvedWorkers(host: string): Promise<string[]>;
   lockQuota(host: string): Promise<void>;
   insertLearning(row: NewLearning): Promise<Learning>;
   listLearnings(filter: LearningFilter): Promise<Learning[]>;

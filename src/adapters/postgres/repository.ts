@@ -11,6 +11,7 @@ import {
   isNull,
   lt,
   max,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
@@ -131,6 +132,7 @@ function toRevision(row: typeof revision.$inferSelect): Revision {
     value: json(row.value),
     actor: row.actor,
     reason: row.reason,
+    ticket: row.ticket,
     created_at: row.createdAt,
   };
 }
@@ -400,6 +402,7 @@ function makeRepo(x: Executor): Repo {
           value: row.value,
           actor: row.actor,
           reason: row.reason,
+          ticket: row.ticket ?? null,
         })
         .returning();
       if (inserted === undefined)
@@ -854,6 +857,48 @@ function makeRepo(x: Executor): Repo {
         .innerJoin(run, eq(run.runId, dispatch.runId))
         .where(eq(run.host, host));
       return rows.map((row) => Activity.parse(row.activity));
+    },
+
+    async terminalSeat(host, handle) {
+      const [worker] = await x
+        .select({ seat: dispatch.seat })
+        .from(dispatch)
+        .innerJoin(run, eq(run.runId, dispatch.runId))
+        .where(and(eq(run.host, host), eq(dispatch.terminalHandle, handle)))
+        .limit(1);
+      if (worker !== undefined) return worker.seat;
+      const [coordinated] = await x
+        .select({ runId: run.runId })
+        .from(run)
+        .where(and(eq(run.host, host), eq(run.coordinator, handle)))
+        .limit(1);
+      return coordinated === undefined ? null : "coordinator";
+    },
+
+    async unresolvedWorkers(host) {
+      const terminalless = await x
+        .select({ id: dispatch.dispatchId })
+        .from(dispatch)
+        .innerJoin(run, eq(run.runId, dispatch.runId))
+        .where(
+          and(
+            eq(run.host, host),
+            ne(dispatch.activity, "settled"),
+            isNull(dispatch.terminalHandle),
+          ),
+        )
+        .orderBy(asc(dispatch.dispatchId));
+      const launching = await x
+        .select({ id: operation.opKey })
+        .from(operation)
+        .where(
+          and(
+            inArray(operation.intent, ["dispatch", "retry", "decide_seat"]),
+            inArray(operation.status, ["pending", "unknown"]),
+          ),
+        )
+        .orderBy(asc(operation.opKey));
+      return [...terminalless, ...launching].map((row) => row.id);
     },
 
     async lockQuota(host) {
