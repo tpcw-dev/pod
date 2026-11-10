@@ -6,6 +6,7 @@ import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { singleActive } from "../../src/core/config/active.ts";
+import { deriveOpKey } from "../../src/core/config/apply.ts";
 import { ok } from "../orca/temp-fixtures.ts";
 import { fakeTracker, type FakeTracker } from "./fake-tracker.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
@@ -43,6 +44,7 @@ interface Pending {
 describeDb("config activate requests", () => {
   let conn: Connection;
   let tracker: FakeTracker;
+  let failing: Set<string>;
   let comments: Map<
     string,
     { id: string; body: string; author: string; edited: boolean }[]
@@ -75,6 +77,7 @@ describeDb("config activate requests", () => {
     if (!moved.ok) throw new Error("keeper policy did not activate");
     await createRun(conn);
     comments = new Map();
+    failing = new Set();
     tracker = fakeTracker();
     const toComment = (ticket: string) =>
       (comments.get(ticket) ?? []).map((row) => ({
@@ -85,6 +88,15 @@ describeDb("config activate requests", () => {
       }));
     tracker.readback = (ref) => {
       tracker.calls.push(`readback:${ref.external_id}`);
+      if (failing.has(ref.external_id))
+        return Promise.resolve({
+          verb: "readback",
+          ok: false,
+          result: null,
+          raw: null,
+          error: "timeout",
+          requestId: null,
+        });
       return Promise.resolve({
         verb: "readback",
         ok: true,
@@ -557,5 +569,127 @@ describeDb("config activate requests", () => {
       (state.json.result as { policies: { pending_requests: number } }).policies
         .pending_requests,
     ).toBe(1);
+  });
+
+  function operatorActivate(ref: string, expected: string | undefined) {
+    return runCli([
+      "config",
+      "activate",
+      ref,
+      "--scope",
+      "global",
+      "--expected-revision",
+      expected ?? "none",
+    ]);
+  }
+
+  test("pod config activate activates again after the active Revision moved away and back", async () => {
+    const seed = await activeCrew();
+    const written = agentSet("m-2");
+    expect(operatorActivate(written.ref, seed).status).toBe(0);
+    expect(operatorActivate(written.ref, seed).json.result).toMatchObject({
+      activation: { revision_id: written.id },
+    });
+    expect(operatorActivate("crew.default@1", written.id).status).toBe(0);
+    expect(await activeCrew()).toBe(seed);
+    const again = operatorActivate(written.ref, seed);
+    expect(again.status, again.json.error?.message).toBe(0);
+    expect(await activeCrew()).toBe(written.id);
+  });
+
+  test("pod config activate moves a TPC-1413 pending row at its own op key to done", async () => {
+    const seed = await activeCrew();
+    const revision = await storeRevision(
+      conn.db,
+      envelope("crew", "default", { ...crewValue, note: "legacy" }),
+    );
+    const opKey = deriveOpKey(
+      envelope("crew", "default", { ...crewValue, note: "legacy" }),
+      seed ?? null,
+      revision.id,
+    );
+    await conn.db.insertOperation({
+      op_key: opKey,
+      intent: "config_apply",
+      owner_generation: 0,
+      at: new Date(),
+      result_ref: {
+        pending: {
+          scope: "global",
+          scope_ref: "",
+          kind: "crew",
+          name: "default",
+          revision_id: revision.id,
+          expected: seed ?? null,
+          profile: "p",
+          comment: "profile legacy p crew.default@2",
+        },
+        result: {
+          ref: "crew.default@2",
+          id: revision.id,
+          rev: revision.rev,
+          created: true,
+          activation: null,
+          pending: null,
+        },
+      },
+    });
+    const done = operatorActivate("crew.default@2", seed);
+    expect(done.status, done.json.error?.message).toBe(0);
+    expect(await activeCrew()).toBe(revision.id);
+    expect(await status(opKey)).toBe("done");
+  });
+
+  test("a Seat write repeated after its request settled opens a new request", async () => {
+    const seed = await activeCrew();
+    const first = agentSet("m-2");
+    expect(operatorActivate(first.ref, seed).status).toBe(0);
+    expect(operatorActivate("crew.default@1", first.id).status).toBe(0);
+    const again = agentApply(exported(first.ref), "TRK-9");
+    expect(again.pending?.op_key).toBeDefined();
+    expect(again.pending?.op_key).not.toBe(first.pending?.op_key);
+    expect(await status(again.pending?.op_key ?? "")).toBe("pending");
+  });
+
+  test("a failed Story read leaves a ticket's approval free to activate", async () => {
+    const seed = await activeCrew();
+    const legacy = await storeRevision(
+      conn.db,
+      envelope("crew", "default", { ...crewValue, note: "legacy" }),
+    );
+    await conn.db.insertOperation({
+      op_key: "config_apply:legacy",
+      intent: "config_apply",
+      owner_generation: 0,
+      at: new Date(),
+      result_ref: {
+        pending: {
+          scope: "global",
+          scope_ref: "",
+          kind: "crew",
+          name: "default",
+          revision_id: legacy.id,
+          expected: seed ?? null,
+          profile: "p",
+          comment: "profile legacy p crew.default@2",
+        },
+        result: {
+          ref: "crew.default@2",
+          id: legacy.id,
+          rev: legacy.rev,
+          created: true,
+          activation: null,
+          pending: null,
+        },
+      },
+    });
+    const written = agentSet("m-2");
+    failing.add("S-1");
+    say("TRK-9", "c-1", `config activate ${written.id}`);
+    expect(await check()).toContainEqual(
+      expect.stringMatching(/^tracker readback of story:S-1 failed: timeout/),
+    );
+    expect(await activeCrew()).toBe(written.id);
+    expect(await status("config_apply:legacy")).toBe("pending");
   });
 });

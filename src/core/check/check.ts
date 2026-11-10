@@ -292,22 +292,20 @@ async function applyRulings(
   const read = needsStory
     ? await readStoryComments(tracker, log, run)
     : { ok: true as const, comments: [] };
-  if (!read.ok)
-    return [
-      `tracker readback of story:${run.story_external_id} failed: ${read.error}; Decision rulings and profile requests wait for the next pod check`,
-    ];
+  const storyFailed = read.ok
+    ? []
+    : [
+        `tracker readback of story:${run.story_external_id} failed: ${read.error}; Decision rulings and profile requests wait for the next pod check`,
+      ];
   const context = {
     run,
     hostName: input.hostName,
     bypassPath: input.bypassPath,
     now: input.now,
   };
-  const { rulings, nextSteps } = await verifiedRulings(
-    db,
-    tracker,
-    read.comments,
-    context,
-  );
+  const { rulings, nextSteps } = read.ok
+    ? await verifiedRulings(db, tracker, read.comments, context)
+    : { rulings: [], nextSteps: storyFailed };
   for (const ruling of rulings) {
     const step = await db.transaction(async (tx) => {
       const owned = await fence(tx, run.run_id, input.generation);
@@ -321,7 +319,7 @@ async function applyRulings(
   const activations = await verifiedActivations(db, tracker, pending, {
     ...context,
     log,
-    storyComments: read.comments,
+    storyComments: read.ok ? read.comments : null,
   });
   nextSteps.push(...activations.nextSteps);
   for (const readback of activations.readbacks) {

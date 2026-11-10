@@ -8,6 +8,7 @@ import {
 import { Json } from "../domain/json.ts";
 import type { Refusal } from "../domain/outcome.ts";
 import type { Db, Repo } from "../ports/db.ts";
+import type { Operation } from "../domain/ledger.ts";
 import { validateDecisionTemplates } from "../decide/templates.ts";
 import { fallbackProblem } from "../dispatch/seats.ts";
 import { validateProcess } from "../process/validate.ts";
@@ -100,7 +101,7 @@ const requestIntents = ["config_apply", "config_activate"] as const;
 function readbackRule(ticket: string | null): string {
   const where =
     ticket === null ? "the Story of a live Run" : `ticket ${ticket}`;
-  return `an HQA keeper posts the comment on ${where}; the next pod check reads it back and activates the Revision`;
+  return `Ask an HQA keeper to post the comment on ${where}, then run pod check.`;
 }
 
 export function activateComment(revisionId: string): string {
@@ -433,7 +434,7 @@ async function refuseRequests(
       { code: "revision_conflict", active, comment_id: source.comment_id },
       at,
     );
-  return `revision_conflict: config activate request for ${request.kind}.${request.name} Revision ${request.revision_id} expected ${request.expected ?? "none"} but the active Revision is ${active ?? "none"}; write it again from the active Revision and post the new comment`;
+  return `revision_conflict: config activate request for ${request.kind}.${request.name} Revision ${request.revision_id} expected ${request.expected ?? "none"} but the active Revision is ${active ?? "none"}. Write the Revision again from the active one.`;
 }
 
 export async function activateRequested(
@@ -535,7 +536,7 @@ export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
   }
   const direct =
     input.verb === "config activate" || pendingProfile(input.envelope) === null;
-  const opKey =
+  const baseKey =
     activate.opKey ??
     (direct
       ? deriveOpKey(input.envelope, activate.expected, id)
@@ -545,10 +546,15 @@ export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
           id,
           input.ticket ?? null,
         ));
+  const walk = activate.opKey === null && input.verb === "config activate";
   return db.transaction(async (tx): Promise<ApplyOutcome> => {
     if (!(await parentKnown(tx, parent)))
       return { kind: "parent_unknown", parent };
-    const existing = await tx.getOperation(opKey);
+    const { opKey, existing } = walk
+      ? await freshKey(tx, baseKey, (row) =>
+          replaysActivation(tx, input, id, row),
+        )
+      : { opKey: baseKey, existing: await tx.getOperation(baseKey) };
     if (existing !== null) return recorded(tx, opKey, existing);
     const refusal = await processRefusal(tx, input.envelope);
     if (refusal !== null) return { kind: "process_invalid", refusal };
@@ -637,6 +643,42 @@ export function applyConfig(db: Db, input: ApplyInput): Promise<ApplyOutcome> {
   });
 }
 
+async function freshKey(
+  tx: Repo,
+  base: string,
+  replay: (row: Operation) => boolean | Promise<boolean>,
+): Promise<{ opKey: string; existing: Operation | null }> {
+  for (let attempt = 1; ; attempt += 1) {
+    const opKey = attempt === 1 ? base : `${base}:${attempt}`;
+    const existing = await tx.getOperation(opKey);
+    if (existing === null || (await replay(existing)))
+      return { opKey, existing };
+  }
+}
+
+function isRequestIntent(row: Operation): boolean {
+  return (requestIntents as readonly string[]).includes(row.intent);
+}
+
+function settledRequest(row: Operation): boolean {
+  return (
+    isRequestIntent(row) && (row.status === "done" || row.status === "refused")
+  );
+}
+
+async function replaysActivation(
+  tx: Repo,
+  input: ApplyInput,
+  id: string,
+  row: Operation,
+): Promise<boolean> {
+  if (!isRequestIntent(row)) return true;
+  if (row.status !== "done") return false;
+  const { scope, scope_ref, kind, name } = input.envelope;
+  const active = await tx.getActivation({ scope, scope_ref, kind, name });
+  return active?.revision_id === id;
+}
+
 async function requestActivation(
   tx: Repo,
   input: ApplyInput,
@@ -653,13 +695,11 @@ async function requestActivation(
       result: resultOf(await storeRevision(tx, input, id), null),
     };
   const expected = request.expected === undefined ? active : request.expected;
-  const opKey = requestOpKey(
-    input.envelope,
-    expected,
-    id,
-    input.ticket ?? null,
+  const { opKey, existing } = await freshKey(
+    tx,
+    requestOpKey(input.envelope, expected, id, input.ticket ?? null),
+    (row) => !settledRequest(row),
   );
-  const existing = await tx.getOperation(opKey);
   if (existing !== null) return recorded(tx, opKey, existing);
   return openRequest(tx, input, opKey, id, expected, request.host);
 }

@@ -178,7 +178,7 @@ function requestName({ request }: PendingActivation): string {
 
 export interface ActivationInput extends RulingInput {
   log: ReceiptLog;
-  storyComments: readonly TrackerComment[];
+  storyComments: readonly TrackerComment[] | null;
 }
 
 async function ticketComments(
@@ -186,7 +186,10 @@ async function ticketComments(
   input: ActivationInput,
   ticket: string | null,
 ): Promise<StoryComments> {
-  if (ticket === null) return { ok: true, comments: [...input.storyComments] };
+  if (ticket === null)
+    return input.storyComments === null
+      ? { ok: false, error: "story read failed" }
+      : { ok: true, comments: [...input.storyComments] };
   const ref: StoryRef = {
     provider: input.run.story_provider,
     external_id: ticket,
@@ -218,7 +221,7 @@ export async function verifiedActivations(
     if (read === undefined) {
       read = await ticketComments(tracker, input, ticket);
       reads.set(ticket, read);
-      if (!read.ok)
+      if (!read.ok && ticket !== null)
         nextSteps.push(
           `tracker readback of ticket ${ticket ?? ""} failed: ${read.error}; its config activate requests wait for the next pod check`,
         );
