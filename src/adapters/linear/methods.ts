@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   canceledByHuman,
+  statusUnknown,
   isCommentRef,
   type CommentRef,
   type Readback,
@@ -204,7 +205,7 @@ export function trackerMethods(send: Send, scale: string): TrackerPort {
           false,
           { story: found },
           read.decoded.raw,
-          "status_unknown",
+          statusUnknown,
           read.reply.requestId,
         );
       const reply = await send("setStatus", {

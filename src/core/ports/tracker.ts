@@ -28,6 +28,7 @@ export interface TrackerReceipt<T> {
 }
 
 export const canceledByHuman = "canceled_by_human";
+export const statusUnknown = "status_unknown";
 
 export interface StoryRef {
   provider: string;

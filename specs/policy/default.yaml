@@ -37,6 +37,7 @@ value:
     needs_existing_authorization:
       - { name: repo_create, requires: story_spec, match: [create a repo, new repo, create a repository, new repository] }
       - { name: vps_ssh, requires: infrastructure_story, match: [ssh, vps] }
+  story_status: { done: Done, human_wait: In-review }
   escalate_when: [scope_exceeds_story, affects_other_story, new_dependency, architecture_choice]
   limits:
     decision_rounds: 3

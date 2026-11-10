@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { parse } from "yaml";
-import { validatePolicy } from "../../src/core/config/policy.ts";
+import { storyStatusOf, validatePolicy } from "../../src/core/config/policy.ts";
 import {
   authorizationOf,
   budgetOf,
@@ -220,4 +220,24 @@ test("bare Gate ids, a valid authorization, and an absent map pass", () => {
     },
   ])
     expect(validatePolicy(value, null)).toBeNull();
+});
+
+test("the seed names both close statuses, and storyStatusOf reads them", () => {
+  expect(validatePolicy(defaultValue, null)).toBeNull();
+  expect(storyStatusOf(defaultValue)).toEqual({
+    done: "Done",
+    human_wait: "In-review",
+  });
+  expect(storyStatusOf({ gates: ["pr"] })).toBeNull();
+});
+
+test.each([
+  [{ done: "Done" }, "story_status.human_wait"],
+  [{ done: "Done", human_wait: "" }, "story_status.human_wait"],
+  [{ done: "Done", human_wait: "Wait", epic: "Done" }, "story_status"],
+  ["Done", "story_status"],
+])("story_status %j refuses schema_invalid at %s", (story_status, path) => {
+  expect(validatePolicy({ ...defaultValue, story_status }, null)).toMatchObject(
+    { code: "schema_invalid", nextSteps: [path] },
+  );
 });

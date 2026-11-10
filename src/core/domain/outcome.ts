@@ -31,6 +31,8 @@ export const RefusalCode = z.enum([
   "owed_work",
   "unanswered_question",
   "needs_file",
+  "tracker_unconfirmed",
+  "story_canceled",
   "usage",
   "failed",
 ]);

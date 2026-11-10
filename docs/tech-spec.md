@@ -294,8 +294,9 @@ Each event type has one kind of producer. A verb that is not listed records no e
 | `pod check` finding a worker the ledger does not know | `unknown_launch` |
 | `pod learning add` | `learning` |
 | `pod run close`, once per Run, from its `archive` step | `close` |
+| `pod run close`, once per p0 leftover, from its `escalate` step | `escalate` |
 
-The PRD lists the event types `start`, `delivery`, `decision`, `push`, `pr`, `deploy`, `release`, `takeover`, `escalate`, and `cancel`. Pod keeps the types beyond that list, which are `receipt`, `activation`, `self_decision`, `stop`, `drain`, `hold`, `resume`, `ignored`, `unknown_launch`, and `learning`. `self_decision` is the PRD's `self` decision event. Spec clarification: S18a. Pod also keeps `close`, whose payload carries the Run's `snapshot_hash`, `report_hash`, the report counts, its Dispatch list, each Seat's end state, its `pr` event ids, `keep_files_reviewed`, and `gone` worktrees.
+The PRD lists the event types `start`, `delivery`, `decision`, `push`, `pr`, `deploy`, `release`, `takeover`, `escalate`, and `cancel`. Pod keeps the types beyond that list, which are `receipt`, `activation`, `self_decision`, `stop`, `drain`, `hold`, `resume`, `ignored`, `unknown_launch`, and `learning`. `self_decision` is the PRD's `self` decision event. Spec clarification: S18a. Pod also keeps `close`, whose payload carries the Run's `snapshot_hash`, `report_hash`, the report counts, its Dispatch list, each Seat's end state, its `pr` event ids, `keep_files_reviewed`, and `gone` worktrees. Spec clarification: S18b. The `close` payload also carries `actor`, the S16a identity (`person:<operator>` or `seat:<POD_SEAT>`), and `retro_due`, which is true when the Story size is `m`, `l`, or `xl`, or the Run has a `FAIL` row in `ledger.gate_receipt`. Nothing runs a retro from it; the close output prints `retro: required` when it is true. A p0 leftover's `escalate` event carries `story`, `kind`, `text`, and `actor`, and `pod state` lists it as an open needs-human item with gate `p0 <kind>`.
 
 `ledger.operation` holds one row per side-effect intent.
 
@@ -510,7 +511,7 @@ v1 has the PRD's 16 command forms plus `db migrate`. `db migrate` is a setup ver
 | `brief` | optional `story:<id>`, optional `--html FILE` | none | an HTML file, with drift marked | not applicable |
 | `drain` | optional `--end` | ledger | drain event | operator |
 | `learning add` | `FILE`, `--area A` (required), optional `--project P` | ledger | `ledger.learning`, learning event | nobody |
-| `run close` | `story:<id>`, `--generation N`, optional `FILE`, optional `--keep-files-reviewed` | ledger | one `close` operation per step, one close event, `ledger.run.state` `done` | nobody |
+| `run close` | `story:<id>`, `--generation N`, optional `FILE`, optional `--keep-files-reviewed` | tracker | one `close` operation per step, one close event, a `learning` row per learning and per leftover with no `p0`, an `escalate` event per p0 leftover, the Story status and one closing comment through the outbox, `ledger.run.state` `done` | nobody |
 | `learning query` | optional `--story`, `--adoption`, `--text`, `--area`, `--project` | none | nothing | not applicable |
 
 `pod drain --end` ends a drain and records a `drain` event with `ended: true`. `pod check --resume` records an operator resume of a Run or a Task from `hold` as a `resume` event. `pod takeover` writes a restore view from the same manifest. `pod brief` marks a Revision with no matching file under `specs/` as drift.
@@ -577,6 +578,8 @@ Identifiers and flags come from argv. A body comes from a file path or stdin, as
 | `owed_work` | 3 | `pod run close` finds a Task not `done`, `superseded`, or `failed`, a running Dispatch other than the coordinator's, or an open or `needs_human` Decision | each owed item, and `pod state story:<id>` |
 | `unanswered_question` | 3 | `pod run close` reads text in the composer row of an open Dispatch terminal's rendered screen, or cannot read that screen | `orca terminal read --terminal <handle> --screen` |
 | `needs_file` | 3 | `pod run close` finds an untracked file or a branch ahead of its upstream in a worktree of the Run, and `--keep-files-reviewed` is not passed | each file, each branch ahead, and the close command with `--keep-files-reviewed` |
+| `tracker_unconfirmed` | 4 | `pod run close` has no tracker, or the tracker has not acked the outbox row of its `status` or `comment` step | a parked row and its tries, and the same close command again |
+| `story_canceled` | 3 | `pod run close` sets the Story status and the tracker shows the Story canceled by a person; the Run is on hold | `pod state story:<id>` |
 | `release_refused` | 3 | the Dispatch is not settled and no retain reason is given, or another host owns the terminal | `pod check`, and `--retain --reason` |
 | `owner_generation_stale` | 3 | the caller's generation is lower than `ledger.run.owner_generation` | `pod takeover story:<id>` if this session should own the Run |
 | `task_not_ready` | 3 | the Task is not `ready`, or a dependency is not satisfied as "Task states" defines | the unsatisfied dependencies, the receipt or delivery each lacks, and the Task state |
@@ -601,7 +604,7 @@ Spec clarification: TPC-1478. `identity_missing` and `activation_needs_person` f
 
 #### Op keys
 
-Every side-effect verb takes `--op-key` or derives one from the intent, the Run, the Task, the Seat, and the attempt number. The intent is one of a closed list, which is `run_create`, `project`, `dispatch`, `retry`, `decide_seat`, `decide`, `config_apply`, `verdict`, `hqa`, `release`, `takeover`, `drain`, `learning`, and `close`. Spec clarification: S18a. `close` is one keyed step of `pod run close`, keyed `derivedOpKey("close", { run, step })` with no attempt number, so a re-run converges on the same rows. `run_create` is the Orca Run creation inside `pod run create`. `project` is one Task projection through `task-create`, inside `pod run create` or `pod check`. `decide` is the Decision request itself. `db migrate` records no operation row, because Drizzle's applied-migrations table is its own record. `dispatch`, `retry`, and `decide_seat` are the three launch intents, and each one calls `worker-start` exactly once. `pod decide` records one `decide_seat` operation for each Decision Seat launch.
+Every side-effect verb takes `--op-key` or derives one from the intent, the Run, the Task, the Seat, and the attempt number. The intent is one of a closed list, which is `run_create`, `project`, `dispatch`, `retry`, `decide_seat`, `decide`, `config_apply`, `verdict`, `hqa`, `release`, `takeover`, `drain`, `learning`, and `close`. Spec clarification: S18a. `close` is one keyed step of `pod run close`, keyed `derivedOpKey("close", { run, step })` with no attempt number, so a re-run converges on the same rows. Spec clarification: S18b. The steps run in order `archive`, `learnings`, `escalate`, `status`, `comment`, `done`. The `learnings` step writes through `learning add`'s keyed write, `learningOpKey`, in its own transaction, so a re-run adds no row. The `status` and `comment` steps enqueue one `ledger.outbox` row each, keyed by the step, drain the outbox, and are `done` only when the row is acked; the `comment` row is acked only after a readback finds its body hash. A row not acked refuses `tracker_unconfirmed` and leaves the Run as it is; the next close drains it again and never enqueues a second row. `run_create` is the Orca Run creation inside `pod run create`. `project` is one Task projection through `task-create`, inside `pod run create` or `pod check`. `decide` is the Decision request itself. `db migrate` records no operation row, because Drizzle's applied-migrations table is its own record. `dispatch`, `retry`, and `decide_seat` are the three launch intents, and each one calls `worker-start` exactly once. `pod decide` records one `decide_seat` operation for each Decision Seat launch.
 
 The verb inserts a `ledger.operation` row with status `pending` before it calls Orca or the tracker. The same key returns the recorded result, or it reconciles when the status is `unknown`. A retry is a new key with `retry_of`. A content hash is a fingerprint only and never stands in for an op key.
 
@@ -1109,10 +1112,15 @@ reserved:
      gate_change_running_run, policy_change, driver_or_gatekeeper_change]
   needs_existing_authorization: { repo_create: story_spec, vps_ssh: infrastructure_story }
 escalate_when: [scope_exceeds_story, affects_other_story, new_dependency, architecture_choice]
+story_status: { done: Done, human_wait: In-review }
 limits:
   decision_rounds: 3
   decision_budget: { wall_clock: 2h, relaunches: 2, tool_calls: 40, context_tokens: 60k }
 ```
+
+Spec clarification: S18b. `story_status` names the tracker statuses `pod run close` moves the Story to: `human_wait` while a human Gate is pending, otherwise `done`. A human Gate is pending when a step of the pinned process names a Gate whose pinned policy type is HQA, the pinned profile does not replace it, and the Run's latest non-voided receipt for it is not `PASS`, as with `hqa_after_deploy` before its PASS. The close never moves the Story past `human_wait`, and never moves an epic. A pinned policy with no `story_status` writes no status. Pod's seed names `Done` and `In-review`; a shop's names arrive as a Revision a person activates. A name the tracker lacks fails the write with `status_unknown`; the close then finishes and prints `story:<id>: the tracker has no status <name>; set it by hand`. A Story a person canceled refuses `story_canceled` and stays on hold.
+
+Spec clarification: S18b. The closing comment is posted once through the outbox, signed by the S16a identity, one field per line: `Worktree`, `Branches removed`, `Remote branches kept`, `Learnings` (the learning ids, or `none`), `p0` (`<kind>: <text>` joined by `; `, or `none`), and `Retro due` (`yes` or `no`). The worktree and branch fields read `not removed` until S18c fills them.
 
 | Reserved class | Members | Result |
 | --- | --- | --- |

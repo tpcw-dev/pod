@@ -316,6 +316,29 @@ function escalateProblem(value: unknown): Problem {
   };
 }
 
+const StoryStatus = z.strictObject({
+  done: z.string().min(1),
+  human_wait: z.string().min(1),
+});
+export type StoryStatus = z.infer<typeof StoryStatus>;
+
+function storyStatusProblem(value: unknown): Problem {
+  const given = fields(value)["story_status"];
+  if (given === undefined) return null;
+  const parsed = StoryStatus.safeParse(given);
+  if (parsed.success) return null;
+  const at = parsed.error.issues[0]?.path.map(String).join(".") ?? "";
+  const path = at === "" ? "story_status" : `story_status.${at}`;
+  return {
+    path,
+    message: `${path}: story_status is { done: <status>, human_wait: <status> }, each a non-empty tracker status name`,
+  };
+}
+
+export function storyStatusOf(value: unknown): StoryStatus | null {
+  return StoryStatus.safeParse(fields(value)["story_status"]).data ?? null;
+}
+
 export function validatePolicy(
   value: unknown,
   crewValue: unknown | null,
@@ -328,6 +351,7 @@ export function validatePolicy(
     reservedProblem(policy["reserved"]) ??
     escalateProblem(value) ??
     limitsProblem(policy["limits"]) ??
+    storyStatusProblem(value) ??
     authorizationsProblem(value);
   return problem === null
     ? null

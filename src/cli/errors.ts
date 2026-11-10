@@ -37,12 +37,15 @@ export type ErrorCode =
   | "owed_work"
   | "unanswered_question"
   | "needs_file"
+  | "tracker_unconfirmed"
+  | "story_canceled"
   | "failed";
 
 const exits: Partial<Record<ErrorCode, number>> = {
   usage: 2,
   schema_invalid: 2,
   launch_unknown: 4,
+  tracker_unconfirmed: 4,
   drained: 5,
   failed: 1,
 };

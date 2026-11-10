@@ -2,20 +2,43 @@ import { z } from "zod";
 import {
   CloseStepName,
   KeepFilesReviewed,
+  P0Kind,
   type CloseReport,
   type ReviewedWorktree,
   type CloseResult,
   type WorktreeStatus,
 } from "../domain/close.ts";
+import { storyStatusOf } from "../config/policy.ts";
+import type { Snapshot } from "../domain/config.ts";
 import { openStates } from "../domain/decision.ts";
 import { Json } from "../domain/json.ts";
-import type { Dispatch, Event, Run } from "../domain/ledger.ts";
+import {
+  OutboxPayload,
+  type Dispatch,
+  type Event,
+  type GateReceipt,
+  type Run,
+  type Story,
+} from "../domain/ledger.ts";
 import { refuse, type Refusal, type Refused } from "../domain/outcome.ts";
 import { dispatchWorktree } from "../dispatch/retry.ts";
+import { gateOf } from "../gate/receipt.ts";
+import { writeLearning } from "../learning/add.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
+import { recordRunManifest } from "../manifest/run-manifest.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
+import {
+  canceledByHuman,
+  statusUnknown,
+  type TrackerPort,
+} from "../ports/tracker.ts";
+import {
+  commentPayload,
+  drainOutbox,
+  OUTBOX_MAX_TRIES,
+} from "../tracker/outbox.ts";
 import { coordinatorStopped } from "./takeover.ts";
 
 export interface CloseInput {
@@ -28,6 +51,8 @@ export interface CloseInput {
   host: string;
   worktreeStatus: (path: string) => WorktreeStatus | null;
   now: () => Date;
+  tracker: TrackerPort | null;
+  actor: string;
 }
 
 export type Closed = { ok: true; result: CloseResult; opKey: string } | Refused;
@@ -56,19 +81,101 @@ interface Archive {
   pr_events: number[];
   keep_files_reviewed: KeepFilesReviewed | null;
   gone: string[];
+  retro_due: boolean;
+  actor: string;
 }
 
 interface Context {
   db: Db;
   run: Run;
   input: CloseInput;
+  tracker: TrackerPort;
+  log: ReceiptLog;
   archive: Archive;
+  snapshot: Snapshot;
+  status: string | null;
 }
 
-interface CloseStep {
+class StepRefused extends Error {
+  constructor(readonly refusal: Refusal) {
+    super(refusal.message);
+  }
+}
+
+interface LedgerStep {
   name: CloseStepName;
   act(tx: Repo, ctx: Context): Promise<Json>;
   readBack(db: Repo, ctx: Context): Promise<Json | null>;
+}
+
+interface TrackerStep {
+  name: CloseStepName;
+  payload(tx: Repo, ctx: Context): Promise<OutboxPayload | null>;
+}
+
+type CloseStep = LedgerStep | TrackerStep;
+
+const sizesWithRetro: readonly string[] = ["m", "l", "xl"];
+
+function storyRef(run: Run) {
+  return { provider: run.story_provider, external_id: run.story_external_id };
+}
+
+function closeSource(): Json {
+  return { kind: "command", verb: "run close" };
+}
+
+function leftoverLearnings(report: CloseInput["report"]) {
+  return report.leftovers.filter((row) => row.p0 === undefined);
+}
+
+function p0Leftovers(report: CloseInput["report"]) {
+  return report.leftovers.flatMap((row) =>
+    row.p0 === undefined ? [] : [{ kind: row.p0, text: row.text }],
+  );
+}
+
+const LearningsResult = z.looseObject({
+  result: z.looseObject({ learning_ids: z.array(z.int()) }),
+});
+
+async function learningIds(db: Repo, runId: string): Promise<number[]> {
+  const row = await db.getOperation(closeStepKey(runId, "learnings"));
+  return (
+    LearningsResult.safeParse(row?.result_ref).data?.result.learning_ids ?? []
+  );
+}
+
+const EscalateEvent = z.looseObject({ kind: P0Kind, text: z.string() });
+
+async function escalations(db: Repo, runId: string) {
+  const key = closeStepKey(runId, "escalate");
+  return (await db.listEvents(runId, "escalate")).flatMap((event) => {
+    if (event.op_key !== key) return [];
+    const parsed = EscalateEvent.safeParse(event.payload);
+    return parsed.success
+      ? [{ kind: parsed.data.kind, text: parsed.data.text }]
+      : [];
+  });
+}
+
+function commentBody(
+  actor: string,
+  runId: string,
+  ids: readonly number[],
+  p0: readonly { kind: string; text: string }[],
+  retroDue: boolean,
+): string {
+  return [
+    `${actor}: closed Run ${runId}`,
+    "",
+    "Worktree: not removed",
+    "Branches removed: not removed",
+    "Remote branches kept: not removed",
+    `Learnings: ${ids.length === 0 ? "none" : ids.join(", ")}`,
+    `p0: ${p0.length === 0 ? "none" : p0.map((row) => `${row.kind}: ${row.text}`).join("; ")}`,
+    `Retro due: ${retroDue ? "yes" : "no"}`,
+  ].join("\n");
 }
 
 const closeSteps: readonly CloseStep[] = [
@@ -85,7 +192,7 @@ const closeSteps: readonly CloseStep[] = [
         dispatch_id: null,
         op_key: archive.op_key,
         payload,
-        source: { kind: "command", verb: "run close" },
+        source: closeSource(),
       });
       return payload;
     },
@@ -94,6 +201,100 @@ const closeSteps: readonly CloseStep[] = [
         (await db.eventWith("close", { op_key: archive.op_key }))?.payload ??
         null
       );
+    },
+  },
+  {
+    name: "learnings",
+    async act(tx, { run, input, snapshot }) {
+      const entries = [
+        ...input.report.learnings,
+        ...leftoverLearnings(input.report).map((row) => ({
+          text: row.text,
+          area: row.area,
+          evidence_refs: [] as string[],
+        })),
+      ];
+      let manifest: string | null = null;
+      const ids: number[] = [];
+      for (const entry of entries) {
+        if (entry.evidence_refs.length === 0 && manifest === null)
+          manifest = (await recordRunManifest(tx, run, input.now())).id;
+        const added = await writeLearning(tx, {
+          row: {
+            source_story: run.story_external_id,
+            evidence_refs:
+              entry.evidence_refs.length > 0
+                ? entry.evidence_refs
+                : [manifest ?? ""],
+            text: entry.text,
+            adoption: "new",
+            area: entry.area,
+            project_id: snapshot.project,
+          },
+          host: input.host,
+          now: input.now,
+          run_id: run.run_id,
+          verb: "run close",
+        });
+        if (!added.ok) throw new StepRefused(added.refusal);
+        ids.push(added.id);
+      }
+      return { learning_ids: ids };
+    },
+    async readBack() {
+      return null;
+    },
+  },
+  {
+    name: "escalate",
+    async act(tx, { run, input }) {
+      const opKey = closeStepKey(run.run_id, "escalate");
+      const p0 = p0Leftovers(input.report);
+      for (const row of p0)
+        await tx.appendEvent({
+          type: "escalate",
+          ts: input.now(),
+          host: input.host,
+          run_id: run.run_id,
+          task_id: null,
+          dispatch_id: null,
+          op_key: opKey,
+          payload: {
+            story: run.story_external_id,
+            kind: row.kind,
+            text: row.text,
+            actor: input.actor,
+          },
+          source: closeSource(),
+        });
+      return { escalations: p0.length };
+    },
+    async readBack(db, { run, input }) {
+      const found = await escalations(db, run.run_id);
+      return found.length === p0Leftovers(input.report).length
+        ? { escalations: found.length }
+        : null;
+    },
+  },
+  {
+    name: "status",
+    async payload(_tx, { run, status }) {
+      return status === null
+        ? null
+        : { kind: "status", story: storyRef(run), status };
+    },
+  },
+  {
+    name: "comment",
+    async payload(tx, { run, input, archive }) {
+      const body = commentBody(
+        input.actor,
+        run.run_id,
+        await learningIds(tx, run.run_id),
+        await escalations(tx, run.run_id),
+        archive.retro_due,
+      );
+      return commentPayload(storyRef(run), body);
     },
   },
   {
@@ -258,6 +459,11 @@ const ArchiveRecord = z.looseObject({
     .catch({ learnings: 0, leftovers: 0, decisions: 0 }),
   keep_files_reviewed: KeepFilesReviewed.nullable().catch(null),
   gone: z.array(z.string()).catch([]),
+  retro_due: z.boolean().catch(false),
+});
+
+const Unapplied = z.looseObject({
+  result: z.looseObject({ unapplied: z.string() }),
 });
 
 async function closedResult(
@@ -271,6 +477,9 @@ async function closedResult(
     op_key: closeStepKey(run.run_id, "archive"),
   });
   const record = ArchiveRecord.parse(archived?.payload ?? {});
+  const unapplied = Unapplied.safeParse(
+    (await db.getOperation(closeStepKey(run.run_id, "status")))?.result_ref,
+  ).data?.result.unapplied;
   return {
     ok: true,
     opKey: closeStepKey(run.run_id, "done"),
@@ -285,8 +494,18 @@ async function closedResult(
       pr_events: prEvents(await db.listEvents(run.run_id, "pr")),
       keep_files_reviewed: record.keep_files_reviewed,
       gone: record.gone,
+      retro_due: record.retro_due,
+      learning_ids: await learningIds(db, run.run_id),
+      escalations: await escalations(db, run.run_id),
       already_closed: alreadyClosed,
-      nextSteps: [],
+      nextSteps: [
+        ...(record.retro_due ? ["retro: required"] : []),
+        ...(unapplied === undefined
+          ? []
+          : [
+              `story:${story}: the tracker has no status ${unapplied}; set it by hand`,
+            ]),
+      ],
     },
   };
 }
@@ -301,10 +520,75 @@ function staleRefusal(run: Run, generation: number): Refusal {
   };
 }
 
-async function runStep(
-  step: CloseStep,
+const StoryAck = z.looseObject({
+  story: z.looseObject({ status: z.string().nullable() }).nullable(),
+  error: z.string().optional(),
+});
+
+type Stepped = { replayed: boolean } | Refused;
+
+async function confirmTracker(
+  name: CloseStepName,
   ctx: Context,
-): Promise<{ replayed: boolean } | Refused> {
+  request: Json,
+): Promise<Stepped | null> {
+  const { db, run, input } = ctx;
+  const opKey = closeStepKey(run.run_id, name);
+  const row = await db.outboxByOpKey(opKey);
+  if (row === null) return null;
+  const story = `story:${run.story_external_id}`;
+  if (row.acked_at !== null) {
+    const ack = StoryAck.safeParse(row.readback).data;
+    if (ack?.error === canceledByHuman)
+      return refuse(
+        "story_canceled",
+        `${story} is ${ack.story?.status ?? "Canceled"} in the tracker; the Run is on hold`,
+        [`pod state ${story}`],
+      );
+    await db.moveOperation(
+      opKey,
+      "done",
+      Json.parse({ request, result: row.readback }),
+      input.now(),
+    );
+    return { replayed: false };
+  }
+  const payload = OutboxPayload.safeParse(row.payload).data;
+  if (row.last_error === statusUnknown && payload?.kind === "status") {
+    const readback = { error: statusUnknown, status: payload.status };
+    await db.ackOutbox(row.id, readback);
+    await db.moveOperation(
+      opKey,
+      "done",
+      Json.parse({ request, result: { unapplied: payload.status } }),
+      input.now(),
+    );
+    return { replayed: false };
+  }
+  const parked = row.tries >= OUTBOX_MAX_TRIES;
+  return refuse(
+    "tracker_unconfirmed",
+    `the tracker has not confirmed outbox row ${row.id} of the close step ${name}: ${row.last_error ?? "not drained yet"}`,
+    [
+      ...(parked
+        ? [
+            `tracker outbox row ${row.id} parked after ${row.tries} tries: ${row.last_error ?? "no error recorded"}; fix the cause, then reset its tries`,
+          ]
+        : []),
+      `pod run close ${story} --generation ${input.generation} with the same FILE`,
+    ],
+  );
+}
+
+function unconfirmed(stepped: Stepped): boolean {
+  return "ok" in stepped && stepped.refusal.code === "tracker_unconfirmed";
+}
+
+function isTracker(step: CloseStep): step is TrackerStep {
+  return "payload" in step;
+}
+
+async function runStep(step: CloseStep, ctx: Context): Promise<Stepped> {
   const { db, run, input } = ctx;
   const opKey = closeStepKey(run.run_id, step.name);
   const request = {
@@ -317,35 +601,78 @@ async function runStep(
   if (row?.status === "refused")
     throw new Error(`close step ${opKey} is refused`);
   if (row !== null) {
-    const back = await step.readBack(db, ctx);
-    if (back !== null) {
-      await db.moveOperation(
-        opKey,
-        "done",
-        Json.parse({ request, result: back }),
-        input.now(),
-      );
-      return { replayed: true };
+    if (isTracker(step)) {
+      const confirmed = await confirmTracker(step.name, ctx, request);
+      if (confirmed !== null && !unconfirmed(confirmed)) return confirmed;
+    } else {
+      const back = await step.readBack(db, ctx);
+      if (back !== null) {
+        await db.moveOperation(
+          opKey,
+          "done",
+          Json.parse({ request, result: back }),
+          input.now(),
+        );
+        return { replayed: true };
+      }
     }
   }
-  return db.transaction(async (tx) => {
-    const current = await tx.lockRun(run.run_id);
-    if (current === null) throw new Error(`Run ${run.run_id} vanished`);
-    if (current.owner_generation !== input.generation)
-      return { ok: false, refusal: staleRefusal(current, input.generation) };
-    const at = input.now();
-    if (row === null)
-      await tx.insertOperation({
-        op_key: opKey,
-        intent: "close",
-        owner_generation: input.generation,
-        at,
-        result_ref: Json.parse({ request }),
-      });
-    const result = await step.act(tx, ctx);
-    await tx.moveOperation(opKey, "done", Json.parse({ request, result }), at);
-    return { replayed: false };
+  let written: Stepped | "drain";
+  try {
+    written = await db.transaction(async (tx): Promise<Stepped | "drain"> => {
+      const current = await tx.lockRun(run.run_id);
+      if (current === null) throw new Error(`Run ${run.run_id} vanished`);
+      if (current.owner_generation !== input.generation)
+        return { ok: false, refusal: staleRefusal(current, input.generation) };
+      const at = input.now();
+      if (row === null)
+        await tx.insertOperation({
+          op_key: opKey,
+          intent: "close",
+          owner_generation: input.generation,
+          at,
+          result_ref: Json.parse({ request }),
+        });
+      if (!isTracker(step)) {
+        const result = await step.act(tx, ctx);
+        await tx.moveOperation(
+          opKey,
+          "done",
+          Json.parse({ request, result }),
+          at,
+        );
+        return { replayed: false };
+      }
+      if ((await tx.outboxByOpKey(opKey)) !== null) return "drain";
+      const payload = await step.payload(tx, ctx);
+      if (payload === null) {
+        await tx.moveOperation(
+          opKey,
+          "done",
+          Json.parse({ request, result: { status: null } }),
+          at,
+        );
+        return { replayed: false };
+      }
+      await tx.enqueueOutbox({ op_key: opKey, target: "tracker", payload });
+      return "drain";
+    });
+  } catch (error) {
+    if (error instanceof StepRefused)
+      return { ok: false, refusal: error.refusal };
+    throw error;
+  }
+  if (written !== "drain") return written;
+  await drainOutbox(db, ctx.tracker, ctx.log, {
+    run_id: run.run_id,
+    generation: input.generation,
+    host: input.host,
+    now: input.now,
   });
+  const confirmed = await confirmTracker(step.name, ctx, request);
+  if (confirmed === null)
+    throw new Error(`close step ${opKey} lost its outbox row`);
+  return confirmed;
 }
 
 function stepRows(
@@ -360,6 +687,64 @@ function stepRows(
   }));
 }
 
+function humanGatePending(
+  policy: unknown,
+  process: unknown,
+  profile: string | null,
+  receipts: readonly GateReceipt[],
+): boolean {
+  const steps = ProcessSteps.safeParse(process).data?.steps ?? [];
+  const replaced =
+    Replaces.safeParse(policy).data?.profiles?.[profile ?? ""]?.replaces;
+  for (const { gate } of steps) {
+    if (gate === undefined || gateOf(policy, gate)?.type !== "HQA") continue;
+    if (replaced !== undefined && gate in replaced) continue;
+    const latest = receipts
+      .filter((row) => row.gate_id === gate && row.sync_state !== "voided")
+      .sort((a, b) => a.id - b.id)
+      .at(-1);
+    if (latest?.outcome !== "PASS") return true;
+  }
+  return false;
+}
+
+const ProcessSteps = z.looseObject({
+  steps: z.array(z.looseObject({ gate: z.string().optional() })),
+});
+
+const Replaces = z.looseObject({
+  profiles: z
+    .record(
+      z.string(),
+      z.looseObject({ replaces: z.record(z.string(), z.unknown()).optional() }),
+    )
+    .optional(),
+});
+
+async function pinned(db: Repo, run: Run) {
+  const snapshot = await db.getSnapshot(run.run_id);
+  if (snapshot === null) throw new Error(`Run ${run.run_id} lost its Snapshot`);
+  const policy = await db.getRevision(snapshot.policy_revision_id);
+  const process = await db.getRevision(snapshot.process_revision_id);
+  if (policy === null || process === null)
+    throw new Error(`Run ${run.run_id} lost a pinned Revision`);
+  return { snapshot, policy: policy.value, process: process.value };
+}
+
+function retroDue(story: Story, receipts: readonly GateReceipt[]): boolean {
+  return (
+    sizesWithRetro.includes(story.size) ||
+    receipts.some((row) => row.outcome === "FAIL")
+  );
+}
+
+const noTracker: Refusal = {
+  code: "tracker_unconfirmed",
+  message:
+    "the close posts its closing comment and the Story status through the tracker, and this host has no tracker",
+  nextSteps: ["set the tracker token in the host profile, then close again"],
+};
+
 export async function closeRun(
   db: Db,
   orca: OrcaPort,
@@ -368,7 +753,7 @@ export async function closeRun(
 ): Promise<Closed> {
   const story = await db.getStory(input.provider, input.story);
   const run = story?.run_id == null ? null : await db.getRun(story.run_id);
-  if (run === null)
+  if (story === null || run === null)
     return refuse("story_not_found", `no Run for story:${input.story}`, [
       "pod brief",
     ]);
@@ -417,12 +802,25 @@ export async function closeRun(
       `the close of Run ${run.run_id} recorded report ${archived.data.request.report_hash}`,
       ["pass the same FILE as the first close"],
     );
+  if (input.tracker === null) return { ok: false, refusal: noTracker };
 
   const prs = await db.listEvents(run.run_id, "pr");
+  const receipts = await db.listGateReceipts(run.run_id);
+  const { snapshot, policy, process } = await pinned(db, run);
+  const names = storyStatusOf(policy);
   const ctx: Context = {
     db,
     run,
     input,
+    tracker: input.tracker,
+    log,
+    snapshot,
+    status:
+      names === null
+        ? null
+        : humanGatePending(policy, process, snapshot.profile, receipts)
+          ? names.human_wait
+          : names.done,
     archive: {
       op_key: archiveKey,
       snapshot_hash: run.snapshot_hash,
@@ -446,6 +844,8 @@ export async function closeRun(
           ? null
           : { actor: "operator", host: input.host, worktrees: flagged },
       gone,
+      retro_due: retroDue(story, receipts),
+      actor: input.actor,
     },
   };
   const replayed = new Set<CloseStepName>();
