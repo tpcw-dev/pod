@@ -108,3 +108,31 @@ test("a missing call fails assertDone with the diff", async () => {
     '- expected 002 task-create ["--run","run_1"]\n+ actual nothing',
   );
 });
+
+test("a recorded worktree rm replays its removal and a selector already gone", async () => {
+  const worktree = "id:repo-1::/w/one";
+  const orca = makeReplayOrca({
+    dir: fixtures([
+      ok("worktree-rm", { removed: true }, ["--worktree", worktree]),
+      {
+        verb: "worktree-rm",
+        argv: ["--worktree", worktree],
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          error: { code: "selector_not_found", message: "selector_not_found" },
+        }),
+      },
+    ]),
+    sink: () => Promise.resolve(),
+  });
+  const removed = await orca.worktreeRemove({ worktree, force: false });
+  expect(removed).toMatchObject({ exitCode: 0, result: { removed: true } });
+  const gone = await orca.worktreeRemove({ worktree, force: false });
+  expect(gone).toMatchObject({
+    exitCode: 1,
+    result: null,
+    raw: { error: { code: "selector_not_found" } },
+  });
+  orca.assertDone();
+});

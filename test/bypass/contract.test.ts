@@ -125,7 +125,7 @@ test("verbs beyond the 17 are registered with their side effect", () => {
 test("the contract copies the bypass paragraphs", () => {
   const spec = readFileSync("docs/tech-spec.md", "utf8").split("\n");
   const contract = readFileSync("docs/contract.md", "utf8").split("\n");
-  for (const lineNumber of [775, 777, 779]) {
+  for (const lineNumber of [777, 779, 781]) {
     const line = spec[lineNumber - 1];
     expect(line?.length).toBeGreaterThan(0);
     expect(contract).toContain(line);

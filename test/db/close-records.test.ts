@@ -1,3 +1,4 @@
+import { makeFixtureCodeHost } from "../../src/adapters/code-host/fixture.ts";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import {
@@ -16,6 +17,7 @@ import {
 } from "../../src/core/run/close.ts";
 import { buildState } from "../../src/core/state/view.ts";
 import { noCalls } from "../orca/temp-fixtures.ts";
+import { fakeGit } from "./close-ports.ts";
 import { fakeTracker, type FakeTracker } from "./fake-tracker.ts";
 import { clearDb, describeDb, openDb, resetDb } from "./helpers.ts";
 import { createRun, events } from "./run-fixture.ts";
@@ -73,6 +75,8 @@ function input(over: Partial<CloseInput> = {}): CloseInput {
     worktreeStatus: () => ({ files: [], ahead: 0 }),
     now: () => new Date(),
     tracker,
+    codeHost: makeFixtureCodeHost(),
+    git: fakeGit(),
     actor,
     ...over,
   };
@@ -271,9 +275,9 @@ describeDb("pod run close records", () => {
       [
         `${actor}: closed Run run_1`,
         "",
-        "Worktree: not removed",
-        "Branches removed: not removed",
-        "Remote branches kept: not removed",
+        "Worktree: none",
+        "Branches removed: none",
+        "Remote branches kept: none",
         `Learnings: ${ids.join(", ")}`,
         "p0: main_red: main went red after the merge",
         "Retro due: no",

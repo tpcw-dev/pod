@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { argvFor } from "../../src/adapters/orca/argv.ts";
+import { argvFor, verbOf } from "../../src/adapters/orca/argv.ts";
 import { seatLaunch } from "../../src/core/dispatch/dispatch.ts";
 
 test("a grok worker-start omits --model and --effort", () => {
@@ -64,4 +64,26 @@ test("the crew seat still names the model the argv omits", () => {
     effort: "medium",
     worktree: "current",
   });
+});
+
+test("worktree rm names the selector and adds --force only when asked", () => {
+  const worktree = "id:repo-1::/w/one";
+  expect(argvFor.worktreeRemove({ worktree, force: false })).toEqual([
+    "worktree",
+    "rm",
+    "--worktree",
+    worktree,
+    "--json",
+  ]);
+  expect(argvFor.worktreeRemove({ worktree, force: true })).toEqual([
+    "worktree",
+    "rm",
+    "--worktree",
+    worktree,
+    "--force",
+    "--json",
+  ]);
+  expect(verbOf(argvFor.worktreeRemove({ worktree, force: false }))).toBe(
+    "worktree-rm",
+  );
 });

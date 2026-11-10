@@ -12,6 +12,7 @@ import type {
   WorkerReleaseRequest,
   WorkerStartRequest,
   WorkerStopRequest,
+  WorktreeRemoveRequest,
 } from "../../core/ports/orca.ts";
 
 type Flag = readonly [
@@ -123,6 +124,15 @@ export const argvFor = {
         ["--screen", true],
       ],
       "terminal",
+    ),
+  worktreeRemove: (req: WorktreeRemoveRequest) =>
+    flags(
+      "rm",
+      [
+        ["--worktree", req.worktree],
+        ["--force", req.force],
+      ],
+      "worktree",
     ),
 };
 

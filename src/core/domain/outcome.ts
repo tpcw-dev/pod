@@ -33,6 +33,8 @@ export const RefusalCode = z.enum([
   "needs_file",
   "tracker_unconfirmed",
   "story_canceled",
+  "open_pr",
+  "wrong_host",
   "usage",
   "failed",
 ]);

@@ -1,8 +1,11 @@
 import { z } from "zod";
 import {
+  BranchOutcome,
   CloseStepName,
   KeepFilesReviewed,
   P0Kind,
+  PlannedWorktree,
+  WorktreeOutcome,
   type CloseReport,
   type ReviewedWorktree,
   type CloseResult,
@@ -27,7 +30,9 @@ import { writeLearning } from "../learning/add.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import { recordRunManifest } from "../manifest/run-manifest.ts";
+import type { CodeHostPort } from "../ports/code-host.ts";
 import type { Db, Repo } from "../ports/db.ts";
+import type { GitPort } from "../ports/git.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import {
   canceledByHuman,
@@ -39,6 +44,17 @@ import {
   drainOutbox,
   OUTBOX_MAX_TRIES,
 } from "../tracker/outbox.ts";
+import {
+  branchesRemovedField,
+  keptLines,
+  openPrRefusal,
+  planWorktrees,
+  readPrs,
+  remoteKeptField,
+  removeBranches,
+  removeWorktrees,
+  worktreeField,
+} from "./close-effects.ts";
 import { coordinatorStopped } from "./takeover.ts";
 
 export interface CloseInput {
@@ -52,6 +68,8 @@ export interface CloseInput {
   worktreeStatus: (path: string) => WorktreeStatus | null;
   now: () => Date;
   tracker: TrackerPort | null;
+  codeHost: CodeHostPort;
+  git: GitPort;
   actor: string;
 }
 
@@ -81,6 +99,7 @@ interface Archive {
   pr_events: number[];
   keep_files_reviewed: KeepFilesReviewed | null;
   gone: string[];
+  worktrees: PlannedWorktree[];
   retro_due: boolean;
   actor: string;
 }
@@ -89,6 +108,8 @@ interface Context {
   db: Db;
   run: Run;
   input: CloseInput;
+  orca: OrcaPort;
+  dispatches: Dispatch[];
   tracker: TrackerPort;
   log: ReceiptLog;
   archive: Archive;
@@ -113,7 +134,14 @@ interface TrackerStep {
   payload(tx: Repo, ctx: Context): Promise<OutboxPayload | null>;
 }
 
-type CloseStep = LedgerStep | TrackerStep;
+interface EffectStep {
+  name: CloseStepName;
+  effect(ctx: Context, partial: Json | null, save: Save): Promise<Json>;
+}
+
+type Save = (fields: { [key: string]: Json }) => Promise<void>;
+
+type CloseStep = LedgerStep | TrackerStep | EffectStep;
 
 const sizesWithRetro: readonly string[] = ["m", "l", "xl"];
 
@@ -159,19 +187,58 @@ async function escalations(db: Repo, runId: string) {
   });
 }
 
+const WorktreeStepResult = z.looseObject({
+  result: z.looseObject({ worktrees: z.array(WorktreeOutcome) }),
+});
+
+const BranchesStepResult = z.looseObject({
+  result: z.looseObject({ branches: z.array(BranchOutcome) }),
+});
+
+const BranchesPartial = z.looseObject({
+  partial: z.array(BranchOutcome),
+});
+
+async function worktreeOutcomes(db: Repo, runId: string) {
+  const row = await db.getOperation(closeStepKey(runId, "worktree"));
+  return (
+    WorktreeStepResult.safeParse(row?.result_ref).data?.result.worktrees ?? []
+  );
+}
+
+async function branchOutcomes(db: Repo, runId: string) {
+  const row = await db.getOperation(closeStepKey(runId, "branches"));
+  return (
+    BranchesStepResult.safeParse(row?.result_ref).data?.result.branches ?? []
+  );
+}
+
+async function archivedRecord(db: Repo, runId: string) {
+  const archived = await db.eventWith("close", {
+    op_key: closeStepKey(runId, "archive"),
+  });
+  return ArchiveRecord.parse(archived?.payload ?? {});
+}
+
+function againCommand(input: CloseInput): string {
+  return `pod run close story:${input.story} --generation ${input.generation} with the same FILE`;
+}
+
 function commentBody(
   actor: string,
   runId: string,
   ids: readonly number[],
   p0: readonly { kind: string; text: string }[],
   retroDue: boolean,
+  worktrees: readonly WorktreeOutcome[],
+  branches: readonly BranchOutcome[],
 ): string {
   return [
     `${actor}: closed Run ${runId}`,
     "",
-    "Worktree: not removed",
-    "Branches removed: not removed",
-    "Remote branches kept: not removed",
+    `Worktree: ${worktreeField(worktrees)}`,
+    `Branches removed: ${branchesRemovedField(branches)}`,
+    `Remote branches kept: ${remoteKeptField(branches)}`,
     `Learnings: ${ids.length === 0 ? "none" : ids.join(", ")}`,
     `p0: ${p0.length === 0 ? "none" : p0.map((row) => `${row.kind}: ${row.text}`).join("; ")}`,
     `Retro due: ${retroDue ? "yes" : "no"}`,
@@ -277,6 +344,44 @@ const closeSteps: readonly CloseStep[] = [
     },
   },
   {
+    name: "worktree",
+    async effect({ db, run, input, orca }) {
+      const record = await archivedRecord(db, run.run_id);
+      const reviewed = new Set(
+        record.keep_files_reviewed?.worktrees.map((row) => row.path) ?? [],
+      );
+      const removed = await removeWorktrees(
+        orca,
+        record.worktrees,
+        reviewed,
+        againCommand(input),
+      );
+      if (!Array.isArray(removed)) throw new StepRefused(removed);
+      return { worktrees: removed };
+    },
+  },
+  {
+    name: "branches",
+    async effect({ db, run, input, dispatches }, partial, save) {
+      const record = await archivedRecord(db, run.run_id);
+      const reads = await readPrs(
+        await db.listEvents(run.run_id, "pr"),
+        dispatches,
+        record.worktrees,
+        input.codeHost,
+      );
+      const branches = await removeBranches(
+        input.git,
+        input.codeHost,
+        record.worktrees,
+        reads,
+        BranchesPartial.safeParse(partial).data?.partial ?? [],
+        (outcomes) => save({ partial: Json.parse(outcomes) }),
+      );
+      return { branches };
+    },
+  },
+  {
     name: "status",
     async payload(_tx, { run, status }) {
       return status === null
@@ -293,6 +398,8 @@ const closeSteps: readonly CloseStep[] = [
         await learningIds(tx, run.run_id),
         await escalations(tx, run.run_id),
         archive.retro_due,
+        await worktreeOutcomes(tx, run.run_id),
+        await branchOutcomes(tx, run.run_id),
       );
       return commentPayload(storyRef(run), body);
     },
@@ -459,6 +566,7 @@ const ArchiveRecord = z.looseObject({
     .catch({ learnings: 0, leftovers: 0, decisions: 0 }),
   keep_files_reviewed: KeepFilesReviewed.nullable().catch(null),
   gone: z.array(z.string()).catch([]),
+  worktrees: z.array(PlannedWorktree).catch([]),
   retro_due: z.boolean().catch(false),
 });
 
@@ -477,6 +585,7 @@ async function closedResult(
     op_key: closeStepKey(run.run_id, "archive"),
   });
   const record = ArchiveRecord.parse(archived?.payload ?? {});
+  const branches = await branchOutcomes(db, run.run_id);
   const unapplied = Unapplied.safeParse(
     (await db.getOperation(closeStepKey(run.run_id, "status")))?.result_ref,
   ).data?.result.unapplied;
@@ -497,9 +606,12 @@ async function closedResult(
       retro_due: record.retro_due,
       learning_ids: await learningIds(db, run.run_id),
       escalations: await escalations(db, run.run_id),
+      worktrees: await worktreeOutcomes(db, run.run_id),
+      branches,
       already_closed: alreadyClosed,
       nextSteps: [
         ...(record.retro_due ? ["retro: required"] : []),
+        ...keptLines(branches),
         ...(unapplied === undefined
           ? []
           : [
@@ -598,6 +710,80 @@ function isTracker(step: CloseStep): step is TrackerStep {
   return "payload" in step;
 }
 
+function isEffect(step: CloseStep): step is EffectStep {
+  return "effect" in step;
+}
+
+async function lockedOwner(
+  tx: Repo,
+  run: Run,
+  generation: number,
+): Promise<Refused | null> {
+  const current = await tx.lockRun(run.run_id);
+  if (current === null) throw new Error(`Run ${run.run_id} vanished`);
+  return current.owner_generation === generation
+    ? null
+    : { ok: false, refusal: staleRefusal(current, generation) };
+}
+
+async function runEffect(
+  step: EffectStep,
+  ctx: Context,
+  request: Json,
+  existing: Json | null,
+  created: boolean,
+): Promise<Stepped> {
+  const { db, run, input } = ctx;
+  const opKey = closeStepKey(run.run_id, step.name);
+  const started = await db.transaction(async (tx) => {
+    const stale = await lockedOwner(tx, run, input.generation);
+    if (stale !== null) return stale;
+    if (!created)
+      await tx.insertOperation({
+        op_key: opKey,
+        intent: "close",
+        owner_generation: input.generation,
+        at: input.now(),
+        result_ref: Json.parse({ request }),
+      });
+    return null;
+  });
+  if (started !== null) return started;
+  const save: Save = async (fields) => {
+    const stale = await db.transaction(async (tx) => {
+      const refused = await lockedOwner(tx, run, input.generation);
+      if (refused === null)
+        await tx.moveOperation(
+          opKey,
+          "pending",
+          Json.parse({ request, ...fields }),
+          input.now(),
+        );
+      return refused;
+    });
+    if (stale !== null) throw new StepRefused(stale.refusal);
+  };
+  let result: Json;
+  try {
+    result = await step.effect(ctx, existing, save);
+  } catch (error) {
+    if (error instanceof StepRefused)
+      return { ok: false, refusal: error.refusal };
+    throw error;
+  }
+  return db.transaction(async (tx) => {
+    const stale = await lockedOwner(tx, run, input.generation);
+    if (stale !== null) return stale;
+    await tx.moveOperation(
+      opKey,
+      "done",
+      Json.parse({ request, result }),
+      input.now(),
+    );
+    return { replayed: false };
+  });
+}
+
 async function runStep(step: CloseStep, ctx: Context): Promise<Stepped> {
   const { db, run, input } = ctx;
   const opKey = closeStepKey(run.run_id, step.name);
@@ -610,11 +796,13 @@ async function runStep(step: CloseStep, ctx: Context): Promise<Stepped> {
   if (row?.status === "done") return { replayed: true };
   if (row?.status === "refused")
     throw new Error(`close step ${opKey} is refused`);
+  if (isEffect(step))
+    return runEffect(step, ctx, request, row?.result_ref ?? null, row !== null);
   if (row !== null) {
     if (isTracker(step)) {
       const confirmed = await confirmTracker(step.name, ctx, request);
       if (confirmed !== null && !unconfirmed(confirmed)) return confirmed;
-    } else {
+    } else if (!isEffect(step)) {
       const back = await step.readBack(db, ctx);
       if (back !== null) {
         await db.moveOperation(
@@ -798,11 +986,18 @@ export async function closeRun(
       ok: false,
       refusal: filesRefusal(flagged, input.story, input.generation),
     };
+  if (run.host !== input.host)
+    return refuse(
+      "wrong_host",
+      `Run ${run.run_id} belongs to host ${run.host}, and this close runs on ${input.host}`,
+      [
+        `run pod run close story:${input.story} --generation ${input.generation} on host ${run.host}`,
+      ],
+    );
 
   const archiveKey = closeStepKey(run.run_id, "archive");
-  const archived = Recorded.safeParse(
-    (await db.getOperation(archiveKey))?.result_ref,
-  );
+  const archiveRow = await db.getOperation(archiveKey);
+  const archived = Recorded.safeParse(archiveRow?.result_ref);
   if (
     archived.success &&
     archived.data.request.report_hash !== input.reportHash
@@ -815,6 +1010,19 @@ export async function closeRun(
   if (input.tracker === null) return { ok: false, refusal: noTracker };
 
   const prs = await db.listEvents(run.run_id, "pr");
+  const plan =
+    archiveRow?.status === "done"
+      ? []
+      : await planWorktrees(db, dispatches, input.host, input.git);
+  if (archiveRow?.status !== "done") {
+    const open = await openPrRefusal(
+      await readPrs(prs, dispatches, plan, input.codeHost),
+      plan,
+      input.codeHost,
+      againCommand(input),
+    );
+    if (open !== null) return { ok: false, refusal: open };
+  }
   const receipts = await db.listGateReceipts(run.run_id);
   const { snapshot, policy, process } = await pinned(db, run);
   const names = storyStatusOf(policy);
@@ -823,6 +1031,8 @@ export async function closeRun(
     run,
     input,
     tracker: input.tracker,
+    orca,
+    dispatches,
     log,
     snapshot,
     status:
@@ -854,6 +1064,7 @@ export async function closeRun(
           ? null
           : { actor: "operator", host: input.host, worktrees: flagged },
       gone,
+      worktrees: plan,
       retro_due: retroDue(story, receipts),
       actor: input.actor,
     },

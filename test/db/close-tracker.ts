@@ -75,13 +75,23 @@ export function closeCommentTracker(story: string, body: string): string {
   return dir;
 }
 
-export function closeBody(actor: string, runId: string): string {
+export interface CloseFields {
+  worktree: string;
+  removed: string;
+  kept: string;
+}
+
+export function closeBody(
+  actor: string,
+  runId: string,
+  fields: Partial<CloseFields> = {},
+): string {
   return [
     `${actor}: closed Run ${runId}`,
     "",
-    "Worktree: not removed",
-    "Branches removed: not removed",
-    "Remote branches kept: not removed",
+    `Worktree: ${fields.worktree ?? "none"}`,
+    `Branches removed: ${fields.removed ?? "none"}`,
+    `Remote branches kept: ${fields.kept ?? "none"}`,
     "Learnings: none",
     "p0: none",
     "Retro due: no",

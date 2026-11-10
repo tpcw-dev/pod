@@ -1,3 +1,4 @@
+import { makeFixtureCodeHost } from "../../src/adapters/code-host/fixture.ts";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,6 +26,7 @@ import { describeDb, openDb, resetDb } from "./helpers.ts";
 import { residentSeat } from "./resident-fixture.ts";
 import { dispatched, events, freshRun, replay } from "./run-fixture.ts";
 import { closeBody, closeCommentTracker } from "./close-tracker.ts";
+import { fakeGit, removedWorktree } from "./close-ports.ts";
 import { fakeTracker } from "./fake-tracker.ts";
 import { operator } from "./identity-fixture.ts";
 
@@ -46,6 +48,8 @@ function input(over: Partial<CloseInput> = {}): CloseInput {
     worktreeStatus: () => clean,
     now: () => new Date(),
     tracker: fakeTracker(),
+    codeHost: makeFixtureCodeHost(),
+    git: fakeGit(),
     actor: "person:operator-1",
     ...over,
   };
@@ -87,6 +91,34 @@ const grokBox = (text: string) => [
 ];
 
 const term = "term_ctx_1";
+
+function noOpenPrs(): string {
+  const file = join(mkdtempSync(join(tmpdir(), "pod-code-host-")), "host.json");
+  writeFileSync(file, "{}");
+  return file;
+}
+
+const forced = (entry: TempEntry): TempEntry => ({
+  ...entry,
+  argv: [...(entry.argv ?? []), "--force"],
+});
+
+const rmError = (code: string): TempEntry => ({
+  verb: "worktree-rm",
+  argv: ["--worktree", "id:repo-1::/w/one"],
+  exitCode: 1,
+  stdout: JSON.stringify({ ok: false, error: { code, message: code } }),
+});
+
+const checkout = { repo: "/r", branch: "feature-7", tip: "a".repeat(40) };
+
+const closedPr = {
+  number: 7,
+  state: "closed" as const,
+  head_branch: "feature-7",
+  head_sha: "a".repeat(40),
+  merge_commit: null,
+};
 
 const closeTracker = () =>
   closeCommentTracker("S-1", closeBody(`person:${operator}`, "run_1"));
@@ -318,6 +350,7 @@ describeDb("pod run close", () => {
     const outcome = await close([
       shown(term, true),
       read(term, grokBox(""), { source: "screen", draft: "old input" }),
+      removedWorktree(),
     ]);
     expect(outcome).toMatchObject({ ok: true, result: { state: "done" } });
   });
@@ -354,7 +387,7 @@ describeDb("pod run close", () => {
 
   test("a closed Dispatch terminal is not read", async () => {
     await readyToClose();
-    const outcome = await close([shown(term, false)]);
+    const outcome = await close([shown(term, false), removedWorktree()]);
     expect(outcome).toMatchObject({ ok: true, result: { state: "done" } });
   });
 
@@ -398,10 +431,17 @@ describeDb("pod run close", () => {
       "/w/one": { files: [], ahead: 1 },
       "/w/two": { files: ["foo"], ahead: 4 },
     };
-    const outcome = await close([shown(term, false)], {
-      keepFilesReviewed: true,
-      worktreeStatus: (path) => statuses[path] ?? null,
-    });
+    const outcome = await close(
+      [
+        shown(term, false),
+        forced(removedWorktree()),
+        forced(removedWorktree("id:repo-1::/w/two")),
+      ],
+      {
+        keepFilesReviewed: true,
+        worktreeStatus: (path) => statuses[path] ?? null,
+      },
+    );
     const recorded = {
       actor: "operator",
       host: "local",
@@ -420,7 +460,7 @@ describeDb("pod run close", () => {
 
   test("--keep-files-reviewed with nothing to review records nothing", async () => {
     await readyToClose();
-    const outcome = await close([shown(term, false)], {
+    const outcome = await close([shown(term, false), removedWorktree()], {
       keepFilesReviewed: true,
     });
     expect(outcome).toMatchObject({
@@ -433,7 +473,7 @@ describeDb("pod run close", () => {
     await readyToClose();
     await seatDispatch("ctx_2", "current");
     const seen: string[] = [];
-    const outcome = await close([shown(term, false)], {
+    const outcome = await close([shown(term, false), removedWorktree()], {
       worktreeStatus: (path) => {
         seen.push(path);
         return null;
@@ -445,7 +485,7 @@ describeDb("pod run close", () => {
 
   test("a clean close runs the keyed steps, writes one close event, and sets the Run done", async () => {
     await readyToClose();
-    const outcome = await close([shown(term, false)]);
+    const outcome = await close([shown(term, false), removedWorktree()]);
     const archive = closeStepKey("run_1", "archive");
     const done = closeStepKey("run_1", "done");
     expect(outcome).toMatchObject({
@@ -467,6 +507,8 @@ describeDb("pod run close", () => {
         pr_events: [],
         keep_files_reviewed: null,
         gone: [],
+        worktrees: [{ path: "/w/one", removed: true, via: "removed" }],
+        branches: [],
         already_closed: false,
       },
     });
@@ -504,7 +546,40 @@ describeDb("pod run close", () => {
     expect(run?.state).toBe("done");
   });
 
-  test("the close lists the Run's pr events and does not refuse on them", async () => {
+  test("a worktree Orca no longer knows counts as removed", async () => {
+    await readyToClose();
+    const outcome = await close([
+      shown(term, false),
+      rmError("selector_not_found"),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { worktrees: [{ path: "/w/one", removed: true, via: "absent" }] },
+    });
+  });
+
+  test("a worktree rm that fails for another reason refuses failed and leaves the step pending", async () => {
+    await readyToClose();
+    const outcome = await close([
+      shown(term, false),
+      rmError("worktree_archive_hook_failed"),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "failed",
+        message: expect.stringContaining("worktree_archive_hook_failed"),
+      },
+    });
+    expect(await operations()).toEqual(
+      expect.arrayContaining([
+        { op_key: closeStepKey("run_1", "worktree"), status: "pending" },
+      ]),
+    );
+    expect(await runState()).toBe("active");
+  });
+
+  test("the close lists the Run's pr events and closes when the code host reads none open", async () => {
     await readyToClose();
     await conn.db.appendEvent({
       type: "pr",
@@ -517,7 +592,10 @@ describeDb("pod run close", () => {
       payload: { number: 7, state: "open" },
       source: { kind: "command", verb: "check" },
     });
-    const outcome = await close([shown(term, false)]);
+    const outcome = await close([shown(term, false), removedWorktree()], {
+      git: fakeGit({ checkout: () => Promise.resolve(checkout) }),
+      codeHost: makeFixtureCodeHost({ prs: [closedPr] }),
+    });
     expect(outcome).toMatchObject({
       ok: true,
       result: { pr_events: [{ payload: { number: 7, state: "open" } }] },
@@ -550,6 +628,7 @@ describeDb("pod run close", () => {
     expect(outcome).toMatchObject({
       ok: true,
       result: {
+        worktrees: [],
         state: "done",
         steps: CloseStepName.options.map((step) => ({
           step,
@@ -574,7 +653,7 @@ describeDb("pod run close", () => {
       at,
     });
     await conn.db.moveOperation(key, "unknown", null, at);
-    const outcome = await close([shown(term, false)]);
+    const outcome = await close([shown(term, false), removedWorktree()]);
     expect(outcome).toMatchObject({ ok: true, result: { state: "done" } });
     expect(await events(conn, "close")).toHaveLength(1);
     expect(await operations()).toEqual(
@@ -584,7 +663,7 @@ describeDb("pod run close", () => {
 
   test("a re-run of a closed Run returns the recorded result and writes nothing", async () => {
     await readyToClose();
-    const first = await close([shown(term, false)]);
+    const first = await close([shown(term, false), removedWorktree()]);
     const before = await conn.sql`select count(*)::int as n from ledger.event`;
     const again = await closeRun(
       conn.db,
@@ -647,7 +726,7 @@ describeDb("pod run close", () => {
     await readyToClose();
     await residentSeat(conn, "ctx_dec", "decider", "running");
     await conn.sql`update ledger.run set coordinator_dispatch_id = 'ctx_dec' where run_id = 'run_1'`;
-    const outcome = await close([shown(term, false)]);
+    const outcome = await close([shown(term, false), removedWorktree()]);
     expect(outcome).toMatchObject({ ok: true, result: { state: "done" } });
   });
 
@@ -698,9 +777,26 @@ describeDb("pod run close", () => {
     const refused = await cliReplay(conn, args);
     expect(refused.status).toBe(3);
     expect(refused.json.error?.code).toBe("needs_file");
-    const kept = await cliReplay(conn, [...args, "--keep-files-reviewed"], [], {
-      POD_TRACKER_FIXTURES: closeTracker(),
-    });
+    const branch = spawnSync(
+      "git",
+      ["-C", worktree, "symbolic-ref", "--short", "HEAD"],
+      { encoding: "utf8" },
+    ).stdout.trim();
+    const kept = await cliReplay(
+      conn,
+      [...args, "--keep-files-reviewed"],
+      [forced(removedWorktree(`id:repo-1::${worktree}`))],
+      {
+        POD_TRACKER_FIXTURES: closeCommentTracker(
+          "S-1",
+          closeBody(`person:${operator}`, "run_1", {
+            worktree: `removed ${worktree}`,
+            kept: `${branch} (integration unreadable; local kept: integration unreadable)`,
+          }),
+        ),
+        POD_CODE_HOST_FIXTURES: noOpenPrs(),
+      },
+    );
     expect(kept).toMatchObject({
       status: 0,
       json: {

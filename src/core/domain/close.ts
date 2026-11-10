@@ -51,11 +51,41 @@ export const CloseStepName = z.enum([
   "archive",
   "learnings",
   "escalate",
+  "worktree",
+  "branches",
   "status",
   "comment",
   "done",
 ]);
 export type CloseStepName = z.infer<typeof CloseStepName>;
+
+export const PlannedWorktree = z.object({
+  selector: z.string(),
+  path: z.string(),
+  repo: z.string().nullable(),
+  branch: z.string().nullable(),
+  tip: z.string().nullable(),
+});
+export type PlannedWorktree = z.infer<typeof PlannedWorktree>;
+
+export const WorktreeOutcome = z.object({
+  path: z.string(),
+  removed: z.literal(true),
+  via: z.enum(["removed", "absent"]),
+});
+export type WorktreeOutcome = z.infer<typeof WorktreeOutcome>;
+
+const Side = z.enum(["removed", "absent", "kept"]);
+
+export const BranchOutcome = z.object({
+  branch: z.string(),
+  local: Side,
+  remote: Side,
+  local_reason: z.string().nullable(),
+  remote_reason: z.string().nullable(),
+  pr: z.int().nullable(),
+});
+export type BranchOutcome = z.infer<typeof BranchOutcome>;
 
 export const CloseResult = z.object({
   run_id: z.string(),
@@ -84,6 +114,8 @@ export const CloseResult = z.object({
   retro_due: z.boolean(),
   learning_ids: z.array(z.int()),
   escalations: z.array(z.object({ kind: P0Kind, text: z.string() })),
+  worktrees: z.array(WorktreeOutcome),
+  branches: z.array(BranchOutcome),
   already_closed: z.boolean(),
   nextSteps: z.array(z.string()),
 });

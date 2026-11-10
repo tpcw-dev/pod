@@ -39,6 +39,8 @@ export type ErrorCode =
   | "needs_file"
   | "tracker_unconfirmed"
   | "story_canceled"
+  | "open_pr"
+  | "wrong_host"
   | "failed";
 
 const exits: Partial<Record<ErrorCode, number>> = {
