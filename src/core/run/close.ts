@@ -1,11 +1,8 @@
 import { z } from "zod";
 import {
-  BranchOutcome,
   CloseStepName,
   KeepFilesReviewed,
-  P0Kind,
   PlannedWorktree,
-  WorktreeOutcome,
   type CloseReport,
   type ReviewedWorktree,
   type CloseResult,
@@ -27,7 +24,6 @@ import { refuse, type Refusal, type Refused } from "../domain/outcome.ts";
 import { dispatchWorktree } from "../dispatch/retry.ts";
 import { gateOf } from "../gate/receipt.ts";
 import { writeLearning } from "../learning/add.ts";
-import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import { recordRunManifest } from "../manifest/run-manifest.ts";
 import type { CodeHostPort } from "../ports/code-host.ts";
@@ -45,16 +41,24 @@ import {
   OUTBOX_MAX_TRIES,
 } from "../tracker/outbox.ts";
 import {
-  branchesRemovedField,
   keptLines,
   openPrRefusal,
   planWorktrees,
   readPrs,
-  remoteKeptField,
   removeBranches,
   removeWorktrees,
-  worktreeField,
 } from "./close-effects.ts";
+import {
+  ArchiveRecord,
+  archivedRecord,
+  BranchesPartial,
+  branchOutcomes,
+  closeStepKey,
+  commentBody,
+  escalations,
+  learningIds,
+  worktreeOutcomes,
+} from "./close-record.ts";
 import { coordinatorStopped } from "./takeover.ts";
 
 export interface CloseInput {
@@ -74,10 +78,6 @@ export interface CloseInput {
 }
 
 export type Closed = { ok: true; result: CloseResult; opKey: string } | Refused;
-
-export function closeStepKey(runId: string, step: CloseStepName): string {
-  return derivedOpKey("close", { run: runId, step });
-}
 
 export function composerText(tail: readonly string[]): string {
   for (const line of [...tail].reverse()) {
@@ -163,86 +163,8 @@ function p0Leftovers(report: CloseInput["report"]) {
   );
 }
 
-const LearningsResult = z.looseObject({
-  result: z.looseObject({ learning_ids: z.array(z.int()) }),
-});
-
-async function learningIds(db: Repo, runId: string): Promise<number[]> {
-  const row = await db.getOperation(closeStepKey(runId, "learnings"));
-  return (
-    LearningsResult.safeParse(row?.result_ref).data?.result.learning_ids ?? []
-  );
-}
-
-const EscalateEvent = z.looseObject({ kind: P0Kind, text: z.string() });
-
-async function escalations(db: Repo, runId: string) {
-  const key = closeStepKey(runId, "escalate");
-  return (await db.listEvents(runId, "escalate")).flatMap((event) => {
-    if (event.op_key !== key) return [];
-    const parsed = EscalateEvent.safeParse(event.payload);
-    return parsed.success
-      ? [{ kind: parsed.data.kind, text: parsed.data.text }]
-      : [];
-  });
-}
-
-const WorktreeStepResult = z.looseObject({
-  result: z.looseObject({ worktrees: z.array(WorktreeOutcome) }),
-});
-
-const BranchesStepResult = z.looseObject({
-  result: z.looseObject({ branches: z.array(BranchOutcome) }),
-});
-
-const BranchesPartial = z.looseObject({
-  partial: z.array(BranchOutcome),
-});
-
-async function worktreeOutcomes(db: Repo, runId: string) {
-  const row = await db.getOperation(closeStepKey(runId, "worktree"));
-  return (
-    WorktreeStepResult.safeParse(row?.result_ref).data?.result.worktrees ?? []
-  );
-}
-
-async function branchOutcomes(db: Repo, runId: string) {
-  const row = await db.getOperation(closeStepKey(runId, "branches"));
-  return (
-    BranchesStepResult.safeParse(row?.result_ref).data?.result.branches ?? []
-  );
-}
-
-async function archivedRecord(db: Repo, runId: string) {
-  const archived = await db.eventWith("close", {
-    op_key: closeStepKey(runId, "archive"),
-  });
-  return ArchiveRecord.parse(archived?.payload ?? {});
-}
-
 function againCommand(input: CloseInput): string {
   return `pod run close story:${input.story} --generation ${input.generation} with the same FILE`;
-}
-
-function commentBody(
-  actor: string,
-  runId: string,
-  ids: readonly number[],
-  p0: readonly { kind: string; text: string }[],
-  retroDue: boolean,
-  worktrees: readonly WorktreeOutcome[],
-  branches: readonly BranchOutcome[],
-): string {
-  return [
-    `${actor}: closed Run ${runId}`,
-    "",
-    `Worktree: ${worktreeField(worktrees)}`,
-    `Branches removed: ${branchesRemovedField(branches)}`,
-    `Remote branches kept: ${remoteKeptField(branches)}`,
-    `Learnings: ${ids.length === 0 ? "none" : ids.join(", ")}`,
-    `p0: ${p0.length === 0 ? "none" : p0.map((row) => `${row.kind}: ${row.text}`).join("; ")}`,
-    `Retro due: ${retroDue ? "yes" : "no"}`,
-  ].join("\n");
 }
 
 const closeSteps: readonly CloseStep[] = [
@@ -557,17 +479,6 @@ function prEvents(events: readonly Event[]): CloseResult["pr_events"] {
 
 const Recorded = z.looseObject({
   request: z.looseObject({ report_hash: z.string() }),
-});
-
-const ArchiveRecord = z.looseObject({
-  report_hash: z.string().catch(""),
-  report: z
-    .object({ learnings: z.int(), leftovers: z.int(), decisions: z.int() })
-    .catch({ learnings: 0, leftovers: 0, decisions: 0 }),
-  keep_files_reviewed: KeepFilesReviewed.nullable().catch(null),
-  gone: z.array(z.string()).catch([]),
-  worktrees: z.array(PlannedWorktree).catch([]),
-  retro_due: z.boolean().catch(false),
 });
 
 const Unapplied = z.looseObject({

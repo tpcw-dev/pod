@@ -10,6 +10,12 @@ const PrView = z.looseObject({
   mergeCommit: z.looseObject({ oid: z.string() }).nullable(),
 });
 
+const states = {
+  OPEN: "open",
+  MERGED: "merged",
+  CLOSED: "closed",
+} as const;
+
 const PrList = z.array(z.looseObject({ number: z.int() }));
 
 function gh(repo: string, args: readonly string[]): unknown {
@@ -37,7 +43,7 @@ export const realCodeHost: CodeHostPort = {
     const view = parsed.data;
     const state: PrState = {
       number: view.number,
-      state: view.state === "OPEN" ? "open" : view.state === "MERGED" ? "merged" : "closed",
+      state: states[view.state],
       head_branch: view.headRefName,
       head_sha: view.headRefOid,
       merge_commit: view.mergeCommit?.oid ?? null,

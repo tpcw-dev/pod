@@ -10,11 +10,8 @@ import type { Json } from "../../src/core/domain/json.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import type { TrackerPort } from "../../src/core/ports/tracker.ts";
-import {
-  closeRun,
-  closeStepKey,
-  type CloseInput,
-} from "../../src/core/run/close.ts";
+import { closeRun, type CloseInput } from "../../src/core/run/close.ts";
+import { closeStepKey } from "../../src/core/run/close-record.ts";
 import { buildState } from "../../src/core/state/view.ts";
 import { noCalls } from "../orca/temp-fixtures.ts";
 import { fakeGit } from "./close-ports.ts";

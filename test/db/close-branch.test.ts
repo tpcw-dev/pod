@@ -18,11 +18,8 @@ import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import type { CodeHostPort, PrState } from "../../src/core/ports/code-host.ts";
 import type { GitPort } from "../../src/core/ports/git.ts";
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
-import {
-  closeRun,
-  closeStepKey,
-  type CloseInput,
-} from "../../src/core/run/close.ts";
+import { closeRun, type CloseInput } from "../../src/core/run/close.ts";
+import { closeStepKey } from "../../src/core/run/close-record.ts";
 import { noCalls } from "../orca/temp-fixtures.ts";
 import { fakeTracker, type FakeTracker } from "./fake-tracker.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";

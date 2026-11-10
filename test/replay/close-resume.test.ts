@@ -8,7 +8,8 @@ import {
 } from "../../src/core/config/canonical-json.ts";
 import { CloseReport } from "../../src/core/domain/close.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
-import { closeRun, closeStepKey } from "../../src/core/run/close.ts";
+import { closeRun } from "../../src/core/run/close.ts";
+import { closeStepKey } from "../../src/core/run/close-record.ts";
 import { fakeGit } from "../db/close-ports.ts";
 import { fakeTracker } from "../db/fake-tracker.ts";
 import { describeDb, openDb, resetDb } from "../db/helpers.ts";
