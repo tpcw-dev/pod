@@ -25,6 +25,7 @@ value:
     - { id: hqa, type: human_wait, needs: [deploy], gate: hqa_after_deploy, binds: deployed_revision }
   edges:
     - { from: plan, on: agreed, to: implement }
+    - { from: plan, on: rework, to: plan, new_task: true }
     - { from: plan, on: cancelled, to: hold }
     - { from: plan, on: [timeout, cancel, unknown], to: hold }
     - { from: implement, on: done, to: review }

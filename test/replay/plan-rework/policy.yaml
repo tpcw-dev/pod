@@ -1,0 +1,12 @@
+kind: policy
+name: plan-rework
+schema_version: 1
+value:
+  gates:
+    hqa_after_deploy: { keeper: human, type: HQA }
+  principals:
+    human: { tracker_account: keeper-1 }
+  limits:
+    decision_rounds: 3
+    decision_budget:
+      { wall_clock: 2h, relaunches: 1, tool_calls: 1, context_tokens: 60k }

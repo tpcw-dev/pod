@@ -301,6 +301,42 @@ const cases: Case[] = [
       "edges.3.to: the cancelled edge of decision step review targets build, not hold",
   },
   {
+    name: "rule 3: rework on a step without a decision",
+    value: variant((v) => {
+      v.edges.push({
+        from: "build",
+        on: "rework",
+        to: "build",
+        new_task: true,
+      });
+    }),
+    code: "schema_invalid",
+    message: "edges.5.on: step build does not allow rework",
+  },
+  {
+    name: "rule 5: a rework edge to a step without new_task",
+    value: variant((v) => {
+      v.steps[1] = {
+        id: "review",
+        type: "worker",
+        role: "reviewer",
+        needs: ["build"],
+        decision: "plan",
+      };
+      v.edges.splice(
+        2,
+        3,
+        { from: "review", on: "agreed", to: "done" },
+        { from: "review", on: "rework", to: "review" },
+        { from: "review", on: "cancelled", to: "hold" },
+        { from: "review", on: hold, to: "hold" },
+      );
+    }),
+    code: "schema_invalid",
+    message:
+      "edges.3: a rework edge from review targets review without new_task",
+  },
+  {
     name: "rule 7: a step role no seat holds",
     value: variant((v) => {
       v.steps[1] = { ...v.steps[1], role: "auditor" };
@@ -434,4 +470,33 @@ test("a FAIL edge with new_task may target a step", () => {
     };
   });
   expect(validateProcess(value, crew, policy)).toMatchObject({ ok: true });
+});
+
+function planStep(edges: Record<string, unknown>[]) {
+  return variant((v) => {
+    v.steps[1] = {
+      id: "review",
+      type: "worker",
+      role: "reviewer",
+      needs: ["build"],
+      decision: "plan",
+    };
+    v.edges.splice(2, 3, ...edges);
+  });
+}
+
+const planEdges = [
+  { from: "review", on: "agreed", to: "done" },
+  { from: "review", on: "cancelled", to: "hold" },
+  { from: "review", on: hold, to: "hold" },
+];
+
+test("a decision step passes with or without a rework edge", () => {
+  expect(validateProcess(planStep(planEdges), crew, policy)).toMatchObject({
+    ok: true,
+  });
+  const rework = { from: "review", on: "rework", to: "review", new_task: true };
+  expect(
+    validateProcess(planStep([...planEdges, rework]), crew, policy),
+  ).toMatchObject({ ok: true });
 });

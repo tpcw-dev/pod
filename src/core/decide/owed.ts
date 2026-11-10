@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PlanFields } from "../domain/delivery.ts";
 import { Json } from "../domain/json.ts";
 import { decisionSendOpKey } from "../dispatch/decision-seats.ts";
 import type { Repo } from "../ports/db.ts";
@@ -10,6 +11,7 @@ export const FollowUp = z.discriminatedUnion("kind", [
     round: z.int(),
     proposal: z.string(),
     citations: z.array(z.string()),
+    ...PlanFields,
   }),
   z.object({
     kind: z.literal("round_next"),
@@ -32,6 +34,7 @@ export const FollowUp = z.discriminatedUnion("kind", [
     round: z.int(),
     proposal: z.string(),
     citations: z.array(z.string()),
+    ...PlanFields,
   }),
   z.object({
     kind: z.literal("resume"),

@@ -299,6 +299,7 @@ const shapes: { name: Name; needs: object; edges: string[] }[] = [
     edges: [
       ...holds("plan"),
       "plan agreed -> implement",
+      "plan rework -> plan new_task",
       "plan cancelled -> hold",
       ...reviewEdges,
       ...shipEdges("review"),

@@ -143,14 +143,48 @@ const DecisionKind = z.enum([
 ]);
 const Round = z.int().min(1).max(3);
 
-const DecisionProposal = z.looseObject({
-  kind: z.literal("decision_proposal"),
-  dispatchId: Text,
-  decisionId: Text,
-  round: Round,
-  proposal: Text,
-  citations: z.array(z.string()),
-});
+export const PlanVerdict = z.enum(["accept", "rework"]);
+export type PlanVerdict = z.infer<typeof PlanVerdict>;
+
+export const PlanFields = {
+  plan: PlanVerdict.optional(),
+  changes: z.array(z.string()).optional(),
+};
+
+export function planFields(proposal: {
+  plan?: PlanVerdict | undefined;
+  changes?: string[] | undefined;
+}): { plan?: PlanVerdict; changes?: string[] } {
+  return proposal.plan === undefined
+    ? {}
+    : { plan: proposal.plan, changes: proposal.changes ?? [] };
+}
+
+const DecisionProposal = z
+  .looseObject({
+    kind: z.literal("decision_proposal"),
+    dispatchId: Text,
+    decisionId: Text,
+    round: Round,
+    proposal: Text,
+    citations: z.array(z.string()),
+    ...PlanFields,
+  })
+  .superRefine((value, ctx) => {
+    const changes = value.changes ?? [];
+    if (value.plan === "rework" && changes.length === 0)
+      ctx.addIssue({
+        code: "custom",
+        path: ["changes"],
+        message: "rework names no changes",
+      });
+    if (value.plan !== "rework" && changes.length > 0)
+      ctx.addIssue({
+        code: "custom",
+        path: ["changes"],
+        message: "accept carries changes",
+      });
+  });
 
 const DecisionAudit = z.looseObject({
   kind: z.literal("decision_audit"),

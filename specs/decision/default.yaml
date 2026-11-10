@@ -10,9 +10,9 @@ value:
 
     Run it again if it returns no message. Pass --ack <deliveryId> from the previous result on the next check. Answer each round with exactly one message:
 
-    orca orchestration send --type decision_gate --subject "decision <decision id> round <n> proposal" --payload '{"kind":"decision_proposal","dispatchId":"<your dispatch id>","decisionId":"<decision id>","round":<n>,"proposal":"<your proposal>","citations":["<manifest reference>"]}' --json
+    orca orchestration send --type decision_gate --subject "decision <decision id> round <n> proposal" --payload '{"kind":"decision_proposal","dispatchId":"<your dispatch id>","decisionId":"<decision id>","round":<n>,"proposal":"<your proposal>","citations":["<manifest reference>"],"plan":"<accept|rework>","changes":["<change>"]}' --json
 
-    Run the command with the Bash tool. Take <your dispatch id> from your preamble, and the decision id and the round from the message. Every proposal cites at least one reference of the Evidence manifest by its source and revision, as "<source>:<revision>"; a proposal with no citation is an automatic disagree.
+    Run the command with the Bash tool. Take <your dispatch id> from your preamble, and the decision id and the round from the message. Every proposal cites at least one reference of the Evidence manifest by its source and revision, as "<source>:<revision>"; a proposal with no citation is an automatic disagree. Set "plan" to "rework" and list each change in "changes" when the plan must change before implement starts; otherwise set "plan" to "accept" with an empty "changes" list.
 
     Question: {{question}}
     Options:

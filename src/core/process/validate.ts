@@ -1,6 +1,7 @@
 import { refuse, type Refused } from "../domain/outcome.ts";
 import {
   allowedOutcomes,
+  optionalOutcomes,
   edgeOutcomes,
   issuePath,
   ProcessValue,
@@ -93,7 +94,7 @@ function uncovered(value: ProcessValue): Refused | null {
   for (const [k, edge] of value.edges.entries()) {
     const step = steps.get(edge.from);
     if (step === undefined) continue;
-    const allowed = allowedOutcomes(step);
+    const allowed = [...allowedOutcomes(step), ...optionalOutcomes(step)];
     for (const on of edgeOutcomes(edge)) {
       if (!allowed.includes(on))
         return invalid(
@@ -128,15 +129,16 @@ function unknownTarget(value: ProcessValue): Refused | null {
 
 function failWithoutTask(value: ProcessValue): Refused | null {
   for (const [k, edge] of value.edges.entries())
-    if (
-      edgeOutcomes(edge).includes("FAIL") &&
-      edge.to !== "hold" &&
-      edge.new_task !== true
-    )
-      return invalid(
-        `edges.${k}: a FAIL edge from ${edge.from} targets ${edge.to} without new_task`,
-        "a FAIL edge targets hold or has new_task: true",
-      );
+    for (const outcome of ["FAIL", "rework"] as const)
+      if (
+        edgeOutcomes(edge).includes(outcome) &&
+        edge.to !== "hold" &&
+        edge.new_task !== true
+      )
+        return invalid(
+          `edges.${k}: a ${outcome} edge from ${edge.from} targets ${edge.to} without new_task`,
+          "a FAIL or rework edge targets hold or has new_task: true",
+        );
   return null;
 }
 
