@@ -1428,6 +1428,15 @@ function makeRepo(x: Executor): Repo {
       return row === undefined ? null : toEvent(row);
     },
 
+    async listEvents(runId, type) {
+      const rows = await x
+        .select()
+        .from(event)
+        .where(and(eq(event.runId, runId), eq(event.type, type)))
+        .orderBy(asc(event.id));
+      return rows.map(toEvent);
+    },
+
     async insertOperation(row: NewOperation) {
       const inserted = await x
         .insert(operation)

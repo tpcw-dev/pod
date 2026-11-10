@@ -24,10 +24,19 @@ import {
   ReleaseState,
   type OrcaPort,
 } from "../core/ports/orca.ts";
+import { canonicalJson, sha256Hex } from "../core/config/canonical-json.ts";
+import { CloseReport, CloseResult } from "../core/domain/close.ts";
+import { closeRun } from "../core/run/close.ts";
 import { runCreate } from "../core/run/create.ts";
 import { docsFor } from "./docs.ts";
-import { exitFor, PodError, throwRecordRefusal, usageError } from "./errors.ts";
-import { gitStatus } from "./git.ts";
+import {
+  exitFor,
+  PodError,
+  schemaError,
+  throwRecordRefusal,
+  usageError,
+} from "./errors.ts";
+import { gitStatus, worktreeStatus } from "./git.ts";
 import {
   databaseUrl,
   podHome,
@@ -36,6 +45,7 @@ import {
 } from "./host-profile.ts";
 import { orcaFor } from "./orca.ts";
 import { trackerFor } from "./tracker.ts";
+import { issuesOf, parseYaml, readText } from "./yaml-file.ts";
 
 interface Wiring {
   db: Db;
@@ -260,6 +270,54 @@ export async function dispatchVerb(
 
 export const Generation = z.string().regex(/^[1-9][0-9]*$/);
 const Seconds = z.string().regex(/^[1-9][0-9]*$/);
+
+const StoryArg = z.string().regex(/^story:.+$/);
+
+export const RunCloseInput = z.strictObject({
+  args: z.union([z.tuple([StoryArg]), z.tuple([StoryArg, z.string().min(1)])]),
+  generation: Generation,
+  "keep-files-reviewed": z.boolean().optional(),
+});
+type RunCloseInput = z.infer<typeof RunCloseInput>;
+
+export const RunCloseOutput = CloseResult.extend({ op_key: z.string() });
+type RunCloseOutput = z.infer<typeof RunCloseOutput>;
+
+function closeReport(path: string | undefined): CloseReport {
+  if (path === undefined) return CloseReport.parse({});
+  const parsed = CloseReport.safeParse(parseYaml(readText(path), path));
+  if (!parsed.success)
+    throw schemaError(
+      `${path} fails the close report schema`,
+      issuesOf(parsed.error),
+    );
+  return parsed.data;
+}
+
+export async function runCloseVerb(
+  input: RunCloseInput,
+): Promise<RunCloseOutput> {
+  const [story, file] = input.args;
+  const report = closeReport(file);
+  const { result, opKey } = await withOrca(({ db, orca, log, host }) =>
+    closeRun(db, orca, log, {
+      story: story.slice("story:".length),
+      provider: host.trackerKind,
+      generation: Number(input.generation),
+      report,
+      reportHash: sha256Hex(canonicalJson(report)),
+      keepFilesReviewed: input["keep-files-reviewed"] === true,
+      host: host.hostId,
+      worktreeStatus,
+      now: () => new Date(),
+    }),
+  );
+  return { ...result, op_key: opKey };
+}
+
+export function runCloseMeta(output: RunCloseOutput) {
+  return { ownerGeneration: output.owner_generation, opKey: output.op_key };
+}
 
 export const CheckInput = z
   .strictObject({

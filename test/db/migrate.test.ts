@@ -25,7 +25,7 @@ describeDb("pod db migrate", () => {
   test("a run after the reset's migrate applies nothing", () => {
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 15, applied: 0 } },
+      json: { ok: true, result: { journal: 16, applied: 0 } },
     });
   });
 
@@ -36,11 +36,11 @@ describeDb("pod db migrate", () => {
     await db.close();
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 15, applied: 15 },
+      result: { journal: 16, applied: 16 },
     });
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 15, applied: 0 },
+      result: { journal: 16, applied: 0 },
     });
   });
 
@@ -56,7 +56,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 15, applied: 11 } },
+      json: { ok: true, result: { journal: 16, applied: 12 } },
     });
   });
 
@@ -72,7 +72,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 15, applied: 7 } },
+      json: { ok: true, result: { journal: 16, applied: 8 } },
     });
   });
 
@@ -88,7 +88,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 15, applied: 6 } },
+      json: { ok: true, result: { journal: 16, applied: 7 } },
     });
   });
 
@@ -104,7 +104,7 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 15, applied: 5 } },
+      json: { ok: true, result: { journal: 16, applied: 6 } },
     });
     const conn = openDb();
     try {
@@ -167,7 +167,7 @@ describeDb("pod db migrate", () => {
     ).toEqual({ kind: "ok", journal: 11, applied: 11 });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 15, applied: 4 } },
+      json: { ok: true, result: { journal: 16, applied: 5 } },
     });
     const conn = openDb();
     try {
@@ -194,7 +194,7 @@ describeDb("pod db migrate", () => {
     ).toEqual({ kind: "ok", journal: 12, applied: 12 });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 15, applied: 3 } },
+      json: { ok: true, result: { journal: 16, applied: 4 } },
     });
     const conn = openDb();
     try {
@@ -217,7 +217,7 @@ describeDb("pod db migrate", () => {
     );
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 15, applied: 2 } },
+      json: { ok: true, result: { journal: 16, applied: 3 } },
     });
     const conn = openDb();
     try {
@@ -233,6 +233,35 @@ describeDb("pod db migrate", () => {
         { name: "profile", nullable: "YES", type: "text" },
         { name: "project", nullable: "YES", type: "text" },
       ]);
+    } finally {
+      await conn.close();
+    }
+  });
+
+  test("a database at 0014 applies 0015, which adds close to the operation intents and the event types", async () => {
+    const db = openDb();
+    await db.sql`set client_min_messages = warning`;
+    await db.sql`drop schema if exists config, ledger, drizzle cascade`;
+    await db.close();
+    expect(
+      await migrate(dbUrl(), journalThrough("0014_revision_ticket")),
+    ).toEqual({ kind: "ok", journal: 15, applied: 15 });
+    expect(runCli(["db", "migrate"])).toMatchObject({
+      status: 0,
+      json: { ok: true, result: { journal: 16, applied: 1 } },
+    });
+    const conn = openDb();
+    try {
+      const checks = await conn.sql<{ name: string; definition: string }[]>`
+        select conname as name, pg_get_constraintdef(oid) as definition
+        from pg_constraint
+        where conname in ('operation_intent_check', 'event_type_check')
+        order by conname`;
+      expect(checks.map((row) => row.name)).toEqual([
+        "event_type_check",
+        "operation_intent_check",
+      ]);
+      for (const row of checks) expect(row.definition).toContain("'close'");
     } finally {
       await conn.close();
     }

@@ -148,7 +148,7 @@ export const operation = ledger.table(
   (t) => [
     check(
       "operation_intent_check",
-      sql`${t.intent} in ('run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide', 'config_apply', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning')`,
+      sql`${t.intent} in ('run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide', 'config_apply', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning', 'close')`,
     ),
     check(
       "operation_status_check",
@@ -310,7 +310,7 @@ export const event = ledger.table(
   (t) => [
     check(
       "event_type_check",
-      sql`${t.type} in ('start', 'delivery', 'receipt', 'activation', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'retry', 'ignored', 'unknown_launch', 'learning', 'outcome')`,
+      sql`${t.type} in ('start', 'delivery', 'receipt', 'activation', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'retry', 'ignored', 'unknown_launch', 'learning', 'outcome', 'close')`,
     ),
     index("event_run_ts").on(t.runId, t.ts),
   ],

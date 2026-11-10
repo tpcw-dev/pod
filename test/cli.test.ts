@@ -73,6 +73,7 @@ test("help lists the verbs sorted by name", () => {
     "learning query",
     "release",
     "retry",
+    "run close",
     "run create",
     "state",
     "takeover",

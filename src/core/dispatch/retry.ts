@@ -70,22 +70,29 @@ export async function retryPlan(
   return recordedWorktree(db, dispatch, host);
 }
 
+function placedWorktree(dispatch: Dispatch): string | undefined {
+  return Placement.catch({}).parse(dispatch.requested_launch).worktree;
+}
+
+export function dispatchWorktree(dispatch: Dispatch): string | null {
+  const worktree = placedWorktree(dispatch);
+  const id = worktree?.startsWith("id:") === true ? worktree.slice(3) : null;
+  const split = id?.indexOf("::") ?? -1;
+  return id === null || split < 0 ? null : id.slice(split + 2);
+}
+
 async function recordedWorktree(
   db: Repo,
   dispatch: Dispatch,
   host: string,
 ): Promise<{ worktreePath: string } | Refused> {
   const dispatchId = dispatch.dispatch_id;
-  const worktree = Placement.catch({}).parse(
-    dispatch.requested_launch,
-  ).worktree;
-  const id = worktree?.startsWith("id:") === true ? worktree.slice(3) : null;
-  const split = id?.indexOf("::") ?? -1;
-  if (id === null || split < 0)
+  const worktreePath = dispatchWorktree(dispatch);
+  if (worktreePath === null)
     return refuse(
       "task_not_ready",
       `Dispatch ${dispatchId} has no recorded worktree`,
-      [`requested_launch.worktree is ${worktree ?? "missing"}`],
+      [`requested_launch.worktree is ${placedWorktree(dispatch) ?? "missing"}`],
     );
   const start = await db.dispatchEvent(dispatchId, "start");
   if (start?.host !== host)
@@ -94,7 +101,7 @@ async function recordedWorktree(
       `Dispatch ${dispatchId} started on host ${start?.host ?? "unknown"}, not ${host}`,
       ["run pod retry on the host that started the Dispatch"],
     );
-  return { worktreePath: id.slice(split + 2) };
+  return { worktreePath };
 }
 
 async function supersededRefusal(
