@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -19,8 +20,8 @@ const script = fileURLToPath(
 const src = fileURLToPath(new URL("../../src", import.meta.url));
 const deployCalls = [
   "bin --global",
-  "build",
-  "node dist/index.js db migrate",
+  "build --out-dir .deploy/dist",
+  "node .deploy/dist/index.js db migrate",
   "link --global",
 ];
 
@@ -70,6 +71,7 @@ beforeEach(() => {
       `echo "$*" >> "${calls}"`,
       '[ "$1" = --version ] && echo stub',
       `[ "$*" = "bin --global" ] && cat "${globalBin}"`,
+      '[ "$1" = build ] && mkdir -p "$3" && echo new > "$3/index.js"',
       "exit 0",
       "",
     ].join("\n"),
@@ -78,7 +80,7 @@ beforeEach(() => {
     join(bin, "node"),
     [
       "#!/bin/sh",
-      'if [ "$1" = dist/index.js ]; then',
+      'if [ "$1" = .deploy/dist/index.js ]; then',
       `  echo "node $*" >> "${calls}"`,
       `  [ -e "${migrateFails}" ] && exit 3`,
       `  echo '{"journal":1,"applied":1}'`,
@@ -110,6 +112,7 @@ beforeEach(() => {
   mkdirSync(join(work, "scripts"));
   copyFileSync(script, join(work, "scripts/deploy-local.sh"));
   symlinkSync(src, join(work, "src"));
+  writeFileSync(join(work, ".gitignore"), "dist/\n");
   writeFileSync(
     join(work, "package.json"),
     JSON.stringify({ name: "pod", version: "1.2.3" }),
@@ -118,7 +121,13 @@ beforeEach(() => {
   git(work, "add", ".");
   git(work, "commit", "-q", "-m", "base");
   git(work, "push", "-q", "origin", "main");
+  mkdirSync(join(work, "dist"));
+  writeFileSync(join(work, "dist/index.js"), "old\n");
 });
+
+function linkedBuild(): string {
+  return readFileSync(join(work, "dist/index.js"), "utf8").trim();
+}
 
 test("a branch that is not origin/main is refused before any tag", () => {
   git(work, "checkout", "-q", "-b", "feature");
@@ -166,6 +175,8 @@ test("a fresh deploy builds, migrates, links, then tags, pushes, and prints the 
     head,
   );
   expect(stubCalls()).toEqual(deployCalls);
+  expect(linkedBuild()).toBe("new");
+  expect(existsSync(join(work, ".deploy"))).toBe(false);
   expect(result.stdout.trim().split("\n")).toHaveLength(1);
   expect(JSON.parse(result.stdout)).toEqual({
     environment: "local",
@@ -195,7 +206,7 @@ test("no global bin directory is refused before the build and before any tag", (
   expect(stubCalls()).toEqual(["bin --global"]);
 });
 
-test("an unset database URL or an unreadable host profile is refused before the build and before any tag", () => {
+test("an unset database URL or a malformed host profile is refused before the build and before any tag", () => {
   delete env["POD_DB_URL"];
   const unset = deploy();
   expect(unset.status).not.toBe(0);
@@ -209,7 +220,7 @@ test("an unset database URL or an unreadable host profile is refused before the 
   expect(stubCalls()).toEqual(["bin --global", "bin --global"]);
 });
 
-test("a failed migrate is refused with db migrate failed, before the link and before any tag", () => {
+test("a failed migrate is refused with db migrate failed, leaves the linked build, and writes no tag", () => {
   writeFileSync(migrateFails, "");
   const result = deploy();
   expect(result.status).not.toBe(0);
@@ -217,6 +228,7 @@ test("a failed migrate is refused with db migrate failed, before the link and be
   expect(tags(work)).toBe("");
   expect(tags(join(root, "origin.git"))).toBe("");
   expect(stubCalls()).toEqual(deployCalls.slice(0, 3));
+  expect(linkedBuild()).toBe("old");
 });
 
 test("a rerun on the same HEAD runs every step again and prints the same deploy line", () => {
