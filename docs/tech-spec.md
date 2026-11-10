@@ -34,7 +34,7 @@ These constraints come from the PRD and the tech spec ticket, and they bind ever
 - No secret and no transcript enters a table, an Evidence manifest, a fixture, or a view. Connection strings and tokens are read from environment variables that a profile names.
 - v1 does not rely on `LISTEN/NOTIFY`. Connection mode, CAS conflicts, atomic bundle reads, disconnect recovery, and backup and restore are tested on a test database before any story relies on them.
 - Linear is the only v1 tracker adapter. Notion is the only v1 docs adapter, and it is read-only.
-- Pod does not wrap or duplicate the operator's existing grooming, planning, or docs commands, or its kickoff command until Sessions land.
+- Pod does not wrap or duplicate the operator's existing grooming, planning, or docs commands. Until Sessions land, Pod does not wrap or duplicate the operator's kickoff command either.
 - Pod never builds an IDE, terminal, diff, browser, or mobile surface, and never adds a second scheduler, an exactly-once promise, or agent authority over production, money, or credentials.
 
 ## Design

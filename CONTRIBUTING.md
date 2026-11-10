@@ -2,7 +2,7 @@
 
 ## Operator-facing strings
 
-These rules cover every string an operator reads: `nextSteps` lines, brief lines, refusal messages, and operator pages.
+These rules cover every string an operator reads: `nextSteps` lines, brief lines, and operator pages.
 
 - A `next:` line or a brief line gives one command per sentence.
 - A sentence that tells the operator to do something has at most 20 words.
