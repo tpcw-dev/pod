@@ -1101,6 +1101,8 @@ limits:
 | needs_human | any spend, credentials, data deletion, a production deploy, a Gate change on a running Run, a policy change, a driver or gatekeeper change | needs-human with reason `policy-required` |
 | needs_existing_authorization | repo creation, which the Story spec must name, and VPS SSH, which needs an infrastructure Story | the loop runs when the Story authorizes it, and needs-human otherwise |
 
+What a project policy may add to these classes, and the rung a new guardrail takes, is in "Refusals are the last rung" under Gate-lift.
+
 `pod config apply` refuses a policy with `schema_invalid` unless every rule below holds.
 
 - Every Gate has exactly one keeper.
@@ -1115,6 +1117,30 @@ Spec clarification: S13a. Pod has no Story Revision. A Story's existing authoriz
 The policy schema validates `profiles`. A profile may replace only `prd_review` and `design_clickthrough` with a Decision-pair automated Gate. `hqa_after_deploy` and `staging_review` stay with the human gatekeeper. A lifted Gate records an automated PASS, never a human one. In v1 the executor refuses every `autonomous` activation and every lift outside the two Gates, and it activates `hands-on`, `standard`, and `hands-off` per project only after a human readback. The schema fixtures cover a lift outside the two Gates, a lift on a running Run, an added Gate, and a missing policy Revision, and each is refused.
 
 Spec clarification: policy profiles. `specs/policy/default.yaml` defines four profiles. `hands-on` and `standard` lift no Gate. `hands-off` and `autonomous` lift `prd_review` and `design_clickthrough` to `decision-pair-aqa`. A profile carries only `replaces`, `requires`, and `deploy_production`, which is `needs_human` or `agent`, and `active_profile` must name a profile the same Revision defines. A project activates a profile with a project-scope policy Revision that sets `active_profile`, applied with `pod config apply --activate`. The apply stores the Revision and leaves its `config_apply` operation pending. It writes no activation, and it replies with the comment a person posts, `profile <project> <name> <policy ref>`, and with the live Runs still on the old profile. Pod never posts that comment. The request stays pending until a `pod check` pass on some live Run reads that comment back on the Run's Story. The comment is source-verified as a Decision ruling is, against the HQA keepers and principals of the policy currently active at the request's scope, never against the pending Revision. Only then does Pod activate the Revision, with an `activation` event whose source is the tracker comment. `active_profile` at global scope is refused: a profile is activated per project. `autonomous` is still refused with `gate_lift_refused` until the step method override lands. Its `deploy_production: agent` drops the `deploy_production` needs_human member only under that active profile. `pod run create --project <ref>` resolves crew and policy at that project with global fallback. The Run snapshot pins the project and the active profile name, and a later activation changes neither. A switch during a live Run is accepted: the Run keeps its snapshot. In v1 lifts are not enforced: `effective_gate_map` stays `{}`, and Gate keepers are unchanged.
+
+#### Refusals are the last rung
+
+A verb first does the right thing, its default path. A guardrail beyond that takes the lowest rung that holds the case. Each rung uses a mechanism Pod already has.
+
+| Rung | Mechanism |
+| --- | --- |
+| observe | a ledger event, such as `self_decision` or `ignored`, and nothing else |
+| report | a count or a line in `pod brief` |
+| warn | an exit-0 result that carries `nextSteps` |
+| hold | a Run or Task `hold`, or a Decision in `needs_human`, waiting on a source-verified human |
+| refuse | exit 2 or 3 with an error code and `nextSteps`, and nothing written |
+
+A verb chooses among observe, report, warn, and refuse, and refuse is the last of them. Hold and `needs_human` are human stops. Only the policy's `reserved` classes and the Gates trigger them. They rank above refuse, and their cost is recorded as blocking the operator until a person rules.
+
+A guardrail cites evidence: a learning row or a replay fixture, named in the PR that adds it. A new refusal code cites one recorded occurrence. A new hold condition, or a new `needs_human` or `deny` member of `reserved`, cites two. An irreversible failure earns any rung on one occurrence: spend, credentials, data deletion, or evidence tampering. A data-correctness refusal is an invariant and needs no evidence: a compare-and-set or generation conflict, a schema error, or a selector mismatch.
+
+A guardrail refusal or human stop with no trigger in 30 days is a sunset candidate. A person rules whether to remove it or move it to a lower rung. The data are the `ledger.operation` rows with status `refused` and the `escalate` and `hold` events. Pod has no counter over them yet.
+
+A project-scope policy Revision is a full value, applied with `pod config apply` and activated by a person. It keeps every global `deny` and `needs_human` member, and it may add members and match terms. It may promote a global `needs_human` member to `deny`, and it may not demote or remove one. A project policy that drops a global member, or lists a global `deny` member only under `needs_human`, is `schema_invalid` naming that member. The `deploy_production` exception is the one the Gate-lift Spec clarification on policy profiles states. `needs_existing_authorization` and `authorizations` keep their rules.
+
+`limits.digest_per_day` caps the proposals a digest puts in front of the operator in a day. It is an integer from 1 to 10, and an escalation never counts against it. `specs/policy/default.yaml` seeds 3 at global scope, and a project Revision may set its own. `pod config apply` refuses any other value with `schema_invalid` at `limits.digest_per_day`. Over the cap, proposals queue to the next day, oldest first, and none is refused or dropped. `pod brief` reports the cap per project: the JSON row carries `digest: { cap, shown, queued }`, and the HTML carries one line, `Digest <shown>/<cap>, <queued> queued`. Until the digest ships, Pod validates the cap and reads it nowhere.
+
+When Pod carries the digest, `ledger.learning` gains an optional text column `kind`. Its values are an open list the adopter names, and Pod does not interpret them.
 
 #### Decision measurement
 

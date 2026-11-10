@@ -41,3 +41,4 @@ value:
   limits:
     decision_rounds: 3
     decision_budget: { wall_clock: 2h, relaunches: 2, tool_calls: 40, context_tokens: 60k }
+    digest_per_day: 3
