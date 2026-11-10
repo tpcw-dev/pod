@@ -11,8 +11,11 @@ const defaultValue = (
 
 type Member = { name: string; match: string[] };
 const reserved = defaultValue["reserved"] as Record<string, Member[]>;
-const deny = reserved["deny"] ?? [];
-const needsHuman = reserved["needs_human"] ?? [];
+const { deny, needs_human: needsHuman } = reserved as {
+  deny: Member[];
+  needs_human: Member[];
+};
+const isSpend = (row: Member) => row.name === "spend";
 
 const projectWith = (classes: Record<string, Member[]>) => ({
   ...defaultValue,
@@ -25,16 +28,15 @@ const refusedAt = (value: unknown) => {
 };
 
 test("a project policy may add needs_human and deny members and promote a global needs_human member to deny", () => {
-  const spend = needsHuman.find((row) => row.name === "spend");
-  expect(spend).toBeDefined();
+  expect(needsHuman.some(isSpend)).toBe(true);
   const project = projectWith({
     deny: [
       ...deny,
       { name: "force_push", match: ["force push"] },
-      spend as Member,
+      ...needsHuman.filter(isSpend),
     ],
     needs_human: [
-      ...needsHuman.filter((row) => row.name !== "spend"),
+      ...needsHuman.filter((row) => !isSpend(row)),
       { name: "dns_change", match: ["dns record"] },
     ],
   });
