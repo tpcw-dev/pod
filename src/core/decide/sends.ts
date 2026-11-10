@@ -294,11 +294,13 @@ function citationText(citations: readonly string[]): string {
   return citations.length === 0 ? "none" : citations.join(", ");
 }
 
-function proposalText(item: {
+interface Proposed {
   proposal: string;
   plan?: string | undefined;
   changes?: readonly string[] | undefined;
-}): string {
+}
+
+function proposalText(item: Proposed): string {
   if (item.plan === undefined) return item.proposal;
   return [
     item.proposal,
@@ -311,13 +313,7 @@ function proposalText(item: {
 
 function proposalBody(
   decision: DecisionRow,
-  item: {
-    round: number;
-    proposal: string;
-    citations: readonly string[];
-    plan?: string | undefined;
-    changes?: readonly string[] | undefined;
-  },
+  item: Proposed & { round: number; citations: readonly string[] },
 ): string {
   return [
     `Decision ${decision.id} round ${item.round}. Audit this proposal.`,

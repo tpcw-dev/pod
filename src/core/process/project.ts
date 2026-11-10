@@ -679,20 +679,17 @@ export async function rework(
       rework: failed.task_id,
     });
   const agreed = await agreedSpec(db, toProjectStep(target), newest(target.id));
+  const step =
+    plan.note === undefined
+      ? agreed.step
+      : {
+          ...agreed.step,
+          spec: `${agreed.step.spec ?? defaultSpec(ctx.process, agreed.step)}\n\n${plan.note}`,
+        };
   const made = await createTask(ctx, {
     runId,
     ...agreed,
-    ...(plan.note === undefined
-      ? {}
-      : {
-          step: {
-            ...agreed.step,
-            spec: [
-              agreed.step.spec ?? defaultSpec(ctx.process, agreed.step),
-              plan.note,
-            ].join("\n\n"),
-          },
-        }),
+    step,
     opKey: key(target.id),
     deps: targetDeps,
     reworkOf: newest(target.id),
