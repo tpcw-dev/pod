@@ -15,7 +15,13 @@ import { recordHqa } from "../../src/core/gate/hqa.ts";
 import { postVerdict } from "../../src/core/gate/verdict.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { runCreate } from "../../src/core/run/create.ts";
-import { describeDb, openDb, resetDb, runCli } from "../db/helpers.ts";
+import {
+  describeDb,
+  openDb,
+  operatorHome,
+  resetDb,
+  runCli,
+} from "../db/helpers.ts";
 import { events } from "../db/run-fixture.ts";
 
 const orcaDir = "fixtures/orca/dogfood-a";
@@ -49,7 +55,7 @@ describeDb("dogfood-a", () => {
         "global",
         "--expected-revision",
         "none",
-      ]);
+      ], { POD_HOME: operatorHome("keeper") });
       expect(applied.status, applied.json.error?.message ?? kind).toBe(0);
     }
   });

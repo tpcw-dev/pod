@@ -9,7 +9,6 @@ import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { singleActive } from "../../src/core/config/active.ts";
 import { ok } from "../orca/temp-fixtures.ts";
 import { fakeTracker, type FakeTracker } from "./fake-tracker.ts";
-import { operator } from "./identity-fixture.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { createRun, empty, freshRun, replay, workers } from "./run-fixture.ts";
@@ -1000,10 +999,7 @@ describeDb("profile activation", () => {
     "hands-on": { deploy_production: "needs_human" },
     standard: { deploy_production: "needs_human" },
   };
-  const principals = {
-    human: { tracker_account: "keeper-1" },
-    [operator]: { tracker_account: "operator-1" },
-  };
+  const principals = { human: { tracker_account: "keeper-1" } };
 
   beforeAll(async () => {
     await resetDb();

@@ -26,17 +26,20 @@ const dir = "test/replay/xl-coordinator-pair";
 const planner = "ctx_plan";
 describeDb("xl-coordinator-pair", () => {
   let conn: Connection;
-  const env = { POD_HOME: oneSlotHome() };
+  const env = { POD_HOME: oneSlotHome("keeper") };
 
   beforeAll(async () => {
     await resetDb();
     conn = openDb();
-    applyConfig([
-      `${dir}/policy.yaml`,
-      `${dir}/crew.yaml`,
-      `${dir}/process.yaml`,
-      "specs/decision/default.yaml",
-    ]);
+    applyConfig(
+      [
+        `${dir}/policy.yaml`,
+        `${dir}/crew.yaml`,
+        `${dir}/process.yaml`,
+        "specs/decision/default.yaml",
+      ],
+      env,
+    );
   });
   afterAll(() => conn.close());
 

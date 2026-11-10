@@ -1,6 +1,6 @@
 import type { Repo } from "../../src/core/ports/db.ts";
 
-export const operator = "operator-under-test";
+export const operator = "human";
 
 const at = new Date("2026-11-09T00:00:00Z");
 

@@ -67,8 +67,13 @@ export function openDb(): Connection {
   return connect(dbUrl());
 }
 
-export const podHome = mkdtempSync(join(tmpdir(), "pod-home-"));
-writeFileSync(join(podHome, "host.yaml"), `operator: ${operator}\n`);
+export function operatorHome(principal: string, profile = ""): string {
+  const home = mkdtempSync(join(tmpdir(), "pod-home-"));
+  writeFileSync(join(home, "host.yaml"), `${profile}operator: ${principal}\n`);
+  return home;
+}
+
+export const podHome = operatorHome(operator);
 
 export interface CliResult {
   status: number | null;
