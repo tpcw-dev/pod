@@ -23,7 +23,7 @@ This is the Measurement table that `pod brief --html` rendered for the Run, `mea
 
 Escalations by reason: policy-required 0, disagreement 0, context-missing 0, runtime-failure 0, and worker 0. The natural sample is 1 of 10 target. One Decision is not a sample from which a rate can be read.
 
-The one Decision has outcome `adopted`. The decider proposed to accept the plan as written, with its one addition beyond the Story's Constraints: an optional `pod run create --project` and a snapshot `project` column. The auditor agreed in round 1. No later Decision superseded it, and no rework Task followed.
+The one Decision has outcome `adopted`. In round 1 the decider proposed to send the plan back to the planner with one change. D1 stays: an optional `pod run create --project` and a snapshot `project` column, the one addition beyond the Story's Constraints. The required change is to D5: a profile entry's closed key set is `replaces` and `deploy_production`, `requires` is refused as an unknown key, and T1 tests that refusal. The auditor answered `agree` and said the plan should not pass as written. Pod recorded the `accept_plan` Decision `agreed`, which passed the plan Task unchanged. No `change_spec` Decision carried the change, no later Decision superseded this one, and no rework Task followed. Finding 14 covers the change that was lost.
 
 The pair cost 629 prompt bytes and a 5748 ms cold start for the decider, and 1364 prompt bytes and a 3681 ms cold start for the auditor. Both cold starts are `dispatch.created_at - operation.created_at` on the live ledger.
 
@@ -78,6 +78,7 @@ The operator ran every `pod` verb from the terminal that ran `pod run create`. F
 11. The pr Task's first full test run on the shared test database stalled with no CPU. Directory chunks on an embedded database all passed.
 12. The recording spans several `pod` processes. The tracker scrubber rewrites the Story key inside comment bodies, and it numbers comment ids per process. The replay test restores the key in comment bodies, so the outbox and receipt hashes compare as they did live. The fixture set ends at the `hqa_after_deploy` receipt. The closing `pod check` after it read comments by ids that an earlier process had numbered, and it is left out. That check delivered nothing.
 13. Each worker start for the reviewer runtime recorded `model_attribution` `unknown`, because that runtime starts with no model flag.
+14. The pair agreed to a plan change inside an `accept_plan` Decision, and `agreed` passed the plan as it was written. The spec says the coordinator then opens a `change_spec` Decision that supersedes it. Pod does not open one, and the operator did not read the proposal before dispatching implement. The merged change admits `requires` as a profile key, which the pair had agreed to refuse. The outcome `adopted` is what the brief derives, and it hides the lost change.
 
 ## Follow-ups
 
@@ -94,5 +95,6 @@ These findings are filed under the epic:
 | 8 | TPC-1490, merged before the deploy record |
 | 9 | TPC-1512 |
 | 12 | TPC-1510 |
+| 14 | TPC-1530 |
 
 Findings 6, 10, 11, and 13 are operating notes. Finding 6 is the documented gate order. Finding 10 was a crew setup error. Finding 11 is a test database stall. Finding 13 is the known runtime attribution.
