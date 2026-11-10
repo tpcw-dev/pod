@@ -70,6 +70,13 @@ function lineageOf(runId: string, stepId: string): string {
   return `${runId}:${stepId}`;
 }
 
+function defaultSpec(
+  process: ProjectContext["process"],
+  step: ProjectStep,
+): string {
+  return `Process ${process.name}@${process.rev}, step ${step.id}, role ${step.role ?? step.type}.`;
+}
+
 async function callTaskCreate(
   ctx: Pick<ProjectContext, "orca" | "log" | "process">,
   plan: Pick<TaskPlan, "runId" | "step" | "opKey" | "deps">,
@@ -77,9 +84,7 @@ async function callTaskCreate(
   const { runId, step, opKey, deps } = plan;
   ctx.log.at({ run_id: runId, task_id: null, op_key: opKey });
   const receipt = await ctx.orca.taskCreate({
-    spec:
-      step.spec ??
-      `Process ${ctx.process.name}@${ctx.process.rev}, step ${step.id}, role ${step.role ?? step.type}.`,
+    spec: step.spec ?? defaultSpec(ctx.process, step),
     run: runId,
     ...(deps.length > 0 ? { deps } : {}),
     taskTitle: step.id,
@@ -386,11 +391,12 @@ interface ReadProcess {
   step: ProcessStep;
 }
 
-interface ReworkPlan {
+export interface ReworkPlan {
   failed: Task;
   target: ProcessStep;
   then: ProcessStep | null;
   read: ReadProcess;
+  note?: string;
 }
 
 export type Recorded =
@@ -449,7 +455,14 @@ async function promote(tx: Repo, runId: string): Promise<string[]> {
   return promoted;
 }
 
-const Latest = z.looseObject({
+export const noReworkEdge = "no_rework_edge";
+
+export const DecisionSource = z.looseObject({
+  kind: z.literal("decision"),
+  decision_id: z.string(),
+});
+
+export const Latest = z.looseObject({
   outcome: z.string().optional(),
   reason: z.string().optional(),
 });
@@ -484,12 +497,6 @@ export async function recordOutcome(
   const edge = read.value.edges.find(
     (row) => row.from === read.step.id && edgeOutcomes(row).includes(outcome),
   );
-  if (edge === undefined)
-    throw invalid(
-      task,
-      outcome,
-      `step ${read.step.id} has no edge for ${outcome}`,
-    );
   const event = (type: "outcome" | "hold", payload: Json) =>
     tx.appendEvent({
       type,
@@ -502,6 +509,31 @@ export async function recordOutcome(
       payload,
       source: input.source,
     });
+  const settled = (state: TaskState, promoted: string[], replayed: boolean) =>
+    ({ kind: "settled", state, promoted, replayed }) as const;
+
+  if (edge === undefined) {
+    if (outcome !== "rework")
+      throw invalid(
+        task,
+        outcome,
+        `step ${read.step.id} has no edge for ${outcome}`,
+      );
+    if (
+      task.state === "hold" &&
+      (await latest(tx, task, "hold", "reason")) === noReworkEdge
+    )
+      return settled("hold", [], true);
+    await moveTask(tx, task.task_id, "hold");
+    await event("hold", {
+      reason: noReworkEdge,
+      outcome,
+      decision_id:
+        DecisionSource.safeParse(input.source).data?.decision_id ?? null,
+      from: task.state,
+    });
+    return settled("hold", [], false);
+  }
   const recordEdge = () =>
     event("outcome", {
       task_id: task.task_id,
@@ -514,8 +546,6 @@ export async function recordOutcome(
         then: edge.then ?? null,
       },
     });
-  const settled = (state: TaskState, promoted: string[], replayed: boolean) =>
-    ({ kind: "settled", state, promoted, replayed }) as const;
 
   if (edge.to === "hold") {
     if (
@@ -529,7 +559,7 @@ export async function recordOutcome(
     return settled("hold", [], false);
   }
 
-  if (outcome === "FAIL") {
+  if (outcome === "FAIL" || outcome === "rework") {
     const target = stepOf(read, edge.to, task, outcome);
     const then =
       edge.then === undefined ? null : stepOf(read, edge.then, task, outcome);
@@ -622,7 +652,7 @@ async function agreedSpec(
   };
 }
 
-async function rework(
+export async function rework(
   ctx: ProjectContext,
   plan: ReworkPlan,
 ): Promise<{ ok: true; created: string[] } | Refused> {
@@ -648,9 +678,21 @@ async function rework(
       step_id: stepId,
       rework: failed.task_id,
     });
+  const agreed = await agreedSpec(db, toProjectStep(target), newest(target.id));
   const made = await createTask(ctx, {
     runId,
-    ...(await agreedSpec(db, toProjectStep(target), newest(target.id))),
+    ...agreed,
+    ...(plan.note === undefined
+      ? {}
+      : {
+          step: {
+            ...agreed.step,
+            spec: [
+              agreed.step.spec ?? defaultSpec(ctx.process, agreed.step),
+              plan.note,
+            ].join("\n\n"),
+          },
+        }),
     opKey: key(target.id),
     deps: targetDeps,
     reworkOf: newest(target.id),

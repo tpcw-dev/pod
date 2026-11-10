@@ -153,7 +153,7 @@ async function recipient(
       return seated(db, orca, log, decision, context, "auditor", 0, () =>
         renderTemplate(templateOf(templates, "evidence"), {
           ...fields,
-          proposal: item.proposal,
+          proposal: proposalText(item),
           citations: citationText(item.citations),
         }),
       );
@@ -190,8 +190,7 @@ async function resumeTarget(
           summary,
           proposalBody(decision, {
             round: item.round,
-            proposal: proposed.proposal.proposal,
-            citations: proposed.proposal.citations,
+            ...proposed.proposal,
           }),
         ].join("\n\n"),
     );
@@ -295,15 +294,36 @@ function citationText(citations: readonly string[]): string {
   return citations.length === 0 ? "none" : citations.join(", ");
 }
 
+function proposalText(item: {
+  proposal: string;
+  plan?: string | undefined;
+  changes?: readonly string[] | undefined;
+}): string {
+  if (item.plan === undefined) return item.proposal;
+  return [
+    item.proposal,
+    `Plan: ${item.plan}`,
+    ...(item.plan === "rework"
+      ? ["Changes:", ...(item.changes ?? []).map((change) => `- ${change}`)]
+      : []),
+  ].join("\n");
+}
+
 function proposalBody(
   decision: DecisionRow,
-  item: { round: number; proposal: string; citations: readonly string[] },
+  item: {
+    round: number;
+    proposal: string;
+    citations: readonly string[];
+    plan?: string | undefined;
+    changes?: readonly string[] | undefined;
+  },
 ): string {
   return [
     `Decision ${decision.id} round ${item.round}. Audit this proposal.`,
     "",
     `Question: ${decision.question}`,
-    `Proposal: ${item.proposal}`,
+    `Proposal: ${proposalText(item)}`,
     `Citations: ${citationText(item.citations)}`,
   ].join("\n");
 }

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { DecisionRow, DecisionState } from "../domain/decision.ts";
+import type { PlanVerdict } from "../domain/delivery.ts";
 import { Json } from "../domain/json.ts";
 import { ManifestReference } from "../manifest/references.ts";
 import type { Repo } from "../ports/db.ts";
@@ -51,6 +52,7 @@ export async function applyEffect(
   decision: DecisionRow,
   to: DecisionState,
   context: { at: Date; host: string },
+  plan: PlanVerdict = "accept",
 ): Promise<Recorded | null> {
   if (decision.task_id === null) return null;
   if (decision.effect === "change_spec") {
@@ -78,7 +80,7 @@ export async function applyEffect(
   if (to.kind !== "agreed" && to.kind !== "cancelled") return null;
   return recordOutcome(tx, {
     task: decision.task_id,
-    outcome: to.kind,
+    outcome: to.kind === "agreed" && plan === "rework" ? "rework" : to.kind,
     at: context.at,
     host: context.host,
     source: { kind: "decision", decision_id: decision.id },

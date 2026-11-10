@@ -486,10 +486,10 @@ describeDb("decision states", () => {
       },
     },
     {
-      name: "row 7: `round(n)` or `awaiting_evidence(n)` | the pair proposes a plan change on an `accept_plan` Decision",
+      name: "row 7: `round(n)` or `awaiting_evidence(n)` | the coordinator opens a `change_spec` Decision with `--supersedes` on an open `accept_plan` Decision",
       row: 7,
       from: "`round(n)` or `awaiting_evidence(n)`",
-      event: "the pair proposes a plan change on an `accept_plan` Decision",
+      event: "the coordinator opens a `change_spec` Decision with `--supersedes` on an open `accept_plan` Decision",
       to: "`superseded`, with `by` the new `change_spec` Decision the coordinator opens, and no rounds spent on the old Decision after that",
       drive: async () => {
         const old = await opened(7);

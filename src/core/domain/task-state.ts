@@ -73,7 +73,8 @@ export const transitions: readonly Transition[] = [
   {
     from: "delivered",
     to: "failed",
-    trigger: "a FAIL Gate receipt whose edge has new_task: true",
+    trigger:
+      "a FAIL Gate receipt whose edge has new_task: true, or an agreed accept_plan Decision whose proposal says plan: rework",
   },
   {
     from: "delivered",

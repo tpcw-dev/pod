@@ -75,6 +75,28 @@ test("a profile key outside replaces, requires, and deploy_production is refused
   ]);
 });
 
+test.each([
+  [{ tracker: "linear" }, "profiles.p.requires.tracker"],
+  [
+    { policy_revision: "rev_1", tracker: "linear" },
+    "profiles.p.requires.tracker",
+  ],
+  [{ policy_revision: "" }, "profiles.p.requires.policy_revision"],
+  [{ policy_revision: 7 }, "profiles.p.requires.policy_revision"],
+  ["rev_1", "profiles.p.requires"],
+])("requires %j is refused", (requires, path) => {
+  expect(refusedAt(withProfiles({ p: { requires } }))).toEqual([
+    "schema_invalid",
+    path,
+  ]);
+});
+
+test("requires names only a policy_revision", () => {
+  expect(
+    refusedAt(withProfiles({ p: { requires: { policy_revision: "rev_1" } } })),
+  ).toBeNull();
+});
+
 test("an active_profile that names an undefined profile is refused", () => {
   expect(refusedAt({ ...defaultValue, active_profile: "reckless" })).toEqual([
     "schema_invalid",

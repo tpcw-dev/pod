@@ -774,9 +774,9 @@ A process spec is a YAML file. zod parses it into the process schema.
 `pod config apply` refuses a process spec unless every rule below holds.
 
 - Every step is reachable from the first step.
-- Every step has an outgoing edge for each outcome its type allows, as the outcome table below lists.
+- Every step has an outgoing edge for each outcome its type allows, as the outcome table below lists. A `decision` step may also have a `rework` edge; the edge is not required (Spec clarification: TPC-1530).
 - No edge points to an unknown step. `hold` and `done` are reserved edge targets.
-- A `FAIL` edge targets `hold` or has `new_task: true`.
+- A `FAIL` or `rework` edge targets `hold` or has `new_task: true`.
 - A step has `gate` or `decision`, never both. A `decision` step is a `worker` step, and its `cancelled` edge targets `hold`.
 - Every Role has an authorized Seat in the active crew.
 - The reviewer is independent of the developer.
@@ -786,7 +786,7 @@ A policy or crew Revision validates against its own schema only. A process Revis
 
 | Step type | Allowed outcomes |
 | --- | --- |
-| `worker` | `done`, `timeout`, `cancel`, `unknown`, with `PASS` and `FAIL` in place of `done` when the step has a `gate`, and with `agreed` and `cancelled` in place of `done` when the step has a `decision` |
+| `worker` | `done`, `timeout`, `cancel`, `unknown`, with `PASS` and `FAIL` in place of `done` when the step has a `gate`, and with `agreed` and `cancelled` in place of `done` when the step has a `decision`, which may also take `rework` on an optional edge |
 | `human_wait` | `PASS`, `FAIL`, `cancel` |
 | `external_action` | `done`, `unknown`, `cancel` |
 
@@ -997,6 +997,8 @@ Every Decision request names its `effect`, and `ledger.decision.effect` records 
 
 A Decision on a `decision: plan` step carries `accept_plan`, and `effect` never changes. When the pair proposes a plan change inside an `accept_plan` Decision, that Decision ends `superseded`, with `by` set to a new `change_spec` Decision that the coordinator opens on the same Run through `pod decide --effect change_spec`, carrying the proposed plan Revision. The new Decision cites the old id in `supersedes_decision_id` and runs its own rounds on the lineage budget, as "Budgets" describes. On `agreed` it applies the new plan Revision and supersedes the plan Task through the `change_spec` path, and the projector creates the replacement plan Task `delivered` on the new plan Revision and opens a new `accept_plan` Decision for it. The `accept_plan` Decision itself never supersedes a Task. `pod decide` refuses `accept_plan` for a Task whose step has no `decision`, and refuses `change_spec` from the projector, both with `usage`.
 
+Spec clarification: TPC-1530. A plan change the pair agrees on travels inside the `accept_plan` Decision, and this replaces the coordinator-opened supersede chain above for that case. A `decision_proposal` payload may carry `plan`, `accept` or `rework`, and `changes`, a list of strings: `rework` names at least one change and `accept` names none, and a proposal that breaks either rule is ignored as `malformed_decision`. A proposal with no `plan` counts as `accept`, and `pod check` adds the nextStep `Decision <id> round <n>: proposal names no plan field; read it before pod dispatch` when it records one on an `accept_plan` Decision. The auditor sees `plan` and `changes` with the proposal, so an `agree` agrees to the changes too. Only an `accept_plan` Decision reads the fields; a `change_spec` Decision ignores them. On `agreed` with `plan: rework` the Decision settles `agreed` with `plan` and `changes` in its outcome, and the plan Task settles with the outcome `rework`: it moves `delivered` to `failed`, and the step's `rework` edge, `{ from: plan, on: rework, to: plan, new_task: true }`, creates a new plan Task in the same lineage with `rework_of` the old one, counted against `rework_per_lineage`, and points the implement Task's deps at it. Implement stays `pending`. The Orca task spec of the new plan Task ends with `Agreed plan change from Decision <id>: <proposal>` and a `Changes:` list. Pod creates it in the `pod check` pass that settles the Decision, after the settle transaction, under the project op key derived from the old plan Task, so a pass that stops between the two writes creates it on the next pass. Its delivery opens a new `accept_plan` Decision as any plan delivery does, and the brief counts the first Decision `reworked`. On a step with no `rework` edge, an agreed `plan: rework` holds the plan Task with hold reason `no_rework_edge` and creates no Task; the Task stays open to `pod decide --effect change_spec --supersedes` or to `pod check --resume` and a new `accept_plan` Decision, and every `pod check` pass while it holds adds the nextStep `Decision <id> agreed a plan rework; step <step> has no rework edge; Task <task> is on hold; change it with pod decide --effect change_spec --supersedes`. `change_spec --supersedes` stays for a change the coordinator finds itself.
+
 #### Round protocol
 
 The decider proposes and must cite the manifest. A proposal without citations is an automatic disagree. The auditor lists constraints and verification results first, then audits the proposal, checks citations, and looks for counterexamples. The auditor answers agree, disagree with reasons, escalate, or needs_evidence. The auditor never proposes.
@@ -1024,7 +1026,7 @@ type DecisionState =
 | `requested` | Reserved needs_existing_authorization hit, and nothing authorizes it | `needs_human` with reason `policy-required` |
 | `requested` | no Reserved hit | `round(1)` |
 | `round(n)` | both agree | dependencies re-checked, then `agreed`, and the outcome applies by its `effect` as "Decision effects" describes |
-| `round(n)` or `awaiting_evidence(n)` | the pair proposes a plan change on an `accept_plan` Decision | `superseded`, with `by` the new `change_spec` Decision the coordinator opens, and no rounds spent on the old Decision after that |
+| `round(n)` or `awaiting_evidence(n)` | the coordinator opens a `change_spec` Decision with `--supersedes` on an open `accept_plan` Decision | `superseded`, with `by` the new `change_spec` Decision the coordinator opens, and no rounds spent on the old Decision after that |
 | `round(n)` | both agree, but a dependency's source Revision changed | `needs_human` with reason `context-missing`, and the outcome is not executable |
 | `round(n)` | one side escalates | affected actions stop first, the other side evaluates, and continued disagreement counts as a round |
 | `round(n)` | auditor answers needs_evidence | `awaiting_evidence(n)`, which is not a round and counts against `tool_calls` |
@@ -1082,7 +1084,7 @@ gates:
 profiles:
   autonomous:   # the human gatekeeper names the project, the gate list, and this policy Revision
     replaces: { prd_review: decision-pair-aqa, design_clickthrough: decision-pair-aqa }
-    requires: { tracker: linear }
+    requires: { policy_revision: <id> }
 reserved:
   deny: [live_trading, evidence_tamper, safety_limit_removal]
   needs_human:

@@ -1,0 +1,31 @@
+kind: process
+name: plan-rework
+schema_version: 1
+value:
+  summary: plan-rework replay, a plan the decision pair sends back with changes, then agrees, then the build
+  selector: { stage: impl, size: [l] }
+  roles: [planner, developer]
+  steps:
+    - {
+        id: plan,
+        type: worker,
+        role: planner,
+        produces: [plan],
+        decision: plan,
+      }
+    - {
+        id: implement,
+        type: worker,
+        role: developer,
+        needs: [plan],
+        spec: Build it.,
+      }
+  edges:
+    - { from: plan, on: agreed, to: implement }
+    - { from: plan, on: rework, to: plan, new_task: true }
+    - { from: plan, on: cancelled, to: hold }
+    - { from: plan, on: [timeout, cancel, unknown], to: hold }
+    - { from: implement, on: done, to: done }
+    - { from: implement, on: [timeout, cancel, unknown], to: hold }
+  limits: { attempts_per_task: 3, rework_per_lineage: 3 }
+  escalation: { to: decision-pair }

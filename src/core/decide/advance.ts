@@ -6,11 +6,13 @@ import {
   type DecisionRow,
   type DecisionState,
 } from "../domain/decision.ts";
-import type {
-  DecisionAudit,
-  DecisionEvidence,
-  DecisionMessage,
-  IgnoredReason,
+import {
+  PlanFields,
+  planFields,
+  type DecisionAudit,
+  type DecisionEvidence,
+  type DecisionMessage,
+  type IgnoredReason,
 } from "../domain/delivery.ts";
 import { Json } from "../domain/json.ts";
 import { budgetOf } from "../domain/policy.ts";
@@ -44,6 +46,7 @@ export interface AdvanceContext {
 const ProposalEvent = z.looseObject({
   proposal: z.string(),
   citations: z.array(z.string()),
+  ...PlanFields,
 });
 
 const fromRole = {
@@ -89,6 +92,7 @@ export async function advanceDecision(
       round: message.round,
       proposal: message.proposal,
       citations: message.citations,
+      ...planFields(message),
     });
     return { kind: "recorded", settled: null };
   }
@@ -207,7 +211,19 @@ async function applyAudit(
     step.to.kind === "agreed"
       ? proposal.proposal
       : `${stateText(step.to)}: ${reasonText(step.to)}`;
-  await settle(tx, decision, step.to, text, context);
+  const rework =
+    step.to.kind === "agreed" &&
+    decision.effect === "accept_plan" &&
+    proposal.plan === "rework";
+  await settle(
+    tx,
+    decision,
+    step.to,
+    text,
+    context,
+    {},
+    rework ? { plan: "rework", changes: proposal.changes ?? [] } : {},
+  );
   return { kind: "recorded", settled: stateText(step.to) };
 }
 
@@ -329,6 +345,7 @@ async function applyEvidence(
     round: input.round,
     proposal: input.proposal.proposal,
     citations: input.proposal.citations,
+    ...planFields(input.proposal),
   });
   return { kind: "recorded", settled: null };
 }
@@ -382,7 +399,13 @@ export async function settle(
         : detail,
       context.verb,
     );
-  await applyEffect(tx, decision, to, context);
+  await applyEffect(
+    tx,
+    decision,
+    to,
+    context,
+    outcome["plan"] === "rework" ? "rework" : "accept",
+  );
 }
 
 function interrupted(state: DecisionState): number {

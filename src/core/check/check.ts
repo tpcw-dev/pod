@@ -10,6 +10,7 @@ import { Templates } from "../decide/templates.ts";
 import {
   deliveryFacts,
   deliveryOutcome,
+  planFields,
   readDecisionMessage,
   type DecisionMessage,
   type DeliveryRow,
@@ -27,6 +28,7 @@ import { recordDeliveryTests } from "../manifest/record.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaMessage, OrcaPort, WorkerRow } from "../ports/orca.ts";
+import { followReworks } from "../process/follow-rework.ts";
 import { recordDelivery } from "../process/project.ts";
 import type { TrackerPort } from "../ports/tracker.ts";
 import { drainOutbox } from "../tracker/outbox.ts";
@@ -213,6 +215,13 @@ export async function checkPass(
       ...(await followSupersedes(db, orca, log, {
         run,
         workers,
+        host: input.host,
+        now: input.now,
+      })),
+    );
+    result.nextSteps.push(
+      ...(await followReworks(db, orca, log, {
+        run,
         host: input.host,
         now: input.now,
       })),
@@ -427,6 +436,15 @@ async function recordMessage(
           result.nextSteps.push(`ignored ${advanced.detail}`);
         return ignore(advanced.reason);
       }
+      if (
+        read.message.kind === "decision_proposal" &&
+        read.message.plan === undefined &&
+        (await tx.getDecision(read.message.decisionId))?.effect ===
+          "accept_plan"
+      )
+        result.nextSteps.push(
+          `Decision ${read.message.decisionId} round ${read.message.round}: proposal names no plan field; read it before pod dispatch`,
+        );
       decision = {
         decision_id: read.message.decisionId,
         round: String(read.message.round),
@@ -512,7 +530,11 @@ async function recordMessage(
 function decisionFields(message: DecisionMessage): Record<string, Json> {
   switch (message.kind) {
     case "decision_proposal":
-      return { proposal: message.proposal, citations: message.citations };
+      return {
+        proposal: message.proposal,
+        citations: message.citations,
+        ...planFields(message),
+      };
     case "decision_audit":
       return { stance: message.stance };
     case "decision_evidence":

@@ -85,6 +85,34 @@ function gateProblem(gates: unknown, crewValue: unknown | null): Problem {
 const profileKeys = ["replaces", "requires", "deploy_production"];
 const deploySettings = ["needs_human", "agent"];
 
+function requiresProblem(
+  name: string,
+  profile: Record<string, unknown>,
+): Problem {
+  if (!("requires" in profile)) return null;
+  const path = `profiles.${name}.requires`;
+  const requires = profile["requires"];
+  if (
+    requires === null ||
+    typeof requires !== "object" ||
+    Array.isArray(requires)
+  )
+    return { path, message: `${path}: must be { policy_revision: <id> }` };
+  const extra = Object.keys(requires).find((key) => key !== "policy_revision");
+  if (extra !== undefined)
+    return {
+      path: `${path}.${extra}`,
+      message: `${path}.${extra}: requires names only policy_revision`,
+    };
+  const revision = fields(requires)["policy_revision"];
+  if (typeof revision !== "string" || revision === "")
+    return {
+      path: `${path}.policy_revision`,
+      message: `${path}.policy_revision: must be a non-empty Revision id`,
+    };
+  return null;
+}
+
 function profileProblem(profiles: unknown, gates: unknown): Problem {
   const ids = gateIds(gates);
   for (const [name, profile] of Object.entries(fields(profiles))) {
@@ -104,6 +132,8 @@ function profileProblem(profiles: unknown, gates: unknown): Problem {
           message: `profiles.${name}.deploy_production: must be ${deploySettings.join(" or ")}`,
         };
     }
+    const requires = requiresProblem(name, fields(profile));
+    if (requires !== null) return requires;
     const replaces = fields(fields(profile)["replaces"]);
     for (const [gate, to] of Object.entries(replaces)) {
       const path = `profiles.${name}.replaces.${gate}`;

@@ -15,6 +15,7 @@ export const Outcome = z.enum([
   "FAIL",
   "agreed",
   "cancelled",
+  "rework",
 ]);
 export type Outcome = z.infer<typeof Outcome>;
 
@@ -129,6 +130,12 @@ export function allowedOutcomes(step: Step): Outcome[] {
       return [...finished, "timeout", "cancel", "unknown"];
     }
   }
+}
+
+export function optionalOutcomes(step: Step): Outcome[] {
+  return step.type === "worker" && step.decision !== undefined
+    ? ["rework"]
+    : [];
 }
 
 export function issuePath(error: z.ZodError): string {
