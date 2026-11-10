@@ -521,11 +521,19 @@ function staleRefusal(run: Run, generation: number): Refusal {
 }
 
 const StoryAck = z.looseObject({
-  story: z.looseObject({ status: z.string().nullable() }).nullable(),
+  story: z.looseObject({ status: z.string().nullable() }).nullable().optional(),
+  status: z.string().optional(),
   error: z.string().optional(),
 });
 
 type Stepped = { replayed: boolean } | Refused;
+
+function ackResult(readback: Json): Json {
+  const ack = StoryAck.safeParse(readback).data;
+  return ack?.error === statusUnknown && ack.status !== undefined
+    ? { unapplied: ack.status }
+    : readback;
+}
 
 async function confirmTracker(
   name: CloseStepName,
@@ -548,7 +556,7 @@ async function confirmTracker(
     await db.moveOperation(
       opKey,
       "done",
-      Json.parse({ request, result: row.readback }),
+      Json.parse({ request, result: ackResult(row.readback ?? null) }),
       input.now(),
     );
     return { replayed: false };
@@ -556,13 +564,15 @@ async function confirmTracker(
   const payload = OutboxPayload.safeParse(row.payload).data;
   if (row.last_error === statusUnknown && payload?.kind === "status") {
     const readback = { error: statusUnknown, status: payload.status };
-    await db.ackOutbox(row.id, readback);
-    await db.moveOperation(
-      opKey,
-      "done",
-      Json.parse({ request, result: { unapplied: payload.status } }),
-      input.now(),
-    );
+    await db.transaction(async (tx) => {
+      await tx.ackOutbox(row.id, readback);
+      await tx.moveOperation(
+        opKey,
+        "done",
+        Json.parse({ request, result: ackResult(readback) }),
+        input.now(),
+      );
+    });
     return { replayed: false };
   }
   const parked = row.tries >= OUTBOX_MAX_TRIES;

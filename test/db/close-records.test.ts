@@ -373,6 +373,28 @@ describeDb("pod run close records", () => {
       );
   });
 
+  test("a status_unknown ack left by a stopped close still prints the by-hand line", async () => {
+    tracker.failRead = true;
+    expect(await close()).toMatchObject({
+      ok: false,
+      refusal: { code: "tracker_unconfirmed" },
+    });
+    const [row] = await outboxRows();
+    const pending = await conn.db.outboxByOpKey(row?.op_key ?? "");
+    await conn.db.ackOutbox(pending?.id ?? 0, {
+      error: "status_unknown",
+      status: "Done",
+    });
+    tracker.failRead = false;
+    const line = "story:S-1: the tracker has no status Done; set it by hand";
+    const outcome = await close();
+    expect(outcome).toMatchObject({ ok: true, result: { state: "done" } });
+    if (outcome.ok) expect(outcome.result.nextSteps).toContain(line);
+    const again = await close();
+    if (again.ok) expect(again.result.nextSteps).toContain(line);
+    expect(again).toMatchObject({ ok: true, result: { already_closed: true } });
+  });
+
   test("no tracker refuses tracker_unconfirmed and writes no step", async () => {
     const outcome = await close({ tracker: null });
     expect(outcome).toMatchObject({
