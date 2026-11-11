@@ -23,7 +23,7 @@ import {
   started,
   workers,
 } from "./run-fixture.ts";
-import { activeRevision } from "./seed.ts";
+import { activeRevision, seedHost } from "./seed.ts";
 
 export const planTask = "task_plan";
 export const implementTask = "task_impl";
@@ -97,6 +97,7 @@ export async function seedDecision(
   await activeRevision(conn.db, "policy", "default", policy);
   await activeRevision(conn.db, "crew", "default", crew);
   await activeRevision(conn.db, "process", "plan", planProcess);
+  await seedHost(conn.db);
   return activeRevision(conn.db, "decision", "default", defaultTemplates());
 }
 

@@ -20,6 +20,7 @@ import {
   sent,
 } from "../db/decision-fixture.ts";
 import { describeDb, openDb, resetDb, runCli } from "../db/helpers.ts";
+import { seedHost } from "../db/seed.ts";
 import { empty, message, started, workers } from "../db/run-fixture.ts";
 
 const dir = "test/replay/plan-rework";
@@ -64,6 +65,7 @@ describeDb("plan rework", () => {
       "test/replay/decision-states/process.yaml",
       "specs/decision/default.yaml",
     ]);
+    await seedHost(conn.db);
   });
   afterAll(() => conn.close());
 

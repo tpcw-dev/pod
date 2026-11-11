@@ -1026,7 +1026,7 @@ A `human_wait` or `external_action` step has no Dispatch, so its readiness rule 
 
 ### The decision layer seats
 
-The decider and the auditor are Roles in the crew Revision. They share the host quota with worker Seats and start in sequence, so capacity 1 never deadlocks. There is no quota table. The quota is the host profile's `capacity` minus the slots in use. A slot is in use for each Dispatch on the host with `activity` `running`, worker and Decision Seats counted alike, and for each `ledger.operation` row with a launch intent (`dispatch`, `retry`, or `decide_seat`) and status `pending` or `unknown`, which is a reservation. When the start receipt arrives, the same transaction sets the operation to `done` and inserts the Dispatch row with `activity` `running`, so the slot moves from the reservation to the Dispatch and is never counted twice. An operation left `unknown` keeps its slot until `pod check` reconciles it through `requestShow` or the worker list. S3 may add a table if the count proves too slow.
+The decider and the auditor are Roles in the crew Revision. They share the host quota with worker Seats and start in sequence, so capacity 1 never deadlocks. There is no quota table. The quota is `slots.default` of the active host Revision for this host (see "Host profile") minus the slots in use. A slot is in use for each Dispatch on the host with `activity` `running`, worker and Decision Seats counted alike, and for each `ledger.operation` row with a launch intent (`dispatch`, `retry`, or `decide_seat`) and status `pending` or `unknown`, which is a reservation. When the start receipt arrives, the same transaction sets the operation to `done` and inserts the Dispatch row with `activity` `running`, so the slot moves from the reservation to the Dispatch and is never counted twice. An operation left `unknown` keeps its slot until `pod check` reconciles it through `requestShow` or the worker list. S3 may add a table if the count proves too slow.
 
 A Dispatch is `waiting` when its Seat has delivered and waits on a message. That covers a worker blocked on `pod decide` and a Decision Seat between rounds. A `waiting` Dispatch holds no slot. A Dispatch is `settled` once its settlement is recorded. `pod check` and `pod decide` record each `activity` change.
 
@@ -1153,7 +1153,7 @@ Binding is `run` only. A project or global change is a recommendation that goes 
 
 #### Policy schema
 
-The policy is `specs/policy/policy.yaml`, a `kind: policy` Revision. It names each Gate's keeper, the Reserved categories, the profiles, the escalation threshold, and the Decision limits. The excerpt below uses generic keeper names.
+The policy is `specs/policy/default.yaml`, a `kind: policy` Revision. It names each Gate's keeper, the Reserved categories, the profiles, the escalation threshold, and the Decision limits. The excerpt below uses generic keeper names.
 
 ```yaml
 kind: policy
@@ -1178,10 +1178,14 @@ reserved:
   needs_existing_authorization: { repo_create: story_spec, vps_ssh: infrastructure_story }
 escalate_when: [scope_exceeds_story, affects_other_story, new_dependency, architecture_choice]
 story_status: { done: Done, human_wait: In-review }
+tracker: { kind: linear, estimate_scale: fibonacci }
+docs: { kind: notion }
 limits:
   decision_rounds: 3
   decision_budget: { wall_clock: 2h, relaunches: 2, tool_calls: 40, context_tokens: 60k }
 ```
+
+Spec clarification: TPC-1533. `tracker` is `{ kind, estimate_scale }` and `docs` is `{ kind }`, each field an optional non-empty name; anything else in either block is refused with `schema_invalid`. Pod reads them from the single active global policy. A field the policy leaves out, or a global policy that is not single and active, reads as `linear`, `fibonacci`, and `notion`. A policy Revision that names `roadmap` is checked against its own `docs.kind` when it sets one, otherwise against the active global policy's.
 
 Spec clarification: S18b. `story_status` names the tracker statuses `pod run close` moves the Story to: `human_wait` while a human Gate is pending, otherwise `done`. A human Gate is pending when a step of the pinned process names a Gate whose pinned policy type is HQA, the pinned profile does not replace it, and the Run's latest non-voided receipt for it is not `PASS`, as with `hqa_after_deploy` before its PASS. The close never moves the Story past `human_wait`, and never moves an epic. A pinned policy with no `story_status` writes no status. Pod's seed names `Done` and `In-review`; a shop's names arrive as a Revision a person activates. A name the tracker lacks fails the write with `status_unknown`; the close then finishes and prints `story:<id>: the tracker has no status <name>; set it by hand`. A Story a person canceled refuses `story_canceled` and stays on hold.
 
@@ -1309,13 +1313,12 @@ The host profile is a local file outside the repo at `$POD_HOME/host.yaml`, defa
 | `credentials_file` | optional, the credentials file, default `$POD_HOME/credentials`; a relative path is read under `$POD_HOME` |
 | `mirror_dir` | optional, the mirror directory `pod config export --all` writes and `pod brief` reads, default `$POD_HOME/mirror`; a relative path is read under `$POD_HOME` |
 | `db.url_env` | the name of the credential that holds the connection string |
-| `tracker.kind` | `linear` |
 | `tracker.token_env` | the name of the credential that holds the tracker token |
-| `docs.kind` | `notion` |
 | `docs.token_env` | the name of the credential that holds the docs token |
-| `capacity` | the Seat quota on this host |
 | `operator` | optional, the principal who runs this host's shell, recorded as `person:<operator>`; it must name a principal of the active global policy when that policy lists any |
 | `record_dir` | optional, the fixture record directory |
+
+Spec clarification: TPC-1533. The host profile holds this host's identity, local paths, and credential names, and no setting a person approves. The Seat quota on this host is `slots.default` of the active host Revision named `<host_id>` at scope `host:<host_id>`, which a person activates with `pod config activate`. With no such Revision, `dispatch`, `retry`, and every `decide_seat` launch refuse `config_missing` with the next steps `pod config apply specs/host/<host_id>.yaml --ticket K` and `then a person runs pod config activate host.<host_id>@REV --scope host:<host_id> --expected-revision none`, recorded under the op key as `quota_exhausted` is; `pod check` still runs, reports `free_slots: 0`, and prints the same next steps. `tracker.kind`, `tracker.estimate_scale`, and `docs.kind` live on the global policy (see "Policy schema"). A host profile that still carries `capacity`, `tracker.kind`, `tracker.estimate_scale`, or `docs.kind` is refused with `schema_invalid`, one next step per field naming where it moved.
 
 The host profile holds no secrets. It names credentials instead. The host profile is not a Revision because it names local secrets and a local Orca, and a Revision is meant to be shared and pinned.
 
