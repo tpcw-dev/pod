@@ -1,0 +1,32 @@
+kind: host
+name: host-a
+schema_version: 1
+scope: host
+scope_ref: host-a
+value:
+  driver: hat-a
+  hostnames:
+    - host-a
+    - host-a.local
+  manager: true
+  decision_seat: true
+  slots:
+    default: 2
+    max: 3
+  reserved:
+    project-a: 1
+  projects:
+    - project-a
+    - project-b
+  harnesses:
+    - harness-a
+    - harness-b
+  notion_harnesses:
+    - harness-a
+  notion: true
+  scheduler: orca
+  limits:
+    min_available_mb: 2048
+    max_swap_used_pct: 50
+    crew_memory_max: 4G
+    crew_swap_max: 2G

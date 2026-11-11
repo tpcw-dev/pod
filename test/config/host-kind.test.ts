@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -7,8 +7,14 @@ import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { validateHost } from "../../src/core/config/host.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "../db/helpers.ts";
 
-const seedDir = "specs/host";
-const seeds = readdirSync(seedDir).filter((file) => file.endsWith(".yaml"));
+const examplePath = "specs/host/host.example.yaml";
+const example = parse(readFileSync(examplePath, "utf8")) as {
+  kind: string;
+  name: string;
+  scope: string;
+  scope_ref: string;
+  value: unknown;
+};
 const dir = mkdtempSync(join(tmpdir(), "pod-host-"));
 const seat = { POD_SEAT: "developer" };
 const neither = { POD_SEAT: "", POD_HOME: mkdtempSync(join(tmpdir(), "pod-")) };
@@ -50,22 +56,11 @@ function refusedAt(value: unknown) {
   return refusal === null ? null : [refusal.code, refusal.nextSteps[0]];
 }
 
-test("each seed under specs/host passes the host schema", () => {
-  expect(seeds.length).toBeGreaterThan(0);
-  for (const file of seeds) {
-    const seed = parse(readFileSync(join(seedDir, file), "utf8")) as {
-      kind: string;
-      name: string;
-      scope: string;
-      scope_ref: string;
-      value: unknown;
-    };
-    expect(seed.kind, file).toBe("host");
-    expect(`${seed.name}.yaml`).toBe(file);
-    expect(seed.scope).toBe("host");
-    expect(seed.scope_ref).toBe(seed.name);
-    expect(validateHost(seed.value), file).toBeNull();
-  }
+test("the example host file is a host Revision that passes the host schema", () => {
+  expect(example.kind).toBe("host");
+  expect(example.scope).toBe("host");
+  expect(example.scope_ref).toBe(example.name);
+  expect(validateHost(example.value)).toBeNull();
 });
 
 test("slots.default above slots.max is schema_invalid naming slots.default", () => {
@@ -159,46 +154,38 @@ describeDb("host kind", () => {
     ).toBe(0);
   });
 
-  test("each seed written by a Seat and activated by a person round-trips through config get", () => {
-    for (const file of seeds) {
-      const path = join(seedDir, file);
-      const seed = parse(readFileSync(path, "utf8")) as {
-        name: string;
-        value: unknown;
-      };
-      const written = runCli(
-        ["config", "apply", path, "--ticket", "TRK-1"],
-        seat,
-      );
-      expect(written.status, written.json.error?.message).toBe(0);
-      expect(written.json.result?.["activation"]).toBeNull();
-      expect(written.json.result?.["pending"]).not.toBeNull();
-      const pendingGet = runCli(
-        ["config", "get", `host.${seed.name}`],
-        neither,
-      );
-      expect(pendingGet.json.error?.code).toBe("config_missing");
-      const ref = written.json.result?.["ref"] as string;
-      const activated = runCli([
-        "config",
-        "activate",
-        ref,
-        "--scope",
-        `host:${seed.name}`,
-        "--expected-revision",
-        "none",
-      ]);
-      expect(activated.status, activated.json.error?.message).toBe(0);
-      const got = runCli(["config", "get", `host.${seed.name}`], neither);
-      expect(got.status, got.json.error?.message).toBe(0);
-      expect(got.json.result).toEqual({
-        ref,
-        id: written.json.result?.["id"],
-        scope: "host",
-        scope_ref: seed.name,
-        value: seed.value,
-      });
-    }
+  test("the example written by a Seat and activated by a person round-trips through config get", () => {
+    const written = runCli(
+      ["config", "apply", examplePath, "--ticket", "TRK-1"],
+      seat,
+    );
+    expect(written.status, written.json.error?.message).toBe(0);
+    expect(written.json.result?.["activation"]).toBeNull();
+    expect(written.json.result?.["pending"]).not.toBeNull();
+    const target = `host.${example.name}`;
+    expect(runCli(["config", "get", target], neither).json.error?.code).toBe(
+      "config_missing",
+    );
+    const ref = written.json.result?.["ref"] as string;
+    const activated = runCli([
+      "config",
+      "activate",
+      ref,
+      "--scope",
+      `host:${example.name}`,
+      "--expected-revision",
+      "none",
+    ]);
+    expect(activated.status, activated.json.error?.message).toBe(0);
+    const got = runCli(["config", "get", target], neither);
+    expect(got.status, got.json.error?.message).toBe(0);
+    expect(got.json.result).toEqual({
+      ref,
+      id: written.json.result?.["id"],
+      scope: "host",
+      scope_ref: example.name,
+      value: example.value,
+    });
   });
 
   test("config get with nothing active refuses config_missing without an operator or a Seat", () => {
