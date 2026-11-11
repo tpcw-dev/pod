@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { denylistFiles } from "../../src/cli/scope-scan.ts";
+import { denylistFiles, scopeRoots } from "../../src/cli/scope-scan.ts";
 
 test("the scope scan uses the scrubber boundary, including a serialized escape", () => {
   const root = mkdtempSync(join(tmpdir(), "pod-scope-"));
@@ -31,4 +31,19 @@ test("a file holding a userinfo password is reported", () => {
   );
   writeFileSync(join(root, "plain.md"), "connect to https://db.invalid/pod\n");
   expect(denylistFiles([], [root])).toEqual([join(root, "url.md")]);
+});
+
+test("a denylisted word under specs/ fails the scan", () => {
+  const root = mkdtempSync(join(tmpdir(), "pod-scope-"));
+  for (const scope of scopeRoots)
+    mkdirSync(join(root, scope), { recursive: true });
+  mkdirSync(join(root, "specs", "nested"), { recursive: true });
+  writeFileSync(
+    join(root, "specs", "nested", "spec.md"),
+    "secretco keeps the gate\n",
+  );
+  const roots = scopeRoots.map((scope) => join(root, scope));
+  expect(denylistFiles(["secretco"], roots)).toEqual([
+    join(root, "specs", "nested", "spec.md"),
+  ]);
 });

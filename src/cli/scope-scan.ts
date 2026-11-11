@@ -8,6 +8,7 @@ export const scopeRoots = [
   "docs",
   "src/db/schema",
   "test/db/takeover-unsafe",
+  "specs",
 ];
 
 function filesUnder(dir: string): string[] {
