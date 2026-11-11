@@ -1,0 +1,12 @@
+kind: project
+name: project-a
+schema_version: 1
+scope: global
+scope_ref: ""
+value:
+  repo: org-a/project-a
+  category: Applications
+  staging: false
+  tracker:
+    project_name: project-a
+    project_id: 00000000-0000-4000-8000-000000000000

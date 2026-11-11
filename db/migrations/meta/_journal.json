@@ -148,6 +148,13 @@
       "when": 1794444070503,
       "tag": "0020_digest",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794448607894,
+      "tag": "0021_project_kind",
+      "breakpoints": true
     }
   ]
 }

@@ -626,3 +626,59 @@ export async function configGet(
     await connection.close();
   }
 }
+
+export const ConfigListInput = z.strictObject({
+  args: z.tuple([z.string()]),
+  scope: z.string().optional(),
+});
+
+export const ConfigListOutput = z.object({
+  kind: z.string(),
+  scope: z.string(),
+  scope_ref: z.string(),
+  revisions: z.array(
+    z.object({
+      ref: z.string(),
+      id: z.string(),
+      name: z.string(),
+      value: z.unknown(),
+    }),
+  ),
+});
+
+export async function configList(
+  input: z.infer<typeof ConfigListInput>,
+): Promise<z.infer<typeof ConfigListOutput>> {
+  const [target] = input.args;
+  const kind = Kind.safeParse(target);
+  if (!kind.success) throw usageError(`${target} is not a config kind`);
+  const { scope, scope_ref } = setScope(input.scope) ?? {
+    scope: "global" as const,
+    scope_ref: "",
+  };
+  const connection = connect(databaseUrl(readHostProfile()));
+  try {
+    const active = await connection.db.listActivations(
+      kind.data,
+      scope,
+      scope_ref,
+    );
+    const revisions = [];
+    for (const activation of active) {
+      const revision = await connection.db.getRevision(activation.revision_id);
+      if (revision === null)
+        throw new Error(
+          `${activation.kind}.${activation.name} is active as Revision ${activation.revision_id}, which does not exist`,
+        );
+      revisions.push({
+        ref: revisionRef(revision),
+        id: revision.id,
+        name: revision.name,
+        value: revision.value,
+      });
+    }
+    return { kind: kind.data, scope, scope_ref, revisions };
+  } finally {
+    await connection.close();
+  }
+}
