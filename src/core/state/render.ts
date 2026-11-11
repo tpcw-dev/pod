@@ -69,6 +69,7 @@ export function renderState(view: StateView): string {
           (row) =>
             `Profile pending: ${row.profile} (policy ${row.policy}), post ${JSON.stringify(row.comment)}`,
         ),
+        `Config requests pending: ${policies.pending_requests}`,
         revisionLine("crew", policies.crew),
         `reserved deny: ${policies.reserved.deny.join(", ")}`,
         `reserved needs_human: ${policies.reserved.needs_human.join(", ")}`,

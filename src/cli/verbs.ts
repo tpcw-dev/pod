@@ -4,6 +4,8 @@ import {
   ConfigApplyOutput,
   ConfigExportInput,
   ConfigExportOutput,
+  ConfigActivateInput,
+  configActivate,
   configApply,
   configExport,
   configSet,
@@ -160,6 +162,17 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     cancelBy: ["nobody"],
     evidenceRequired: [
       "an existing source Revision, an edit that passes its kind's schema, and the active Revision unchanged since it was read when `--activate` is set",
+    ],
+  }),
+  row({
+    name: "config activate",
+    input: ConfigActivateInput,
+    output: ConfigApplyOutput,
+    handler: configActivate,
+    sideEffect: "config",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "an existing Revision at the named scope, run by a person, and `expected_revision` equal to the active Revision",
     ],
   }),
   row({

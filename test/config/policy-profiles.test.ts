@@ -36,10 +36,18 @@ const refusedAt = (value: unknown) => {
 
 test("the default policy defines the four profiles and validates", () => {
   expect(defaultValue["profiles"]).toEqual({
-    "hands-on": { deploy_production: "needs_human" },
-    standard: { deploy_production: "needs_human" },
-    "hands-off": { replaces: lifted, deploy_production: "needs_human" },
-    autonomous: { replaces: lifted, deploy_production: "agent" },
+    "hands-on": { agent_activates: [], deploy_production: "needs_human" },
+    standard: { agent_activates: [], deploy_production: "needs_human" },
+    "hands-off": {
+      agent_activates: [],
+      replaces: lifted,
+      deploy_production: "needs_human",
+    },
+    autonomous: {
+      agent_activates: [],
+      replaces: lifted,
+      deploy_production: "agent",
+    },
   });
   expect(validatePolicy(defaultValue, null)).toBeNull();
   for (const name of ["hands-on", "standard", "hands-off", "autonomous"])

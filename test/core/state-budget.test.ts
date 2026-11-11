@@ -51,6 +51,7 @@ function view(
       crew: { id: "crew-rev", name: "default", rev: 1 },
       profile: null,
       pending_profile: [],
+      pending_requests: 0,
       reserved: {
         deny: ["live_trading", words(sizes.reserved ?? 0, "r")].filter(
           (row) => row !== "",

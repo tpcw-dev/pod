@@ -241,3 +241,53 @@ test.each([
     { code: "schema_invalid", nextSteps: [path] },
   );
 });
+
+test("agent_activates is empty on each default profile", () => {
+  const profiles = defaultValue["profiles"] as Record<
+    string,
+    { agent_activates?: unknown }
+  >;
+  expect(Object.keys(profiles).sort()).toEqual([
+    "autonomous",
+    "hands-off",
+    "hands-on",
+    "standard",
+  ]);
+  for (const profile of Object.values(profiles))
+    expect(profile.agent_activates).toEqual([]);
+  expect(validatePolicy(defaultValue, null)).toBeNull();
+});
+
+test.each([[[]], [["crew"]], [["crew", "decision"]]])(
+  "agent_activates %j validates",
+  (kinds) => {
+    expect(
+      validatePolicy({ profiles: { p: { agent_activates: kinds } } }, null),
+    ).toBeNull();
+  },
+);
+
+test.each([[["policy"]], [["process"]], [["crew", "process"]]])(
+  "agent_activates %j is schema_invalid: an agent never activates policy or process",
+  (kinds) => {
+    const refusal = validatePolicy(
+      { profiles: { p: { agent_activates: kinds } } },
+      null,
+    );
+    expect(refusal?.code).toBe("schema_invalid");
+    expect(refusal?.message).toContain("an agent never activates");
+    expect(refusal?.nextSteps).toEqual(["profiles.p.agent_activates"]);
+  },
+);
+
+test.each([[["task"]], [["host"]], [[5]], ["crew"]])(
+  "agent_activates %j is schema_invalid",
+  (kinds) => {
+    const refusal = validatePolicy(
+      { profiles: { p: { agent_activates: kinds } } },
+      null,
+    );
+    expect(refusal?.code).toBe("schema_invalid");
+    expect(refusal?.nextSteps).toEqual(["profiles.p.agent_activates"]);
+  },
+);

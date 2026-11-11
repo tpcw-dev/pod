@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { singleActive } from "../config/active.ts";
-import { activatePendingProfile, pendingProfileOps } from "../config/apply.ts";
+import { activateRequested, pendingActivations } from "../config/apply.ts";
 import { decisionLimits } from "../config/limits.ts";
 import { advanceDecision, chargeBudget } from "../decide/advance.ts";
 import { applyRuling } from "../decide/ruling.ts";
@@ -36,7 +36,7 @@ import { syncStory } from "../tracker/sync.ts";
 import { voidEditedReceipts } from "../gate/hqa.ts";
 import {
   readStoryComments,
-  verifiedProfileRequests,
+  verifiedActivations,
   verifiedRulings,
   waitingDecisions,
 } from "../gate/ruling.ts";
@@ -284,26 +284,28 @@ async function applyRulings(
   run: Run,
   input: CheckInput,
 ): Promise<string[]> {
-  const pending = await pendingProfileOps(db);
+  const pending = await pendingActivations(db);
   const waiting = await waitingDecisions(db, run.run_id);
   if (waiting.size === 0 && pending.length === 0) return [];
-  const read = await readStoryComments(tracker, log, run);
-  if (!read.ok)
-    return [
-      `tracker readback of story:${run.story_external_id} failed: ${read.error}; Decision rulings and profile requests wait for the next pod check`,
-    ];
+  const needsStory =
+    waiting.size > 0 || pending.some((row) => row.request.ticket === null);
+  const read = needsStory
+    ? await readStoryComments(tracker, log, run)
+    : { ok: true as const, comments: [] };
+  const storyFailed = read.ok
+    ? []
+    : [
+        `tracker readback of story:${run.story_external_id} failed: ${read.error}; Decision rulings and profile requests wait for the next pod check`,
+      ];
   const context = {
     run,
     hostName: input.hostName,
     bypassPath: input.bypassPath,
     now: input.now,
   };
-  const { rulings, nextSteps } = await verifiedRulings(
-    db,
-    tracker,
-    read.comments,
-    context,
-  );
+  const { rulings, nextSteps } = read.ok
+    ? await verifiedRulings(db, tracker, read.comments, context)
+    : { rulings: [], nextSteps: storyFailed };
   for (const ruling of rulings) {
     const step = await db.transaction(async (tx) => {
       const owned = await fence(tx, run.run_id, input.generation);
@@ -314,20 +316,19 @@ async function applyRulings(
     });
     if (step !== null) nextSteps.push(step);
   }
-  const profiles = await verifiedProfileRequests(
-    db,
-    tracker,
-    read.comments,
-    pending,
-    context,
-  );
-  nextSteps.push(...profiles.nextSteps);
-  for (const readback of profiles.readbacks) {
+  const activations = await verifiedActivations(db, tracker, pending, {
+    ...context,
+    log,
+    storyComments: read.ok ? read.comments : null,
+  });
+  nextSteps.push(...activations.nextSteps);
+  for (const readback of activations.readbacks) {
     const step = await db.transaction(async (tx) => {
       await fence(tx, run.run_id, input.generation);
-      return activatePendingProfile(tx, readback.op_key, readback.source, {
+      return activateRequested(tx, readback.revision_id, readback.source, {
         at: input.now(),
         host: input.host,
+        activatedBy: readback.activated_by,
       });
     });
     if (step !== null) nextSteps.push(step);

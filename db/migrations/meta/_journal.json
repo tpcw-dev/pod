@@ -113,6 +113,13 @@
       "when": 1794303990061,
       "tag": "0015_close",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794334147720,
+      "tag": "0016_config_activate",
+      "breakpoints": true
     }
   ]
 }

@@ -22,7 +22,7 @@ import {
   readHostProfile,
   type HostSettings,
 } from "./host-profile.ts";
-import { writerOf } from "./identity.ts";
+import { actorOf, writerOf, type Identity } from "./identity.ts";
 import { issuesOf, parseYaml, readText } from "./yaml-file.ts";
 
 export const ConfigApplyInput = z.strictObject({
@@ -56,8 +56,9 @@ export const ConfigApplyOutput = z.object({
   pending: z
     .object({
       op_key: z.string(),
-      profile: z.string(),
+      profile: z.string().nullable(),
       comment: z.string(),
+      ticket: z.string().nullable(),
       runs_on_old_profile: z.array(z.string()),
       readback: z.string(),
     })
@@ -166,6 +167,24 @@ function settle(
   }
 }
 
+function activationRequest(
+  identity: Identity,
+  envelope: RevisionEnvelope,
+  ticket: string | undefined,
+  host: string,
+  expected?: string | null,
+) {
+  if (identity.kind === "person" || envelope.kind === "task") return null;
+  if (ticket === undefined)
+    throw usageError(
+      `${actorOf(identity)} is an agent Seat, and its Revision waits for a person to activate it`,
+      [
+        "pass --ticket <key> naming the ticket where a person posts the approval comment",
+      ],
+    );
+  return expected === undefined ? { host } : { host, expected };
+}
+
 function refuseRoadmap(envelope: RevisionEnvelope, host: HostSettings): void {
   const refusal =
     envelope.kind === "policy"
@@ -190,7 +209,7 @@ export async function configApply(
   refuseRoadmap(envelope, host);
   const connection = connect(databaseUrl(host));
   try {
-    const actor = await writerOf(
+    const identity = await writerOf(
       connection.db,
       host,
       process.env,
@@ -198,11 +217,15 @@ export async function configApply(
     );
     const outcome = await applyConfig(connection.db, {
       envelope,
-      actor,
+      actor: actorOf(identity),
       reason: input.reason ?? "",
       ticket: input.ticket ?? null,
       now: new Date(),
       activate: flags === null ? null : { ...flags, host: host.hostId },
+      request:
+        flags === null
+          ? activationRequest(identity, envelope, input.ticket, host.hostId)
+          : null,
     });
     return settle(outcome, file, (active) =>
       conflictSteps(file, envelope, active),
@@ -257,7 +280,7 @@ export async function configSet(
   const host = readHostProfile();
   const connection = connect(databaseUrl(host));
   try {
-    const actor = await writerOf(connection.db, host, process.env, activate);
+    const identity = await writerOf(connection.db, host, process.env, activate);
     const derived = await deriveSet(connection.db, {
       kind,
       name,
@@ -298,7 +321,7 @@ export async function configSet(
     refuseRoadmap(envelope.data, host);
     const outcome = await applyConfig(connection.db, {
       envelope: envelope.data,
-      actor,
+      actor: actorOf(identity),
       reason: input.reason,
       ticket: input.ticket ?? null,
       verb: "config set",
@@ -306,6 +329,15 @@ export async function configSet(
       activate: activate
         ? { expected: derived.expected, opKey: null, host: host.hostId }
         : null,
+      request: activate
+        ? null
+        : activationRequest(
+            identity,
+            envelope.data,
+            input.ticket,
+            host.hostId,
+            derived.expected,
+          ),
     });
     return settle(outcome, target, (active) => [
       ...(active === null
@@ -316,6 +348,66 @@ export async function configSet(
   } finally {
     await connection.close();
   }
+}
+
+export const ConfigActivateInput = z.strictObject({
+  args: z.tuple([z.string()]),
+  scope: z.string(),
+  "expected-revision": z.string(),
+  "op-key": z.string().min(1).optional(),
+  reason: z.string().optional(),
+});
+
+export async function configActivate(
+  input: z.infer<typeof ConfigActivateInput>,
+): Promise<z.infer<typeof ConfigApplyOutput>> {
+  const [ref] = input.args;
+  const { kind, name, rev } = parseRef(ref);
+  const expected = expectedFlag(input["expected-revision"]);
+  const host = readHostProfile();
+  const connection = connect(databaseUrl(host));
+  try {
+    const identity = await writerOf(connection.db, host, process.env, true);
+    const revision = await connection.db.getRevisionByRef(kind, name, rev);
+    if (revision === null)
+      throw new PodError("revision_not_found", 3, `no Revision ${ref}`, [
+        "pod config apply FILE",
+      ]);
+    if (input.scope !== scopeText(revision))
+      throw usageError(
+        `--scope ${input.scope} differs from ${ref}'s scope ${scopeText(revision)}`,
+      );
+    const outcome = await applyConfig(connection.db, {
+      envelope: envelopeOf(revision),
+      actor: actorOf(identity),
+      reason: input.reason ?? revision.reason,
+      ticket: revision.ticket ?? null,
+      verb: "config activate",
+      now: new Date(),
+      activate: {
+        expected,
+        opKey: input["op-key"] ?? null,
+        host: host.hostId,
+      },
+    });
+    return settle(outcome, ref, (active) => [
+      `pod config activate ${ref} --scope ${input.scope} --expected-revision ${active?.id ?? "none"}`,
+    ]);
+  } finally {
+    await connection.close();
+  }
+}
+
+function envelopeOf(revision: Revision): RevisionEnvelope {
+  return {
+    kind: revision.kind,
+    name: revision.name,
+    schema_version: revision.schema_version,
+    scope: revision.scope,
+    scope_ref: revision.scope_ref,
+    parent: revision.parent,
+    value: revision.value,
+  };
 }
 
 export const ConfigExportInput = z.strictObject({
@@ -354,16 +446,7 @@ export async function configExport(
       throw new PodError("revision_not_found", 3, `no Revision ${ref}`, [
         "pod config apply FILE",
       ]);
-    const envelope = {
-      kind: revision.kind,
-      name: revision.name,
-      schema_version: revision.schema_version,
-      scope: revision.scope,
-      scope_ref: revision.scope_ref,
-      parent: revision.parent,
-      value: revision.value,
-    };
-    writeFileSync(input.out, stringify(envelope));
+    writeFileSync(input.out, stringify(envelopeOf(revision)));
     return { ref, id: revision.id, out: input.out };
   } finally {
     await connection.close();

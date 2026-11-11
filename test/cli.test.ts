@@ -57,6 +57,7 @@ test("help lists the verbs sorted by name", () => {
   expect(names).toEqual([
     "brief",
     "check",
+    "config activate",
     "config apply",
     "config export",
     "config set",
