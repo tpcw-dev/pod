@@ -182,7 +182,7 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     handler: configExport,
     sideEffect: "none",
     cancelBy: ["nobody"],
-    evidenceRequired: ["a Revision named by kind.name@rev"],
+    evidenceRequired: ["a Revision named by kind.name@rev, or --all"],
   }),
   row({
     name: "db migrate",

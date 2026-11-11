@@ -66,6 +66,8 @@ function parse() {
         ticket: { type: "string" },
         string: { type: "boolean" },
         out: { type: "string" },
+        all: { type: "boolean" },
+        prune: { type: "boolean" },
         html: { type: "string" },
         process: { type: "string" },
         size: { type: "string" },

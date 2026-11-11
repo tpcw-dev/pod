@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, inject } from "vitest";
 import {
   connect,
@@ -85,14 +86,18 @@ export interface CliResult {
   };
 }
 
+const repo = fileURLToPath(new URL("../..", import.meta.url));
+
 export function runCli(
   args: string[],
   env: Record<string, string> = {},
+  cwd = repo,
 ): CliResult {
   const result = spawnSync(
-    "node_modules/.bin/tsx",
-    ["src/cli/index.ts", ...args],
+    join(repo, "node_modules/.bin/tsx"),
+    [join(repo, "src/cli/index.ts"), ...args],
     {
+      cwd,
       encoding: "utf8",
       env: {
         ...process.env,

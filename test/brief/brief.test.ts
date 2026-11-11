@@ -86,6 +86,23 @@ describeDb("pod brief", () => {
     const crewRow = await storeRevision(conn.db, crew);
     const processRow = await storeRevision(conn.db, process);
     const policyRow = await storeRevision(conn.db, policy);
+    const projectCrew = await storeRevision(conn.db, {
+      ...crew,
+      scope: "project",
+      scope_ref: "app",
+    });
+    for (const row of [crewRow, processRow, policyRow, projectCrew])
+      await conn.db.activate({
+        scope: row.scope,
+        scope_ref: row.scope_ref,
+        kind: row.kind,
+        name: row.name,
+        expected: null,
+        revision_id: row.id,
+        bundle_id: null,
+        activated_by: "operator",
+        activated_at: at,
+      });
     const gateMap = { review: "crew" };
     const hash = snapshotHash(
       { crew: crewRow.id, process: processRow.id, policy: policyRow.id },
@@ -156,7 +173,7 @@ describeDb("pod brief", () => {
   });
   afterAll(() => conn.close());
 
-  test("brief prints JSON, writes the same JSON as HTML, and marks drift", async () => {
+  test("brief prints JSON, writes the same JSON as HTML, and marks a mirror stale", async () => {
     const [eventsBefore] = await conn.sql<{ n: number }[]>`
       select count(*)::int as n from ledger.event`;
     const [opsBefore] = await conn.sql<{ n: number }[]>`
@@ -166,7 +183,11 @@ describeDb("pod brief", () => {
     expect(result.status).toBe(0);
     const parsed = JSON.parse(result.stdout) as {
       ok: boolean;
-      result: { stories: { stage: string; drift: { name: string }[] }[] };
+      result: {
+        stories: { stage: string }[];
+        drift: Record<string, unknown>[];
+        nextSteps?: string[];
+      };
     };
     expect(parsed.ok).toBe(true);
     const file = readFileSync(html, "utf8");
@@ -177,9 +198,35 @@ describeDb("pod brief", () => {
     expect(unescapeHtml(pre?.[1] ?? "")).toBe(JSON.stringify(parsed.result));
     expect(parsed.result.stories[0]?.stage).toBe("a<b");
     expect(result.stdout).toContain('"waiting_on":null');
-    expect(parsed.result.stories[0]?.drift.map((item) => item.name)).toEqual([
-      "policy",
+    expect(parsed.result.stories[0]).not.toHaveProperty("drift");
+    expect(
+      parsed.result.drift.map(({ kind, name, scope, path, mark }) => ({
+        kind,
+        name,
+        scope,
+        path,
+        mark,
+      })),
+    ).toEqual([
+      {
+        kind: "crew",
+        name: "crew",
+        scope: "project:app",
+        path: "specs/crew/project/app/crew.yaml",
+        mark: "mirror stale",
+      },
+      {
+        kind: "policy",
+        name: "policy",
+        scope: "global",
+        path: "specs/policy/policy.yaml",
+        mark: "mirror stale",
+      },
     ]);
+    expect(parsed.result.drift[1]).toMatchObject({ ref: "policy.policy@1" });
+    expect(parsed.result.nextSteps).toEqual(["pod config export --all"]);
+    expect(file).toContain('<table id="mirror-stale">');
+    expect(file).toContain("<td>specs/policy/policy.yaml</td>");
     const [eventsAfter] = await conn.sql<{ n: number }[]>`
       select count(*)::int as n from ledger.event`;
     const [opsAfter] = await conn.sql<{ n: number }[]>`
@@ -192,7 +239,7 @@ describeDb("pod brief", () => {
     const plain = JSON.parse(runBrief(cwd, ["brief", "story:S-1"]).stdout) as {
       result: Record<string, unknown>;
     };
-    expect(plain.result).not.toHaveProperty("nextSteps");
+    expect(plain.result["nextSteps"]).toEqual(["pod config export --all"]);
     const home = mkdtempSync(join(tmpdir(), "pod-home-"));
     copyFileSync(join(podHome, "host.yaml"), join(home, "host.yaml"));
     writeFileSync(join(home, "credentials"), `POD_DB_URL=${dbUrl()}\n`, {
@@ -205,6 +252,7 @@ describeDb("pod brief", () => {
     };
     expect(parsed.result.nextSteps).toEqual([
       "POD_DB_URL is exported in this session; Seats inherit it. Remove it from the session environment",
+      "pod config export --all",
     ]);
   });
 
