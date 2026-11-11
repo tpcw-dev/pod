@@ -41,6 +41,7 @@ export type ErrorCode =
   | "story_canceled"
   | "open_pr"
   | "wrong_host"
+  | "config_missing"
   | "failed";
 
 const exits: Partial<Record<ErrorCode, number>> = {

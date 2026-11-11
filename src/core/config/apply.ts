@@ -13,6 +13,7 @@ import { validateDecisionTemplates } from "../decide/templates.ts";
 import { fallbackProblem } from "../dispatch/seats.ts";
 import { validateProcess } from "../process/validate.ts";
 import { noSingleActive, singleActive } from "./active.ts";
+import { hostRefusal } from "./host.ts";
 import {
   activeProfile,
   droppedMember,
@@ -186,6 +187,7 @@ async function processRefusal(
         };
   }
   if (envelope.kind === "policy") return policyRefusal(tx, envelope);
+  if (envelope.kind === "host") return hostRefusal(tx, envelope);
   if (envelope.kind !== "process") return null;
   const { scope, scope_ref } = envelope;
   const crew = await singleActive(tx, "crew", scope, scope_ref);

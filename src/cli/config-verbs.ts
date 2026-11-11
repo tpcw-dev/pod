@@ -562,3 +562,64 @@ export async function configExport(
     throw usageError("config export needs kind.name@rev --out FILE, or --all");
   return exportOne(ref, input.out);
 }
+
+export const ConfigGetInput = z.strictObject({
+  args: z.tuple([z.string()]),
+  scope: z.string().optional(),
+});
+
+export const ConfigGetOutput = z.object({
+  ref: z.string(),
+  id: z.string(),
+  scope: z.string(),
+  scope_ref: z.string(),
+  value: z.unknown(),
+});
+
+function getScope(kind: Kind, name: string, value: string | undefined) {
+  return (
+    setScope(value) ??
+    (kind === "host"
+      ? { scope: "host" as const, scope_ref: name }
+      : { scope: "global" as const, scope_ref: "" })
+  );
+}
+
+export async function configGet(
+  input: z.infer<typeof ConfigGetInput>,
+): Promise<z.infer<typeof ConfigGetOutput>> {
+  const [target] = input.args;
+  const { kind, name } = parseTarget(target);
+  const { scope, scope_ref } = getScope(kind, name, input.scope);
+  const connection = connect(databaseUrl(readHostProfile()));
+  try {
+    const active = await connection.db.getActivation({
+      scope,
+      scope_ref,
+      kind,
+      name,
+    });
+    const revision =
+      active === null
+        ? null
+        : await connection.db.getRevision(active.revision_id);
+    if (revision === null)
+      throw new PodError(
+        "config_missing",
+        3,
+        `${target} has no active Revision at ${scopeText({ scope, scope_ref })}`,
+        [
+          `pod config apply FILE --ticket K, then a person runs pod config activate ${kind}.${name}@REV --scope ${scopeText({ scope, scope_ref })} --expected-revision none`,
+        ],
+      );
+    return {
+      ref: revisionRef(revision),
+      id: revision.id,
+      scope,
+      scope_ref,
+      value: revision.value,
+    };
+  } finally {
+    await connection.close();
+  }
+}

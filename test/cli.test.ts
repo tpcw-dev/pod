@@ -60,6 +60,7 @@ test("help lists the verbs sorted by name", () => {
     "config activate",
     "config apply",
     "config export",
+    "config get",
     "config set",
     "db migrate",
     "decide",
