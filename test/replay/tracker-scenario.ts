@@ -58,6 +58,7 @@ export async function scenario(
     ? await trackerFor(log.trackerSink, {
         hostId: "rec",
         urlEnv: "POD_DB_URL",
+        credentialsFile: "/nonexistent/credentials",
         capacity: 2,
         trackerKind: "linear",
         trackerTokenEnv: "POD_TRACKER_TOKEN",

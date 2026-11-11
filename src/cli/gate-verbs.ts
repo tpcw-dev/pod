@@ -4,7 +4,7 @@ import { z } from "zod";
 import { HqaAmbiguous, recordHqa } from "../core/gate/hqa.ts";
 import { postVerdict, VerdictFile } from "../core/gate/verdict.ts";
 import { schemaError, usageError } from "./errors.ts";
-import { podHome } from "./host-profile.ts";
+import { credentialStep, podHome } from "./host-profile.ts";
 import { Generation, quote, withOrca } from "./run-verbs.ts";
 import { issuesOf, parseYaml, readText } from "./yaml-file.ts";
 
@@ -101,7 +101,7 @@ export async function hqaRecordVerb(
     async ({ db, orca: port, tracker, log, host }) => {
       if (tracker === null)
         throw usageError(`pod hqa record needs ${host.trackerTokenEnv}`, [
-          `set ${host.trackerTokenEnv} to the tracker token`,
+          credentialStep(host, host.trackerTokenEnv, "tracker token"),
         ]);
       try {
         return await recordHqa(db, port, tracker, log, {

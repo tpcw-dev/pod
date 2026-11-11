@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { makeScrubber } from "../core/domain/scrub.ts";
+import { hasUserinfoPassword, makeScrubber } from "../core/domain/scrub.ts";
 
 export const scopeRoots = [
   "fixtures",
@@ -34,7 +34,8 @@ export function denylistFiles(
   const matched: string[] = [];
   for (const root of roots) {
     for (const file of filesUnder(root)) {
-      if (scrubber.hits(readFileSync(file, "utf8")).length > 0)
+      const text = readFileSync(file, "utf8");
+      if (scrubber.hits(text).length > 0 || hasUserinfoPassword(text))
         matched.push(file);
     }
   }

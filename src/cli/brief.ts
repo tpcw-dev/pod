@@ -16,7 +16,11 @@ import { Json } from "../core/domain/json.ts";
 import { renderBriefHtml } from "../core/manifest/html.ts";
 import { waitingOn } from "../core/process/waiting.ts";
 import { PodError } from "./errors.ts";
-import { databaseUrl, readHostProfile } from "./host-profile.ts";
+import {
+  databaseUrl,
+  readCredentials,
+  readHostProfile,
+} from "./host-profile.ts";
 import { parseYaml } from "./yaml-file.ts";
 
 const storyArg = z.string().regex(/^story:.+$/);
@@ -164,6 +168,7 @@ export const BriefOutput = z.object({
       drift: z.array(DriftJson),
     }),
   ),
+  nextSteps: z.array(z.string()).optional(),
 });
 type BriefResult = z.infer<typeof BriefOutput>;
 
@@ -350,8 +355,10 @@ function toBriefResult(
 export async function brief(input: BriefInput): Promise<BriefResult> {
   const arg = input.args[0];
   const externalId = arg === undefined ? null : arg.slice("story:".length);
-  const connection = connect(databaseUrl(readHostProfile()));
+  const host = readHostProfile();
+  const connection = connect(databaseUrl(host));
   try {
+    const warnings = readCredentials(host).warnings();
     const tree = await connection.db.readBrief(externalId);
     if (externalId !== null && tree.stories.length === 0)
       throw new PodError(
@@ -360,13 +367,14 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
         `no Story has external_id ${externalId}`,
         ["pod brief"],
       );
-    const result = BriefOutput.parse(
-      toBriefResult(
+    const result = BriefOutput.parse({
+      ...toBriefResult(
         tree,
         await projectProfiles(connection.db, tree),
         await pendingRequests(connection.db),
       ),
-    );
+      ...(warnings.length === 0 ? {} : { nextSteps: warnings }),
+    });
     if (input.html !== undefined)
       writeFileSync(input.html, renderBriefHtml(JSON.stringify(result)));
     return result;

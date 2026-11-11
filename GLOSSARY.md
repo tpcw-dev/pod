@@ -11,7 +11,7 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Coordinator pair**: the xl coordinator. The decider seat coordinates, the auditor seat is resident and audits, and neither keeps a gate.
 - **Task**: Orca's task. One step of a process for one story. A completed task is never reopened. Rework is a new task.
 - **Dispatch**: Orca's worker attempt on a task. One dispatch, one launch receipt.
-- **Seat**: a configured place a role runs: runtime, model, host, credentials. Crew maps roles to seats.
+- **Seat**: a configured place a role runs: runtime, model, host. A seat holds none of the operator's credentials. Crew maps roles to seats.
 - **Role**: what a seat does in a process: developer, reviewer, planner, decider, auditor, and so on. Pod knows roles. Names of people and bots live in a crew profile.
 - **Process**: the steps, edges, roles, limits, and selector that run a story of one stage and size range. A process is a revision.
 - **Step**: one unit of a process. A worker step runs a role, an external action waits on an outside event, and a human wait waits on a person.

@@ -8,7 +8,11 @@ import { makeDocsScrubber } from "../adapters/notion/scrub.ts";
 import type { FixtureRefused } from "../core/domain/scrub.ts";
 import type { DocsPort, DocsReceiptSink } from "../core/ports/docs.ts";
 import { usageError } from "./errors.ts";
-import type { HostSettings } from "./host-profile.ts";
+import {
+  credentialStep,
+  readCredentials,
+  type HostSettings,
+} from "./host-profile.ts";
 
 function env(name: string): string | null {
   const value = process.env[name];
@@ -67,7 +71,8 @@ export async function docsFor(
       port: makeReplayDocs({ dir: fixtures, sink }),
       recordRefusals: () => [],
     };
-  const token = env(host.docsTokenEnv);
+  const credentials = readCredentials(host);
+  const token = credentials.get(host.docsTokenEnv);
   const dir = env("POD_DOCS_RECORD");
   if (dir === null) {
     if (token === null) return null;
@@ -79,7 +84,7 @@ export async function docsFor(
   const terms = denylist();
   if (token === null)
     throw usageError(`POD_DOCS_RECORD needs ${host.docsTokenEnv}`, [
-      `set ${host.docsTokenEnv} to the docs token`,
+      credentialStep(host, host.docsTokenEnv, "docs token"),
     ]);
   mkdirSync(dir, { recursive: true });
   const port = makeRealDocs({
@@ -93,6 +98,7 @@ export async function docsFor(
         roots: [process.cwd()],
         workspace: await workspaceName(token),
         denylist: terms,
+        credentials: credentials.values(),
       }),
     },
   });

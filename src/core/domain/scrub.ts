@@ -29,6 +29,7 @@ export interface ScrubTerms {
   roots: readonly string[];
   denylist: readonly string[];
   replacements?: readonly Replacement[];
+  credentials?: readonly string[];
 }
 
 export interface Scrubber {
@@ -54,6 +55,31 @@ function byLength(terms: readonly string[]): string[] {
 }
 
 const homePath = /\/(?:home|Users)\/[^\s"'\\]+/g;
+
+const redacted = "[credential]";
+
+function userinfoPassword(): RegExp {
+  return /([a-z][a-z0-9+.-]*:\/\/[^\s/?#@:"']*:)([^\s/?#@"']+)@/gi;
+}
+
+export function redactCredentials(
+  text: string,
+  credentials: readonly string[],
+): string {
+  let out = text;
+  for (const value of byLength(distinct(credentials)))
+    out = out.replaceAll(value, redacted);
+  return out.replace(
+    userinfoPassword(),
+    (_hit, prefix: string) => `${prefix}${redacted}@`,
+  );
+}
+
+export function hasUserinfoPassword(text: string): boolean {
+  for (const match of text.matchAll(userinfoPassword()))
+    if (match[2] !== redacted) return true;
+  return false;
+}
 
 export function makeScrubber(terms: ScrubTerms): Scrubber {
   const paths = new Map<string, string>();
@@ -87,9 +113,10 @@ export function makeScrubber(terms: ScrubTerms): Scrubber {
   const replacements = [...(terms.replacements ?? [])].sort(
     (left, right) => right.term.length - left.term.length,
   );
+  const credentials = terms.credentials ?? [];
   return {
     scrub(text) {
-      let out = text;
+      let out = redactCredentials(text, credentials);
       for (const root of roots) out = out.replaceAll(root, () => pathFor(root));
       out = out.replace(homePath, (path) => pathFor(path));
       for (const host of hostTerms)

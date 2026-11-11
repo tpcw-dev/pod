@@ -13,7 +13,11 @@ import {
 import type { FixtureRefused } from "../core/domain/scrub.ts";
 import type { TrackerPort, TrackerReceiptSink } from "../core/ports/tracker.ts";
 import { usageError } from "./errors.ts";
-import type { HostSettings } from "./host-profile.ts";
+import {
+  credentialStep,
+  readCredentials,
+  type HostSettings,
+} from "./host-profile.ts";
 
 function env(name: string): string | null {
   const value = process.env[name];
@@ -76,7 +80,8 @@ export async function trackerFor(
       port: makeReplayTracker({ dir: fixtures, sink, estimateScale: scale }),
       recordRefusals: () => [],
     };
-  const token = env(host.trackerTokenEnv);
+  const credentials = readCredentials(host);
+  const token = credentials.get(host.trackerTokenEnv);
   const dir = env("POD_TRACKER_RECORD");
   if (dir === null) {
     if (token === null) return null;
@@ -105,7 +110,7 @@ export async function trackerFor(
   }
   if (token === null)
     throw usageError(`POD_TRACKER_RECORD needs ${host.trackerTokenEnv}`, [
-      `set ${host.trackerTokenEnv} to the tracker token`,
+      credentialStep(host, host.trackerTokenEnv, "tracker token"),
     ]);
   mkdirSync(dir, { recursive: true });
   const port = makeRealTracker({
@@ -122,6 +127,7 @@ export async function trackerFor(
         ...(await workspaceKey(token)),
         denylist: terms,
         replacements: pairs,
+        credentials: credentials.values(),
       }),
     },
   });
