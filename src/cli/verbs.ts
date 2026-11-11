@@ -22,6 +22,9 @@ import {
   LearningQueryOutput,
   learningAdd,
   learningAddMeta,
+  learningImport,
+  LearningImportInput,
+  LearningImportOutput,
   learningQuery,
 } from "./learning-verbs.ts";
 import {
@@ -392,6 +395,17 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
       "a source Story, at least one evidence reference, and an `area`",
     ],
     meta: learningAddMeta,
+  }),
+  row({
+    name: "learning import",
+    input: LearningImportInput,
+    output: LearningImportOutput,
+    handler: learningImport,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "a FILE of rows, each with a `source_ref` and at least one occurrence",
+    ],
   }),
   row({
     name: "learning query",

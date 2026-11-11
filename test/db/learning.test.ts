@@ -42,6 +42,8 @@ describeDb("learning add and query", () => {
       firstPath,
       "--area",
       "impl",
+      "--kind",
+      "lead",
       "--project",
       "alpha",
     ]);
@@ -57,6 +59,8 @@ describeDb("learning add and query", () => {
       firstPath,
       "--area",
       "impl",
+      "--kind",
+      "lead",
       "--project",
       "alpha",
     ]);
@@ -66,15 +70,28 @@ describeDb("learning add and query", () => {
       select count(*)::int as n from ledger.learning`;
     const [events] = await db.sql<{ n: number }[]>`
       select count(*)::int as n from ledger.event where type = 'learning'`;
+    const [occurrences] = await db.sql<{ n: number }[]>`
+      select count(*)::int as n from ledger.learning_occurrence`;
     expect(learnings?.n).toBe(1);
     expect(events?.n).toBe(1);
+    expect(occurrences?.n).toBe(1);
 
-    const second = runCli(["learning", "add", yaml(secondFile), "--area", "design"]);
+    const second = runCli([
+      "learning",
+      "add",
+      yaml(secondFile),
+      "--area",
+      "design",
+      "--kind",
+      "lead",
+    ]);
     expect(second.status).toBe(0);
 
     expect(
       runCli(["learning", "query", "--story", "S-1"]).json.result,
-    ).toMatchObject({ learnings: [{ id, source_story: "S-1" }] });
+    ).toMatchObject({
+      learnings: [{ id, source_story: "S-1", kind: "lead", occurrences: 1 }],
+    });
     expect(
       runCli(["learning", "query", "--adoption", "adopted"]).json.result,
     ).toMatchObject({ learnings: [{ source_story: "S-2", adoption: "adopted" }] });
@@ -96,6 +113,17 @@ describeDb("learning add and query", () => {
       code: "P0001",
       message: expect.stringContaining("on ledger.learning is not allowed"),
     });
+    await expect(
+      db.sql`update ledger.learning set kind = 'other' where id = ${id}`,
+    ).rejects.toMatchObject({ code: "P0001" });
+    await expect(
+      db.sql`update ledger.learning_occurrence set wording = 'x'`,
+    ).rejects.toMatchObject({ code: "P0001" });
+  });
+
+  test("--kind is required", () => {
+    const result = runCli(["learning", "add", yaml(firstFile), "--area", "impl"]);
+    expect(result.status).toBe(2);
   });
 
   test("--area ops is usage and names the allowed values", () => {
@@ -105,6 +133,8 @@ describeDb("learning add and query", () => {
       yaml(firstFile),
       "--area",
       "ops",
+      "--kind",
+      "lead",
     ]);
     expect(result.status).toBe(2);
     expect(result.json.error?.message).toContain("product");

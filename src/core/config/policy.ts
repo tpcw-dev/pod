@@ -8,6 +8,7 @@ import {
   type ReservedClass,
 } from "../domain/policy.ts";
 import { GateEntry } from "../gate/receipt.ts";
+import { LearningKinds } from "./learning-kinds.ts";
 import { isMethod, methodRule } from "../process/schema.ts";
 
 const Fields = z.record(z.string(), z.unknown());
@@ -303,6 +304,21 @@ function limitsProblem(limits: unknown): Problem {
   return null;
 }
 
+function learningProblem(value: unknown): Problem {
+  const learning = fields(value)["learning"];
+  if (learning === undefined) return null;
+  if (!Fields.safeParse(learning).success || Array.isArray(learning))
+    return { path: "learning", message: "learning: must be a map" };
+  const kinds = fields(learning)["kinds"];
+  if (kinds !== undefined && !LearningKinds.safeParse(kinds).success)
+    return {
+      path: "learning.kinds",
+      message:
+        "learning.kinds: must be a non-empty list of distinct lowercase names",
+    };
+  return null;
+}
+
 function authorizationsProblem(value: unknown): Problem {
   const map = fields(value)["authorizations"];
   if (map === undefined) return null;
@@ -386,6 +402,7 @@ export function validatePolicy(
     escalateProblem(value) ??
     limitsProblem(policy["limits"]) ??
     storyStatusProblem(value) ??
+    learningProblem(value) ??
     authorizationsProblem(value);
   return problem === null
     ? null

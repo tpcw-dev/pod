@@ -219,6 +219,8 @@ const closeSteps: readonly CloseStep[] = [
             adoption: "new",
             area: entry.area,
             project_id: snapshot.project,
+            kind: "lead",
+            reporter: "lead",
           },
           host: input.host,
           now: input.now,

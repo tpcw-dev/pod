@@ -159,7 +159,15 @@ describeDb("mixed auditor set", () => {
           text: `${id}: ${found.classification}`,
         }),
       );
-      const added = runCli(["learning", "add", file, "--area", "process"]);
+      const added = runCli([
+        "learning",
+        "add",
+        file,
+        "--area",
+        "process",
+        "--kind",
+        "lead",
+      ]);
       expect(added.status, added.json.error?.message).toBe(0);
     }
     const queried = runCli(["learning", "query", "--area", "process"]);

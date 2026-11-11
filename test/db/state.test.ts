@@ -228,7 +228,12 @@ describeDb("pod state", () => {
         adoption: "adopted",
         area: "impl",
         project_id: project,
+        kind: "lead",
+        expected: null,
+        theme: null,
+        action_story: null,
         created_at: now,
+        adoption_at: now,
       });
     const web = await state({ project: "web" });
     expect(web.policies.policy?.name).toBe("default");
