@@ -2,7 +2,8 @@ import { writeFileSync } from "node:fs";
 import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
 import { StateView } from "../core/domain/state.ts";
-import { receiptLog, type ReceiptLog } from "../core/ledger/receipts.ts";
+import { serviceKinds } from "../core/config/service-kinds.ts";
+import { receiptLog } from "../core/ledger/receipts.ts";
 import { renderStateHtml } from "../core/manifest/html.ts";
 import { renderState } from "../core/state/render.ts";
 import { buildState } from "../core/state/view.ts";
@@ -25,14 +26,11 @@ export const StateOutput = StateView;
 export async function stateVerb(input: StateInput): Promise<StateView> {
   const arg = input.args[0];
   const host = readHostProfile();
-  let log: ReceiptLog | null = null;
-  const wiring = await docsFor((record) => {
-    if (log === null) throw new Error("docs receipt before the ledger opened");
-    return log.docsSink(record);
-  }, host);
   const connection = connect(databaseUrl(host));
   try {
-    log = receiptLog(connection.db, host.hostId);
+    const log = receiptLog(connection.db, host.hostId);
+    const { docsKind } = await serviceKinds(connection.db);
+    const wiring = await docsFor(log.docsSink, host, docsKind);
     const built = await buildState(
       {
         repo: connection.db,

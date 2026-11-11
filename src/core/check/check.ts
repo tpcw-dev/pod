@@ -20,6 +20,7 @@ import { HoldPayload, latestDispatch, resumeTarget } from "../domain/hold.ts";
 import { Json } from "../domain/json.ts";
 import type { Dispatch, Run, Task } from "../domain/ledger.ts";
 import { refuse, type Checked, type Refused } from "../domain/outcome.ts";
+import { capacityMissing } from "../config/host.ts";
 import { hostFreeSlots, openLaunches } from "../dispatch/quota.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
@@ -57,7 +58,7 @@ export interface CheckInput {
   run: string;
   generation: number;
   host: string;
-  capacity: number;
+  capacity: number | null;
   now: () => Date;
   leaseSeconds: number;
   hostName?: string;
@@ -255,7 +256,11 @@ export async function checkPass(
     throw error;
   }
 
-  result.free_slots = await hostFreeSlots(db, input.host, input.capacity);
+  if (input.capacity === null) {
+    const missing = capacityMissing(input.host);
+    result.nextSteps.push(missing.message, ...missing.nextSteps);
+  } else
+    result.free_slots = await hostFreeSlots(db, input.host, input.capacity);
   if (result.free_slots >= 1)
     result.nextSteps.push(...(await nextKeys(db, run, input.generation)));
   result.nextSteps.push(...(await recordNoSource(db, run, input.now())));

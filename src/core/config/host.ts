@@ -151,10 +151,10 @@ export async function hostRefusal(
   return seatedElsewhere(repo, envelope.name, host.projects);
 }
 
-export async function hostTranscripts(
+async function activeHost(
   repo: Repo,
   host: string,
-): Promise<Record<string, string>> {
+): Promise<HostValue | null> {
   const active = await repo.getActivation({
     scope: "host",
     scope_ref: host,
@@ -163,5 +163,30 @@ export async function hostTranscripts(
   });
   const revision =
     active === null ? null : await repo.getRevision(active.revision_id);
-  return HostValue.safeParse(revision?.value).data?.transcripts ?? {};
+  return HostValue.safeParse(revision?.value).data ?? null;
+}
+
+export async function hostTranscripts(
+  repo: Repo,
+  host: string,
+): Promise<Record<string, string>> {
+  return (await activeHost(repo, host))?.transcripts ?? {};
+}
+
+export async function hostSlots(
+  repo: Repo,
+  hostId: string,
+): Promise<number | null> {
+  return (await activeHost(repo, hostId))?.slots.default ?? null;
+}
+
+export function capacityMissing(hostId: string): Refusal {
+  return {
+    code: "config_missing",
+    message: `host ${hostId} has no active host Revision`,
+    nextSteps: [
+      `pod config apply specs/host/${hostId}.yaml --ticket K`,
+      `then a person runs pod config activate host.${hostId}@REV --scope host:${hostId} --expected-revision none`,
+    ],
+  };
 }

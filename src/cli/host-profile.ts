@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import { schemaError, usageError, type PodError } from "./errors.ts";
+import { movedFields } from "./moved-fields.ts";
 import { issuesOf, parseYaml } from "./yaml-file.ts";
 
 const HostProfile = z.looseObject({
@@ -12,18 +13,14 @@ const HostProfile = z.looseObject({
     .prefault({}),
   credentials_file: z.string().min(1).optional(),
   mirror_dir: z.string().min(1).optional(),
-  capacity: z.int().positive().default(2),
   operator: z.string().min(1).optional(),
   tracker: z
     .looseObject({
-      kind: z.string().min(1).default("linear"),
       token_env: z.string().min(1).default("POD_TRACKER_TOKEN"),
-      estimate_scale: z.string().min(1).default("fibonacci"),
     })
     .prefault({}),
   docs: z
     .looseObject({
-      kind: z.string().min(1).default("notion"),
       token_env: z.string().min(1).default("POD_DOCS_TOKEN"),
     })
     .prefault({}),
@@ -34,11 +31,7 @@ export interface HostSettings {
   urlEnv: string;
   credentialsFile: string;
   mirrorDir: string;
-  capacity: number;
-  trackerKind: string;
   trackerTokenEnv: string;
-  estimateScale: string;
-  docsKind: string;
   docsTokenEnv: string;
   operator: string | null;
 }
@@ -64,14 +57,16 @@ function readProfileText(path: string): string | null {
 export function readHostProfile(): HostSettings {
   const path = profilePath();
   const text = readProfileText(path);
-  const parsed = HostProfile.safeParse(
-    text === null ? {} : (parseYaml(text, path) ?? {}),
-  );
+  const raw = text === null ? {} : (parseYaml(text, path) ?? {});
+  const parsed = HostProfile.safeParse(raw);
   if (!parsed.success)
     throw schemaError(
       `${path} fails the host profile schema`,
       issuesOf(parsed.error),
     );
+  const moved = movedFields(raw, parsed.data.host_id);
+  if (moved.length > 0)
+    throw schemaError(`${path} carries moved host profile fields`, moved);
   return {
     hostId: parsed.data.host_id,
     urlEnv: parsed.data.db.url_env,
@@ -80,11 +75,7 @@ export function readHostProfile(): HostSettings {
       parsed.data.credentials_file ?? "credentials",
     ),
     mirrorDir: resolve(podHome(), parsed.data.mirror_dir ?? "mirror"),
-    capacity: parsed.data.capacity,
-    trackerKind: parsed.data.tracker.kind,
     trackerTokenEnv: parsed.data.tracker.token_env,
-    estimateScale: parsed.data.tracker.estimate_scale,
-    docsKind: parsed.data.docs.kind,
     docsTokenEnv: parsed.data.docs.token_env,
     operator: parsed.data.operator ?? null,
   };

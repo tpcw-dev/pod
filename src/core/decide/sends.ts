@@ -25,7 +25,7 @@ export interface FollowContext {
   templates: Templates | null;
   generation: number;
   host: string;
-  capacity: number;
+  capacity: number | null;
   now: () => Date;
 }
 

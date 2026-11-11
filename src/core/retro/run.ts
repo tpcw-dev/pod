@@ -22,7 +22,7 @@ export interface RetroRunInput {
   generation: number;
   attempt: string;
   host: string;
-  capacity: number;
+  capacity: number | null;
   codeHost: CodeHostPort;
   command: string;
   now: () => Date;

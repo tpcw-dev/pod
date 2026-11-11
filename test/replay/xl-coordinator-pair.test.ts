@@ -12,21 +12,21 @@ import {
   decider,
   delivery,
   generation,
-  oneSlotHome,
   planTask,
   proposal,
   questionFile,
   run,
   sent,
 } from "../db/decision-fixture.ts";
-import { describeDb, openDb, resetDb } from "../db/helpers.ts";
+import { describeDb, openDb, operatorHome, resetDb } from "../db/helpers.ts";
+import { seedHost } from "../db/seed.ts";
 import { batch, empty, message, started, workers } from "../db/run-fixture.ts";
 
 const dir = "test/replay/xl-coordinator-pair";
 const planner = "ctx_plan";
 describeDb("xl-coordinator-pair", () => {
   let conn: Connection;
-  const env = { POD_HOME: oneSlotHome("keeper") };
+  const env = { POD_HOME: operatorHome("keeper") };
 
   beforeAll(async () => {
     await resetDb();
@@ -40,6 +40,7 @@ describeDb("xl-coordinator-pair", () => {
       ],
       env,
     );
+    await seedHost(conn.db, 1);
   });
   afterAll(() => conn.close());
 

@@ -60,10 +60,11 @@ async function workspaceName(token: string): Promise<string[]> {
 export async function docsFor(
   sink: DocsReceiptSink,
   host: HostSettings,
+  docsKind: string,
 ): Promise<DocsWiring | null> {
-  if (host.docsKind !== "notion")
-    throw usageError(`docs.kind ${host.docsKind} has no adapter`, [
-      "set docs.kind to notion in the host profile",
+  if (docsKind !== "notion")
+    throw usageError(`docs.kind ${docsKind} has no adapter`, [
+      "set docs.kind to notion in the global policy",
     ]);
   const fixtures = env("POD_DOCS_FIXTURES");
   if (fixtures !== null)

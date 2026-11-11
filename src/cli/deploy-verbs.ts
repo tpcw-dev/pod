@@ -65,10 +65,10 @@ export async function deployRecordVerb(
   const [story, path] = input.args;
   const line = readLine(path, input.stdin === true);
   const generation = Number(input.generation);
-  const { result } = await withOrca(({ db, host }) =>
+  const { result } = await withOrca(({ db, host, kinds }) =>
     recordDeploy(db, {
       story: {
-        provider: host.trackerKind,
+        provider: kinds.trackerKind,
         external_id: story.slice("story:".length),
       },
       generation,

@@ -24,7 +24,7 @@ export function roadmapRefusal(
   if (provider !== docsKind)
     return invalid(
       "roadmap.provider",
-      `${String(provider)} is not the host docs kind ${docsKind}`,
+      `${String(provider)} is not the docs kind ${docsKind}`,
     );
   if (typeof page !== "string" || page.trim() === "")
     return invalid("roadmap.page", "must name a page");

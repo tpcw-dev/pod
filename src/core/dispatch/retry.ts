@@ -27,7 +27,8 @@ import {
   type LaunchArgs,
   type LaunchRequest,
 } from "./launch-record.ts";
-import { freeSlots, onHost, openLaunches } from "./quota.ts";
+import { slotRefusal } from "./launch-gate.ts";
+import { openLaunches } from "./quota.ts";
 import { readSeats, SeatsInvalid, type Seat } from "./seats.ts";
 
 export interface RetryInput {
@@ -35,7 +36,7 @@ export interface RetryInput {
   generation: number;
   opKey: string | null;
   host: string;
-  capacity: number;
+  capacity: number | null;
   gitStatus: string;
   command: (opKey: string) => string;
   now: () => Date;
@@ -323,25 +324,8 @@ export async function retry(
             : [`Run blocked by a ${blocked.type} event`]),
         ],
       });
-    const reservations = onHost(launches, input.host);
-    const slots = freeSlots(
-      input.capacity,
-      await tx.hostActivities(input.host),
-      reservations,
-    );
-    if (slots < 1)
-      return record({
-        code: "quota_exhausted",
-        message: `no free slot on host ${input.host}`,
-        nextSteps: [
-          ...reservations.map(
-            (row) => `reservation ${row.op_key} is ${row.status}`,
-          ),
-          "running Dispatches on this host hold the rest",
-          "pod check --wait",
-          "this refusal is recorded under its op key; pass a new --op-key once a slot frees",
-        ],
-      });
+    const full = await slotRefusal(tx, input.host, input.capacity, launches);
+    if (full !== null) return record(full);
     const launch = launchFor(original, seat);
     if (launch === null)
       return record({

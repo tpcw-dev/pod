@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import { drain, DrainResult } from "../core/run/drain.ts";
 import { singleActive } from "../core/config/active.ts";
+import { hostSlots } from "../core/config/host.ts";
 import { takeover } from "../core/run/takeover.ts";
 import { podHome } from "./host-profile.ts";
 import { Generation, quote, withOrca } from "./run-verbs.ts";
@@ -89,10 +90,10 @@ export async function takeoverVerb(
       .map(quote)
       .join(" ");
   const { result, opKey, orca } = await withOrca(
-    async ({ db, orca: port, log, host }) =>
+    async ({ db, orca: port, log, host, kinds }) =>
       takeover(db, port, log, {
         story: story.slice("story:".length),
-        provider: host.trackerKind,
+        provider: kinds.trackerKind,
         generation: Number(input.generation),
         coordinator,
         opKey: input["op-key"] ?? null,
@@ -102,7 +103,7 @@ export async function takeoverVerb(
         host: host.hostId,
         seats: {
           templates: await singleActive(db, "decision", "global", ""),
-          capacity: host.capacity,
+          capacity: await hostSlots(db, host.hostId),
         },
         command,
         now: () => new Date(),
