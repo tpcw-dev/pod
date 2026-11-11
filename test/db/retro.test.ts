@@ -607,6 +607,11 @@ describeDb("pod retro", () => {
       if (first.ok && second.ok)
         expect(second.result.learning_ids).toEqual(first.result.learning_ids);
       expect(await events(conn, "retro")).toHaveLength(1);
+      const other = await record([
+        finding({ text: "a different finding", expected: "something else" }),
+      ]);
+      expect(other).toMatchObject({ ok: true, result: { replayed: true } });
+      expect(await conn.sql`select id from ledger.learning`).toHaveLength(1);
       const rerun = await runRetro([]);
       expect(rerun).toMatchObject({
         ok: true,
