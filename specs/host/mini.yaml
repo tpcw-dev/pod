@@ -1,0 +1,22 @@
+kind: host
+name: mini
+schema_version: 1
+scope: host
+scope_ref: mini
+value:
+  driver: jerry
+  hostnames:
+    - Jerrys-Mac-Mini
+    - mini
+  manager: false
+  slots:
+    default: 9
+    max: 9
+  reserved: {}
+  projects:
+    - "*"
+  harnesses:
+    - claude
+    - grok
+  notion_harnesses:
+    - claude

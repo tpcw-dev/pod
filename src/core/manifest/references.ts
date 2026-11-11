@@ -91,8 +91,10 @@ export function taskReference(task: Task): ManifestReference {
 }
 
 export function revisionReference(revision: Revision): ManifestReference {
-  if (revision.kind === "task")
-    throw new TypeError("a task spec is not an S4 revision reference");
+  if (revision.kind === "task" || revision.kind === "host")
+    throw new TypeError(
+      `a ${revision.kind} Revision is not an S4 revision reference`,
+    );
   const observedAt = iso(revision.created_at);
   const canonical = canonicalJson({
     id: revision.id,

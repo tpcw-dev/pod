@@ -1,0 +1,2 @@
+ALTER TABLE "config"."revision" DROP CONSTRAINT "revision_kind_check";--> statement-breakpoint
+ALTER TABLE "config"."revision" ADD CONSTRAINT "revision_kind_check" CHECK ("config"."revision"."kind" in ('crew', 'process', 'policy', 'task', 'decision', 'host'));

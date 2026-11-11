@@ -1,0 +1,21 @@
+kind: host
+name: mac
+schema_version: 1
+scope: host
+scope_ref: mac
+value:
+  driver: jerry
+  hostnames:
+    - jerry-mac
+    - jhsus-MacBook-Pro
+    - mac
+  manager: false
+  slots:
+    default: 0
+    max: 0
+  reserved: {}
+  projects: []
+  notion_harnesses:
+    - claude
+    - codex
+    - grok
