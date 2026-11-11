@@ -4,8 +4,6 @@ import { kinds, scopes, type Revision } from "../domain/config.ts";
 import type { Json } from "../domain/json.ts";
 import type { Repo } from "../ports/db.ts";
 
-export const mirrorRoot = "specs";
-
 export function scopeText(row: { scope: string; scope_ref: string }): string {
   return row.scope_ref === "" ? row.scope : `${row.scope}:${row.scope_ref}`;
 }
@@ -28,18 +26,12 @@ function segment(text: string): boolean {
   return /^[A-Za-z0-9._-]+$/.test(text) && !/^\.+$/.test(text);
 }
 
-export function mirrorPath(revision: Revision): string | null {
+export function mirrorPath(root: string, revision: Revision): string | null {
   if (!segment(revision.kind) || !segment(revision.name)) return null;
   const file = `${revision.name}.yaml`;
-  if (revision.scope === "global") return join(mirrorRoot, revision.kind, file);
+  if (revision.scope === "global") return join(root, revision.kind, file);
   if (!segment(revision.scope_ref)) return null;
-  return join(
-    mirrorRoot,
-    revision.kind,
-    revision.scope,
-    revision.scope_ref,
-    file,
-  );
+  return join(root, revision.kind, revision.scope, revision.scope_ref, file);
 }
 
 function sorted(value: Json): Json {

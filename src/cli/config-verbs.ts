@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -16,7 +17,6 @@ import {
 } from "../core/config/apply.ts";
 import {
   mirrorPath,
-  mirrorRoot,
   mirrorSet,
   mirrorYaml,
   scopeText,
@@ -433,6 +433,7 @@ const ExportOneOutput = z.object({
 });
 
 const ExportAllOutput = z.object({
+  dir: z.string(),
   files: z.array(
     z.object({
       ref: z.string(),
@@ -481,16 +482,23 @@ function yamlFiles(dir: string): string[] {
 async function exportAll(
   prune: boolean,
 ): Promise<z.infer<typeof ExportAllOutput>> {
-  const connection = connect(databaseUrl(readHostProfile()));
+  const host = readHostProfile();
+  const dir = host.mirrorDir;
+  if (existsSync(dir) && !statSync(dir).isDirectory())
+    throw usageError(`${dir} is not a directory`, [
+      "set mirror_dir in the host profile to a directory",
+    ]);
+  const connection = connect(databaseUrl(host));
   try {
     const result: z.infer<typeof ExportAllOutput> = {
+      dir,
       files: [],
       skipped: [],
       orphans: [],
       pruned: prune,
       nextSteps: [
-        `git add -A ${mirrorRoot}`,
-        'git commit -m "pod config export --all"',
+        `git -C ${dir} add -A`,
+        `git -C ${dir} commit -m "pod config export --all"`,
       ],
     };
     for (const revision of await mirrorSet(connection.db)) {
@@ -499,7 +507,7 @@ async function exportAll(
         id: revision.id,
         scope: scopeText(revision),
       };
-      const path = mirrorPath(revision);
+      const path = mirrorPath(dir, revision);
       if (path === null) {
         result.skipped.push({ ...row, reason: "unsafe name or scope_ref" });
         continue;
@@ -509,7 +517,7 @@ async function exportAll(
       result.files.push({ ...row, path });
     }
     const written = new Set(result.files.map((file) => file.path));
-    result.orphans = yamlFiles(mirrorRoot)
+    result.orphans = yamlFiles(dir)
       .filter((path) => !written.has(path))
       .sort();
     if (prune) for (const path of result.orphans) rmSync(path);

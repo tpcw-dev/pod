@@ -31,6 +31,7 @@ function home(profile: string | null): void {
 
 const defaults = () => ({
   credentialsFile: join(process.env["POD_HOME"] ?? "", "credentials"),
+  mirrorDir: join(process.env["POD_HOME"] ?? "", "mirror"),
   capacity: 2,
   trackerKind: "linear",
   trackerTokenEnv: "POD_TRACKER_TOKEN",
@@ -95,6 +96,7 @@ test("capacity and tracker.kind are read when set", () => {
     hostId: "local",
     urlEnv: "POD_DB_URL",
     credentialsFile: join(process.env["POD_HOME"] ?? "", "credentials"),
+    mirrorDir: join(process.env["POD_HOME"] ?? "", "mirror"),
     capacity: 1,
     trackerKind: "other",
     trackerTokenEnv: "POD_TRACKER_TOKEN",
@@ -256,6 +258,17 @@ test("credentials_file is read from the profile, a relative one under POD_HOME",
   expect(readHostProfile().credentialsFile).toBe(
     join(process.env["POD_HOME"] ?? "", "sub", "creds"),
   );
+});
+
+test("mirror_dir is read from the profile, a relative one under POD_HOME", () => {
+  home("mirror_dir: /elsewhere/mirror\n");
+  expect(readHostProfile().mirrorDir).toBe("/elsewhere/mirror");
+  home("mirror_dir: out/m\n");
+  expect(readHostProfile().mirrorDir).toBe(
+    join(process.env["POD_HOME"] ?? "", "out", "m"),
+  );
+  home('mirror_dir: ""\n');
+  expect(podError(() => readHostProfile()).code).toBe("schema_invalid");
 });
 
 test("the credentials file is the only source when it exists", () => {

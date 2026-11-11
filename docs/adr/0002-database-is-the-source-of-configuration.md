@@ -6,7 +6,7 @@ Pod stores configuration as append-only Revisions in `config.revision`, activate
 
 ## Decision
 
-The database is the source of configuration. A seed file under `specs/` is a mirror written by `pod config export --all`, kept in the repository so a fresh install can seed itself and so a reviewer can read the active configuration in one place. The mirror lays out one file per active Revision.
+The database is the source of configuration. Its mirror is the directory the host profile names in `mirror_dir`, default `<POD_HOME>/mirror`, outside any Pod checkout, written by `pod config export --all` with one file per active Revision; the operator keeps it in their own repository if they want a reviewable history (Jerry's ruling of 2026-11-10 on TPC-1480, narrowing the 2026-11-08 direction). The Pod repository's `specs/` holds generic seeds and examples only, so a fresh install can seed itself.
 
 Writes go through two verbs. `pod config apply FILE` stays for whole-file seeding. `pod config set <kind>.<name> <path>=<value> --reason "<why>"` derives a new Revision from the active one, changes the named paths, and records the parent. Both record `actor` from identity, as `person:<principal>` or `seat:<Seat Address>`. Nothing writes `operator` as a constant.
 
@@ -29,6 +29,6 @@ Setting `POD_SEAT` in each terminal through the runtime. The runtime at the time
 ## Consequences
 
 - Rows written before this decision keep `actor` and `activated_by` as `operator`. There is no backfill.
-- `pod brief` already flags a Revision with no matching seed file as drift. After this decision drift reads "mirror stale", and `pod config export --all` repairs it. Opening the code-host pull request for the mirror is a follow-up.
+- `pod brief` already flags a Revision with no matching seed file as drift. After this decision it compares every active Revision with its file in the mirror directory, drift reads "mirror stale", and `pod config export --all` repairs it. Opening the code-host pull request for the mirror is a follow-up.
 - The host profile keeps its fields, `operator` included, until a later decision moves host settings into the database.
 - The operator retires each process configuration file in the same change that lands the Pod kind replacing it.

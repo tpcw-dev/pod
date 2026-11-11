@@ -208,10 +208,13 @@ function fileMatches(path: string, revision: Revision): boolean {
   return revisionId(envelope.data) === revision.id;
 }
 
-async function mirrorDrift(repo: Repo): Promise<BriefResult["drift"]> {
+async function mirrorDrift(
+  repo: Repo,
+  root: string,
+): Promise<BriefResult["drift"]> {
   const drift: BriefResult["drift"] = [];
   for (const revision of await mirrorSet(repo)) {
-    const path = mirrorPath(revision);
+    const path = mirrorPath(root, revision);
     if (path !== null && fileMatches(path, revision)) continue;
     drift.push({
       revision_id: revision.id,
@@ -327,7 +330,7 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
   const host = readHostProfile();
   const connection = connect(databaseUrl(host));
   try {
-    const drift = await mirrorDrift(connection.db);
+    const drift = await mirrorDrift(connection.db, host.mirrorDir);
     const nextSteps = [
       ...readCredentials(host).warnings(),
       ...(drift.length === 0 ? [] : ["pod config export --all"]),

@@ -59,6 +59,7 @@ export async function scenario(
         hostId: "rec",
         urlEnv: "POD_DB_URL",
         credentialsFile: "/nonexistent/credentials",
+        mirrorDir: "/nonexistent/mirror",
         capacity: 2,
         trackerKind: "linear",
         trackerTokenEnv: "POD_TRACKER_TOKEN",

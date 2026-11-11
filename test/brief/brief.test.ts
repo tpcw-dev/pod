@@ -21,6 +21,7 @@ import { dbUrl, describeDb, openDb, podHome, resetDb } from "../db/helpers.ts";
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 const at = new Date("2026-10-26T00:00:00.000Z");
+const mirror = join(podHome, "mirror");
 
 function unescapeHtml(text: string): string {
   return text
@@ -161,15 +162,22 @@ describeDb("pod brief", () => {
       manifest_id: null,
       prompt_bytes: null,
     });
-    mkdirSync(join(cwd, "specs/crew"), { recursive: true });
-    mkdirSync(join(cwd, "specs/process"), { recursive: true });
-    mkdirSync(join(cwd, "specs/policy"), { recursive: true });
-    writeFileSync(join(cwd, "specs/crew/crew.yaml"), stringify(crew));
-    writeFileSync(join(cwd, "specs/process/flow.yaml"), stringify(process));
+    mkdirSync(join(mirror, "crew"), { recursive: true });
+    mkdirSync(join(mirror, "process"), { recursive: true });
+    mkdirSync(join(mirror, "policy"), { recursive: true });
+    writeFileSync(join(mirror, "crew/crew.yaml"), stringify(crew));
+    writeFileSync(join(mirror, "process/flow.yaml"), stringify(process));
     writeFileSync(
-      join(cwd, "specs/policy/policy.yaml"),
+      join(mirror, "policy/policy.yaml"),
       stringify(envelope("policy", "policy", { gates: ["other"] })),
     );
+    mkdirSync(join(cwd, "specs/crew/project/app"), { recursive: true });
+    writeFileSync(
+      join(cwd, "specs/crew/project/app/crew.yaml"),
+      stringify({ ...crew, scope: "project", scope_ref: "app" }),
+    );
+    mkdirSync(join(cwd, "specs/policy"), { recursive: true });
+    writeFileSync(join(cwd, "specs/policy/policy.yaml"), stringify(policy));
   });
   afterAll(() => conn.close());
 
@@ -212,27 +220,47 @@ describeDb("pod brief", () => {
         kind: "crew",
         name: "crew",
         scope: "project:app",
-        path: "specs/crew/project/app/crew.yaml",
+        path: join(mirror, "crew/project/app/crew.yaml"),
         mark: "mirror stale",
       },
       {
         kind: "policy",
         name: "policy",
         scope: "global",
-        path: "specs/policy/policy.yaml",
+        path: join(mirror, "policy/policy.yaml"),
         mark: "mirror stale",
       },
     ]);
     expect(parsed.result.drift[1]).toMatchObject({ ref: "policy.policy@1" });
     expect(parsed.result.nextSteps).toEqual(["pod config export --all"]);
     expect(file).toContain('<table id="mirror-stale">');
-    expect(file).toContain("<td>specs/policy/policy.yaml</td>");
+    expect(file).toContain(`<td>${join(mirror, "policy/policy.yaml")}</td>`);
     const [eventsAfter] = await conn.sql<{ n: number }[]>`
       select count(*)::int as n from ledger.event`;
     const [opsAfter] = await conn.sql<{ n: number }[]>`
       select count(*)::int as n from ledger.operation`;
     expect(eventsAfter?.n).toBe(eventsBefore?.n);
     expect(opsAfter?.n).toBe(opsBefore?.n);
+  });
+
+  test("a mirror_dir that is a file leaves brief running, with every active Revision mirror stale", () => {
+    const file = join(cwd, "not-a-dir");
+    writeFileSync(file, "x\n");
+    const home = mkdtempSync(join(tmpdir(), "pod-home-"));
+    writeFileSync(
+      join(home, "host.yaml"),
+      `${readFileSync(join(podHome, "host.yaml"), "utf8")}mirror_dir: ${file}\n`,
+    );
+    const result = runBrief(cwd, ["brief", "story:S-1"], home);
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      result: { drift: { ref: string; path: string; mark: string }[] };
+    };
+    expect(parsed.result.drift).toHaveLength(4);
+    for (const item of parsed.result.drift) {
+      expect(item.mark).toBe("mirror stale");
+      expect(item.path.startsWith(`${file}/`)).toBe(true);
+    }
   });
 
   test("brief warns when a credential the credentials file holds is still exported", () => {

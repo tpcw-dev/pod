@@ -11,6 +11,7 @@ const HostProfile = z.looseObject({
     .looseObject({ url_env: z.string().min(1).default("POD_DB_URL") })
     .prefault({}),
   credentials_file: z.string().min(1).optional(),
+  mirror_dir: z.string().min(1).optional(),
   capacity: z.int().positive().default(2),
   operator: z.string().min(1).optional(),
   tracker: z
@@ -32,6 +33,7 @@ export interface HostSettings {
   hostId: string;
   urlEnv: string;
   credentialsFile: string;
+  mirrorDir: string;
   capacity: number;
   trackerKind: string;
   trackerTokenEnv: string;
@@ -77,6 +79,7 @@ export function readHostProfile(): HostSettings {
       podHome(),
       parsed.data.credentials_file ?? "credentials",
     ),
+    mirrorDir: resolve(podHome(), parsed.data.mirror_dir ?? "mirror"),
     capacity: parsed.data.capacity,
     trackerKind: parsed.data.tracker.kind,
     trackerTokenEnv: parsed.data.tracker.token_env,
