@@ -294,7 +294,7 @@ Each event type has one kind of producer. A verb that is not listed records no e
 | a Run or a Task entering `hold` | `hold` |
 | `pod check --resume`, an operator resume of a Run or a Task from `hold` | `resume` |
 | `pod check` finding a worker the ledger does not know | `unknown_launch` |
-| `pod learning add` | `learning` |
+| `pod learning add`, and `pod learning import` once per imported row | `learning` |
 | `pod run close`, once per Run, from its `archive` step | `close` |
 | `pod run close`, once per p0 leftover, from its `escalate` step | `escalate` |
 
@@ -443,12 +443,31 @@ create table ledger.learning (
   source_story   text not null,
   evidence_refs  jsonb not null,
   text           text not null,
-  adoption       text not null check (adoption in ('new', 'adopted', 'rejected')),
+  adoption       text not null check (adoption in ('new', 'proposed', 'adopted', 'rejected', 'done')),
   area           text not null check (area in ('product', 'design', 'impl', 'process')),
   project_id     text null,   -- the project scope id used by --scope project:<id>
-  created_at     timestamptz not null
+  created_at     timestamptz not null,
+  kind           text not null,   -- one of the active policy's learning.kinds
+  expected       text null,       -- the normalized expected text the repeat match reads
+  theme          text null,
+  action_story   text null,
+  adoption_at    timestamptz not null   -- when adoption last changed
+)
+
+create table ledger.learning_occurrence (
+  id           bigserial primary key,
+  learning_id  bigint not null references ledger.learning(id),
+  story        text not null,
+  occurred_on  date not null,
+  reporter     text not null check (reporter in ('lead', 'retro', 'healthcheck')),
+  wording      text not null,
+  evidence_id  text not null,
+  created_at   timestamptz not null,
+  unique (learning_id, evidence_id)
 )
 ```
+
+Spec clarification: S21a. A learning's occurrence count is the count of its `ledger.learning_occurrence` rows; there is no counter column. `evidence_id` is the learning's distinct evidence refs sorted bytewise and joined with one space, so a repeated source is one occurrence. Migration 0018 fills `kind` with `lead` and `adoption_at` with `created_at` on existing rows, and gives each one occurrence; a row whose `evidence_refs` is not a non-empty list of strings gets `evidence_id` `learning:<id>`. `pod learning add` first matches: same `kind` and equal normalized `expected` (NFKC, lowercase, punctuation and symbols to spaces, whitespace collapsed), or same `kind` and a shared `<repo>:<path>` evidence ref, with a trailing `:<line>` or `:<line>-<line>` ignored. Zero matches insert a row and its first occurrence. One match adds an occurrence to that row; a `rejected` row returns to `new` when it has two occurrences written after `adoption_at`, and a `done` row returns to `new` when the occurrence comes within 72 hours of `adoption_at`. Two or more matches refuse `learning_match_ambiguous`. `--repeat-of <id>` skips the match. Every refusal is decided before the operation row, so nothing is written and a retry after the cause is fixed proceeds. The op key is `learning:` plus the sha256 of the canonical JSON of `source_story`, `text`, `area`, `project_id`, `kind`, normalized `expected`, the sorted distinct `evidence_refs`, `reporter`, and `repeat_of`. `pod learning import FILE` writes each row of a YAML list once, keyed `learning:import:<sha256(source_ref)>`, with its occurrences as given and no repeat match; a rerun writes nothing. Its rows carry `source_ref`, `kind`, `area`, `text`, `adoption`, and `occurrences` (each `story`, `occurred_on`, `reporter`, `wording`, `evidence_id`), and optionally `expected`, `theme`, `action_story`, and `project`. The whole file is checked before anything is written, and every imported row's `created_at`, `adoption_at`, and occurrence `created_at` are the import time. It is operator only: an agent Seat is refused `usage`. The `learning` event payload carries `kind` and `occurrence_id`; an imported row's event also carries `source_ref` and `occurrence_ids`.
 
 #### Invariants by table
 
@@ -468,7 +487,8 @@ The table below states who writes each table, what never changes, what a reader 
 | `ledger.gate_receipt` | S6 | `pod verdict post`, `pod hqa record` | all fields except `sync_state` | a PASS is bound to one candidate SHA and one verified source |
 | `ledger.outbox` | S6 | `pod verdict post`, `pod hqa record`, `pod check` | `op_key`, `payload` | a row is done only when `readback` confirms it |
 | `ledger.evidence_manifest` | S4 | `pod dispatch`, `pod decide` | every row, new evidence makes a child manifest | the same sources give the same id |
-| `ledger.learning` | S10 | `pod learning add` | `text`, `evidence_refs`, `source_story`, `area`, `project_id` | never mirrored to the docs tool |
+| `ledger.learning` | S10 | `pod learning add`, `pod learning import` | `text`, `evidence_refs`, `source_story`, `area`, `project_id`, `kind`, `expected` | never mirrored to the docs tool, `adoption_at` moves with every `adoption` change |
+| `ledger.learning_occurrence` | S21a | `pod learning add`, `pod learning import` | every row, trigger-enforced | one row per learning and `evidence_id` |
 | `ledger.usage_observation` | S11 | `pod check` only | every row | a null `value` means unknown |
 | `ledger.decision` | S12 | `pod decide`, and `pod check` for `adoption` | id, category, `effect`, question, `binding` | `manifest_id` moves only to a child manifest through an evidence exchange, `spent` only increases, `binding` is always `run`, `adoption` moves along `pending` to `adopted`, `adopted` to `reworked` or `reversed`, and `reworked` to `reversed`, every change appends to `adoption_evidence` and records a `decision` event with the new state and its evidence, and the full history is the ordered `decision` events |
 | `ledger.decision_round` | S12 | `pod decide` | every row | at most three rounds per Decision |
@@ -516,7 +536,8 @@ v1 has the PRD's 16 command forms plus `db migrate`. `db migrate` is a setup ver
 | `takeover` | `story:<id>` | orca | `ledger.run.owner_generation`, `ledger.run.coordinator`, takeover event, a restore view from the same manifest, Orca `run-use`, and on an xl Run a new decider `ledger.dispatch` row | nobody |
 | `brief` | optional `story:<id>`, optional `--html FILE` | none | an HTML file, with each mirror stale Revision marked | not applicable |
 | `drain` | optional `--end` | ledger | drain event | operator |
-| `learning add` | `FILE`, `--area A` (required), optional `--project P` | ledger | `ledger.learning`, learning event | nobody |
+| `learning add` | `FILE`, `--area A` and `--kind K` (required), optional `--project P`, `--reporter lead\|retro\|healthcheck`, `--expected TEXT`, `--repeat-of ID` | ledger | `ledger.learning` when nothing matches, one `ledger.learning_occurrence`, learning event | nobody |
+| `learning import` | `FILE` | ledger | per new row: `ledger.learning`, its `ledger.learning_occurrence` rows, learning event | nobody |
 | `run close` | `story:<id>`, `--generation N`, optional `FILE`, optional `--keep-files-reviewed` | tracker | one `close` operation per step, one close event, a `learning` row per learning and per leftover with no `p0`, an `escalate` event per p0 leftover, the Story status and one closing comment through the outbox, `ledger.run.state` `done` | nobody |
 | `learning query` | optional `--story`, `--adoption`, `--text`, `--area`, `--project` | none | nothing | not applicable |
 
@@ -550,6 +571,7 @@ The evidence each side-effect verb requires before it acts:
 | `takeover` | evidence that the old coordinator has stopped, which on an xl Run is the decider Dispatch |
 | `drain` | an owner generation that matches the Run |
 | `learning add` | a source Story, at least one evidence reference, and an `area` |
+| `learning import` | a FILE of rows, each with a `source_ref` and at least one occurrence |
 | `run close` | every Task done, superseded, or failed; no running Dispatch other than the Run's coordinator Dispatch; no open or needs_human Decision; no text in the composer of an open Dispatch terminal other than the coordinator's, read from a rendered screen; and no untracked file and no branch ahead of its upstream in the Run's worktrees, unless `--keep-files-reviewed` is passed |
 
 #### JSON envelope
@@ -596,6 +618,8 @@ Identifiers and flags come from argv. A body comes from a file path or stdin, as
 | `story_canceled` | 3 | `pod run close` sets the Story status and the tracker shows the Story canceled by a person; the Run is on hold | `pod state story:<id>` |
 | `open_pr` | 3 | before its `archive` step is done, `pod run close` reads an open PR for a `pr` event of the Run or for the branch of a Run worktree, or cannot read one | each open PR to merge or close, or the read that failed, and the same close command |
 | `wrong_host` | 3 | `pod run close` runs on a host other than the Run's `host` | the close command on the owner host |
+| `learning_kind_unknown` | 3 | `pod learning add` or `pod learning import` names a kind outside the active policy's `learning.kinds` for its scope | the allowed kinds, and a policy Revision that adds the kind, activated by a person |
+| `learning_match_ambiguous` | 3 | `pod learning add` matches two or more learnings | `pod learning add FILE --area A --kind K --repeat-of <id>` for each matched id |
 | `release_refused` | 3 | the Dispatch is not settled and no retain reason is given, or another host owns the terminal | `pod check`, and `--retain --reason` |
 | `owner_generation_stale` | 3 | the caller's generation is lower than `ledger.run.owner_generation` | `pod takeover story:<id>` if this session should own the Run |
 | `task_not_ready` | 3 | the Task is not `ready`, or a dependency is not satisfied as "Task states" defines | the unsatisfied dependencies, the receipt or delivery each lacks, and the Task state |
@@ -1192,7 +1216,7 @@ A project-scope policy Revision is a full value, applied with `pod config apply`
 
 `limits.digest_per_day` caps the proposals a digest puts in front of the operator in a day. It is an integer from 1 to 10, and an escalation never counts against it. `specs/policy/default.yaml` seeds 3 at global scope, and a project Revision may set its own. `pod config apply` refuses any other value with `schema_invalid` at `limits.digest_per_day`. Over the cap, proposals queue to the next day, oldest first, and none is refused or dropped. `pod brief` reports the cap per project: the JSON row carries `digest: { cap, shown, queued }`, and the HTML carries one line, `Digest <shown>/<cap>, <queued> queued`. Until the digest ships, Pod validates the cap and reads it nowhere.
 
-When Pod carries the digest, `ledger.learning` gains an optional text column `kind`. Its values are an open list the adopter names, and Pod does not interpret them.
+Spec clarification: S21a. `ledger.learning.kind` is a not-null text column. Its value must be in the active policy's optional `learning.kinds`, a non-empty list of distinct lowercase names (`^[a-z][a-z0-9_]*$`), read for the learning's project scope with the global fallback; `pod config apply` refuses any other shape with `schema_invalid` at `learning.kinds`. With no active policy, or one without `learning.kinds`, the list is `[lead]`. `specs/policy/default.yaml` seeds `learning: { kinds: [lead] }`, and an adopter adds its kinds through a policy Revision a person activates.
 
 #### Decision measurement
 
@@ -1429,5 +1453,5 @@ Four checks verify this spec and the code that follows it.
 
 1. The completion check reads this file and confirms that the nine required sections exist as `###` headings under `## Design`, in the ticket's order, with the later milestones section after them. The nine are "Repo layout and packages", "Config schema and ledger schema sketch", "CLI framework, verb list, and error shape", "Runtime adapter boundary and fixture replay", "Process spec loading and the selector", "The decision layer seats", "Versioning, release, and migration policy", "Adoption with a crew profile and a host profile", and "Story order and what each adds".
 2. The scope scan runs the denylist that `POD_SCRUB_DENYLIST` names over this file, `specs/`, `fixtures/`, `docs/`, and `src/db/schema/`. It matches whole words, case-insensitive, and passes only at zero matches.
-3. The registry contract test, from S1 on, asserts that every verb row with a side effect appears in `docs/contract.md` with its `cancelBy` and `evidenceRequired`, and that each of the 17 verbs in the table under "Verbs" exists in the registry. The 17 are `db migrate`, `config apply`, `config export`, `run create`, `dispatch`, `check` with `--resume`, `retry`, `release`, `verdict post`, `hqa record`, `decide`, `state`, `takeover`, `brief`, `drain`, `learning add` with `--area`, and `learning query`.
+3. The registry contract test, from S1 on, asserts that every verb row with a side effect appears in `docs/contract.md` with its `cancelBy` and `evidenceRequired`, and that each of the 17 verbs in the table under "Verbs" exists in the registry. The 17 are `db migrate`, `config apply`, `config export`, `run create`, `dispatch`, `check` with `--resume`, `retry`, `release`, `verdict post`, `hqa record`, `decide`, `state`, `takeover`, `brief`, `drain`, `learning add` with `--area`, and `learning query`. Verbs beyond the 17, such as `learning import`, are listed with their side effect in the test's extra list.
 4. The docs test `test/docs/tech-spec-operator.test.ts` asserts that "Operator pages and profiles" exists, that its profile table has exactly one row for each of the four profiles, and that it states the conditions that keep `autonomous` refused.

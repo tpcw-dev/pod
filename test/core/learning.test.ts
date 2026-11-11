@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { readLearningFile } from "../../src/cli/learning-verbs.ts";
 import { PodError } from "../../src/cli/errors.ts";
-import { learningOpKey } from "../../src/core/learning/add.ts";
+import {
+  learningIdentity,
+  learningOpKey,
+} from "../../src/core/learning/add.ts";
 import { acceptLearningFile } from "../../src/core/domain/learning.ts";
 
 const file = {
@@ -45,15 +48,27 @@ test("an area or project key names the flag", () => {
 
 test("the op key is the hash of the canonical identity", () => {
   expect(
-    learningOpKey({
-      source_story: "S-1",
-      text: "keep the seam",
-      area: "impl",
-      project_id: "alpha",
-    }),
+    learningOpKey(
+      learningIdentity({
+        source_story: "S-1",
+        text: "keep the seam",
+        area: "impl",
+        project_id: "alpha",
+        evidence_refs: ["pr:2", "pr:1"],
+        adoption: "new",
+        kind: "lead",
+        expected: "Keep the seam.",
+        reporter: "lead",
+      }),
+    ),
   ).toBe(
-    "learning:2058e5a7bf29dc1403bc7daacc5ee2e5c390a5e4faba4ce1380f0907dfe3faee",
+    "learning:b291153d09a4dca34be8de25ffd9893cbcfdda2f9a29daa1fcc4c7deb534cd91",
   );
+});
+
+test("the file carries an optional expected", () => {
+  const parsed = acceptLearningFile({ ...file, expected: "keep it" });
+  expect(parsed.ok && parsed.file.expected).toBe("keep it");
 });
 
 test("readLearningFile reports a missing path, bad YAML, and a non-object root", () => {

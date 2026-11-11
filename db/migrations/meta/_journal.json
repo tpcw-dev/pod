@@ -127,6 +127,13 @@
       "when": 1794367162802,
       "tag": "0017_host_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794415047142,
+      "tag": "0018_learning_kind",
+      "breakpoints": true
     }
   ]
 }

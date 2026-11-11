@@ -11,9 +11,11 @@ import type {
 } from "../domain/config.ts";
 import type { Json } from "../domain/json.ts";
 import type {
+  Adoption,
   Learning,
   LearningFilter,
   NewLearning,
+  NewOccurrence,
 } from "../domain/learning.ts";
 import type { BriefTree } from "../domain/brief.ts";
 import type {
@@ -119,6 +121,13 @@ export interface Repo {
   lockQuota(host: string): Promise<void>;
   insertLearning(row: NewLearning): Promise<Learning>;
   listLearnings(filter: LearningFilter): Promise<Learning[]>;
+  getLearning(id: number): Promise<Learning | null>;
+  listLearningsOfKind(kind: string): Promise<Learning[]>;
+  insertOccurrence(
+    row: NewOccurrence,
+  ): Promise<{ id: number; created: boolean }>;
+  countOccurrencesSince(learningId: number, since: Date): Promise<number>;
+  setLearningAdoption(id: number, adoption: Adoption, at: Date): Promise<void>;
   insertManifest(
     row: EvidenceManifest,
   ): Promise<{ manifest: EvidenceManifest; created: boolean }>;

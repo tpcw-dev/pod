@@ -37,8 +37,9 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Profile**: a policy profile, a named set of policy settings a project activates: which gates it lifts, what it requires, and who deploys to production. One of hands-on, standard, hands-off, autonomous. A crew profile and a host profile are other things.
 - **Reserved**: policy classes a decision cannot settle on its own: deny, needs a human, needs an existing authorization.
 - **Area**: the classification of a learning, one of product, design, impl, process.
-- **Learning**: a record of one agent-only lesson, with a source story, evidence, text, and an adoption state.
-- **Adoption**: the state of a learning, one of new, adopted, rejected.
+- **Learning**: a record of one agent-only lesson, with a source story, evidence, text, a kind from the policy's `learning.kinds`, its occurrences, and an adoption state.
+- **Occurrence**: one time a learning was seen: a story, a date, a reporter, the wording, and an evidence id. A repeat lands as an occurrence on the existing learning, never as a second learning.
+- **Adoption**: the state of a learning, one of new, proposed, adopted, rejected, done.
 - **Docs port**: Pod's read-only port to a docs tool. It reads one section of one page and never writes.
 - **Section**: the heading, paragraphs, and tables under one heading_2 of a docs page, up to the next heading.
 - **State view**: the seven sections `pod state` prints for a scope, each stamped with its source revision and read time, kept within a 3k-word budget.

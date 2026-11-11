@@ -38,6 +38,7 @@ test("a positional is not help", () => {
 test("learning and docs help exit 0", () => {
   for (const args of [
     ["learning", "add", "--help"],
+    ["learning", "import", "--help"],
     ["learning", "query", "--help"],
     ["docs", "read", "--help"],
   ]) {
@@ -72,6 +73,7 @@ test("help lists the verbs sorted by name", () => {
     "drain",
     "hqa record",
     "learning add",
+    "learning import",
     "learning query",
     "release",
     "retry",

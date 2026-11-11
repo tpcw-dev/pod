@@ -35,6 +35,8 @@ export const RefusalCode = z.enum([
   "story_canceled",
   "open_pr",
   "wrong_host",
+  "learning_kind_unknown",
+  "learning_match_ambiguous",
   "usage",
   "failed",
 ]);

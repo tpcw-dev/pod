@@ -41,6 +41,8 @@ export type ErrorCode =
   | "story_canceled"
   | "open_pr"
   | "wrong_host"
+  | "learning_kind_unknown"
+  | "learning_match_ambiguous"
   | "config_missing"
   | "failed";
 

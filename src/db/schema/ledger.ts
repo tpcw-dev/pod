@@ -1,8 +1,10 @@
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  bigint,
   bigserial,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -121,15 +123,46 @@ export const learning = ledger.table(
     area: text("area").notNull(),
     projectId: text("project_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    kind: text("kind").notNull(),
+    expected: text("expected"),
+    theme: text("theme"),
+    actionStory: text("action_story"),
+    adoptionAt: timestamp("adoption_at", { withTimezone: true }).notNull(),
   },
   (t) => [
     check(
       "learning_adoption_check",
-      sql`${t.adoption} in ('new', 'adopted', 'rejected')`,
+      sql`${t.adoption} in ('new', 'proposed', 'adopted', 'rejected', 'done')`,
     ),
     check(
       "learning_area_check",
       sql`${t.area} in ('product', 'design', 'impl', 'process')`,
+    ),
+  ],
+);
+
+export const learningOccurrence = ledger.table(
+  "learning_occurrence",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    learningId: bigint("learning_id", { mode: "number" })
+      .notNull()
+      .references(() => learning.id),
+    story: text("story").notNull(),
+    occurredOn: date("occurred_on", { mode: "string" }).notNull(),
+    reporter: text("reporter").notNull(),
+    wording: text("wording").notNull(),
+    evidenceId: text("evidence_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("learning_occurrence_evidence_idx").on(
+      t.learningId,
+      t.evidenceId,
+    ),
+    check(
+      "learning_occurrence_reporter_check",
+      sql`${t.reporter} in ('lead', 'retro', 'healthcheck')`,
     ),
   ],
 );

@@ -9,6 +9,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  gt,
   lt,
   max,
   ne,
@@ -51,6 +52,7 @@ import {
   type Learning,
   type LearningFilter,
   type NewLearning,
+  type NewOccurrence,
 } from "../../core/domain/learning.ts";
 import {
   Activity,
@@ -97,6 +99,7 @@ const {
   evidenceManifest,
   gateReceipt,
   learning,
+  learningOccurrence,
   operation,
   outbox,
   run,
@@ -319,7 +322,10 @@ function toGateReceipt(row: typeof gateReceipt.$inferSelect): GateReceipt {
   };
 }
 
-function toLearning(row: typeof learning.$inferSelect): Learning {
+function toLearning(
+  row: typeof learning.$inferSelect,
+  occurrences: number,
+): Learning {
   return {
     id: row.id,
     source_story: row.sourceStory,
@@ -328,9 +334,17 @@ function toLearning(row: typeof learning.$inferSelect): Learning {
     adoption: Adoption.parse(row.adoption),
     area: Area.parse(row.area),
     project_id: row.projectId,
+    kind: row.kind,
+    expected: row.expected,
+    theme: row.theme,
+    action_story: row.actionStory,
     created_at: row.createdAt,
+    adoption_at: row.adoptionAt,
+    occurrences,
   };
 }
+
+const occurrenceCount = sql<number>`(select count(*)::int from ${learningOccurrence} o where o.learning_id = ${learning}.id)`;
 
 function toUsageObservation(
   row: typeof usageObservation.$inferSelect,
@@ -933,17 +947,90 @@ function makeRepo(x: Executor): Repo {
           adoption: row.adoption,
           area: row.area,
           projectId: row.project_id,
+          kind: row.kind,
+          expected: row.expected,
+          theme: row.theme,
+          actionStory: row.action_story,
           createdAt: row.created_at,
+          adoptionAt: row.adoption_at,
         })
         .returning();
       if (inserted === undefined)
         throw new Error("learning insert returned no row");
-      return toLearning(inserted);
+      return toLearning(inserted, 0);
+    },
+
+    async getLearning(id: number) {
+      const [row] = await x
+        .select({ row: learning, occurrences: occurrenceCount })
+        .from(learning)
+        .where(eq(learning.id, id));
+      return row === undefined ? null : toLearning(row.row, row.occurrences);
+    },
+
+    async listLearningsOfKind(kind: string) {
+      const rows = await x
+        .select({ row: learning, occurrences: occurrenceCount })
+        .from(learning)
+        .where(eq(learning.kind, kind))
+        .orderBy(asc(learning.id));
+      return rows.map((row) => toLearning(row.row, row.occurrences));
+    },
+
+    async insertOccurrence(row: NewOccurrence) {
+      const [inserted] = await x
+        .insert(learningOccurrence)
+        .values({
+          learningId: row.learning_id,
+          story: row.story,
+          occurredOn: row.occurred_on,
+          reporter: row.reporter,
+          wording: row.wording,
+          evidenceId: row.evidence_id,
+          createdAt: row.created_at,
+        })
+        .onConflictDoNothing({
+          target: [learningOccurrence.learningId, learningOccurrence.evidenceId],
+        })
+        .returning({ id: learningOccurrence.id });
+      if (inserted !== undefined) return { id: inserted.id, created: true };
+      const [existing] = await x
+        .select({ id: learningOccurrence.id })
+        .from(learningOccurrence)
+        .where(
+          and(
+            eq(learningOccurrence.learningId, row.learning_id),
+            eq(learningOccurrence.evidenceId, row.evidence_id),
+          ),
+        );
+      if (existing === undefined)
+        throw new Error("learning occurrence conflict returned no row");
+      return { id: existing.id, created: false };
+    },
+
+    async countOccurrencesSince(learningId: number, since: Date) {
+      const [row] = await x
+        .select({ n: sql<number>`count(*)::int` })
+        .from(learningOccurrence)
+        .where(
+          and(
+            eq(learningOccurrence.learningId, learningId),
+            gt(learningOccurrence.createdAt, since),
+          ),
+        );
+      return row?.n ?? 0;
+    },
+
+    async setLearningAdoption(id: number, adoption: Adoption, at: Date) {
+      await x
+        .update(learning)
+        .set({ adoption, adoptionAt: at })
+        .where(eq(learning.id, id));
     },
 
     async listLearnings(filter: LearningFilter) {
       const rows = await x
-        .select()
+        .select({ row: learning, occurrences: occurrenceCount })
         .from(learning)
         .where(
           and(
@@ -965,7 +1052,7 @@ function makeRepo(x: Executor): Repo {
           ),
         )
         .orderBy(desc(learning.createdAt), desc(learning.id));
-      return rows.map(toLearning);
+      return rows.map((row) => toLearning(row.row, row.occurrences));
     },
 
     async insertUsageObservation(row: NewUsageObservation) {
