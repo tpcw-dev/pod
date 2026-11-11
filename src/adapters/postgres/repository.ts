@@ -279,17 +279,7 @@ function toDecisionRound(
 
 const OutcomeText = z.looseObject({ text: z.string() });
 
-function strings(value: unknown): string[] {
-  if (!Array.isArray(value))
-    throw new Error("learning evidence_refs is not an array of strings");
-  const items: string[] = [];
-  for (const item of value) {
-    if (typeof item !== "string")
-      throw new Error("learning evidence_refs is not an array of strings");
-    items.push(item);
-  }
-  return items;
-}
+const EvidenceRefs = z.array(z.string()).catch([]);
 
 function toOutbox(row: typeof outbox.$inferSelect): OutboxRow {
   return {
@@ -329,7 +319,7 @@ function toLearning(
   return {
     id: row.id,
     source_story: row.sourceStory,
-    evidence_refs: strings(row.evidenceRefs),
+    evidence_refs: EvidenceRefs.parse(row.evidenceRefs),
     text: row.text,
     adoption: Adoption.parse(row.adoption),
     area: Area.parse(row.area),

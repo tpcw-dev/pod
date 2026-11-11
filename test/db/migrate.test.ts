@@ -370,6 +370,16 @@ describeDb("pod db migrate", () => {
         "pr:1",
         ...found.slice(2).map((row) => `learning:${row.id}`),
       ]);
+      const dir = mkdtempSync(join(tmpdir(), "pod-learning-"));
+      const file = join(dir, "learning.yaml");
+      writeFileSync(file, "source_story: S-2\nevidence_refs: [pr:9]\ntext: after\n");
+      expect(
+        runCli(["learning", "add", file, "--area", "impl", "--kind", "lead"]).status,
+      ).toBe(0);
+      const queried = runCli(["learning", "query", "--text", "object"]);
+      expect(queried.json.result).toMatchObject({
+        learnings: [{ text: "object", evidence_refs: [] }],
+      });
     } finally {
       await conn.close();
     }

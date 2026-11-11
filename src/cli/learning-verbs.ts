@@ -172,7 +172,7 @@ export async function learningImport(
     const identity = await writerOf(connection.db, host, process.env, false);
     if (identity.kind === "seat")
       throw usageError(`learning import is operator only; ${identity.address} is a Seat`, [
-        "a person runs pod learning import from the operator's shell",
+        "Run pod learning import from the operator's shell",
       ]);
     const outcome = await importLearnings(connection.db, {
       rows: accepted.rows,

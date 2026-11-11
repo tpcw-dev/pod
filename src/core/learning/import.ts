@@ -35,11 +35,6 @@ function byDate(row: ImportRow) {
 
 const StoredImport = z.object({ id: z.number() });
 
-async function storedId(tx: Repo, opKey: string): Promise<number | null> {
-  const existing = await tx.getOperation(opKey);
-  return existing === null ? null : StoredImport.parse(existing.result_ref).id;
-}
-
 async function writeRow(
   tx: Repo,
   row: ImportRow,
@@ -47,20 +42,23 @@ async function writeRow(
   now: Date,
 ): Promise<Imported> {
   const opKey = importOpKey(row.source_ref);
-  const stored = await storedId(tx, opKey);
-  if (stored !== null)
-    return { source_ref: row.source_ref, id: stored, replayed: true };
   const ordered = byDate(row);
   const [earliest] = ordered;
   if (earliest === undefined)
     throw new Error(`import row ${row.source_ref} has no occurrence`);
-  await tx.insertOperation({
+  const operation = await tx.insertOperation({
     op_key: opKey,
     intent: "learning",
     owner_generation: 0,
     at: now,
     result_ref: Json.parse({ source_ref: row.source_ref }),
   });
+  if (!operation.created)
+    return {
+      source_ref: row.source_ref,
+      id: StoredImport.parse(operation.operation.result_ref).id,
+      replayed: true,
+    };
   const learning = await tx.insertLearning({
     source_story: earliest.story,
     evidence_refs: row.occurrences.map((occurrence) => occurrence.evidence_id),

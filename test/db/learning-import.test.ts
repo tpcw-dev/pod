@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
+import { acceptImportFile } from "../../src/core/domain/learning.ts";
 import { addLearning } from "../../src/core/learning/add.ts";
+import {
+  importLearnings,
+  importOpKey,
+} from "../../src/core/learning/import.ts";
+import { parse } from "yaml";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 
 function yaml(body: string): string {
@@ -149,6 +155,51 @@ describeDb("learning import", () => {
     });
   });
 
+  function parsedRows() {
+    const accepted = acceptImportFile(parse(rows));
+    if (!accepted.ok) throw new Error(accepted.issues.join("; "));
+    return accepted.rows;
+  }
+
+  test("a row whose op key another import already holds is replayed and writes nothing", async () => {
+    const opKey = importOpKey("ext-1");
+    await conn.sql`
+      insert into ledger.operation (op_key, intent, status, owner_generation, result_ref, created_at, updated_at)
+      values (${opKey}, 'learning', 'done', 0, ${'{"source_ref": "ext-1", "id": 777}'}::jsonb, now(), now())`;
+    const result = await importLearnings(conn.db, {
+      rows: parsedRows(),
+      host: "h1",
+      now: () => new Date(),
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      rows: [
+        { source_ref: "ext-1", id: 777, replayed: true },
+        { source_ref: "ext-2", replayed: false },
+        { source_ref: "ext-3", replayed: false },
+      ],
+    });
+    expect(await counts()).toMatchObject({ learnings: 2, occurrences: 2, events: 2 });
+  });
+
+  test("two overlapping imports of the same file write each row once", async () => {
+    const run = () =>
+      importLearnings(conn.db, {
+        rows: parsedRows(),
+        host: "h1",
+        now: () => new Date(),
+      });
+    const [a, b] = await Promise.all([run(), run()]);
+    if (!a.ok || !b.ok) throw new Error("import refused");
+    expect(a.rows.map((r) => r.id)).toEqual(b.rows.map((r) => r.id));
+    expect(await counts()).toEqual({
+      learnings: 3,
+      occurrences: 4,
+      events: 3,
+      ops: 3,
+    });
+  });
+
   test("an imported rejected row needs two new occurrences from learning add", async () => {
     expect(runCli(["learning", "import", yaml(rows)]).status).toBe(0);
     const [row] = await conn.sql<{ id: number }[]>`
@@ -251,7 +302,7 @@ describeDb("learning import", () => {
     expect(result.status).toBe(2);
     expect(result.json.error?.code).toBe("usage");
     expect(result.json.error?.nextSteps).toEqual([
-      "a person runs pod learning import from the operator's shell",
+      "Run pod learning import from the operator's shell",
     ]);
     expect(await counts()).toEqual({ learnings: 0, occurrences: 0, events: 0, ops: 0 });
   });

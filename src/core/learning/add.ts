@@ -153,7 +153,8 @@ export function unknownKind(
     `learning kind ${kind} is not in the ${scope} policy's learning.kinds`,
     [
       `allowed kinds: ${allowed.join(", ")}`,
-      "pod config set or pod config apply a policy Revision that adds the kind to learning.kinds, then a person activates it",
+      "Add the kind to learning.kinds with pod config set or pod config apply",
+      "Ask a person to activate that policy Revision",
     ],
   );
 }
