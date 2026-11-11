@@ -1,5 +1,4 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
 import {
@@ -9,6 +8,7 @@ import {
 } from "../core/brief/profiles.ts";
 import { pendingActivations, revisionRef } from "../core/config/apply.ts";
 import { revisionId } from "../core/config/canonical-json.ts";
+import { mirrorPath, mirrorSet, scopeText } from "../core/config/mirror.ts";
 import type { BriefTree } from "../core/domain/brief.ts";
 import type { Repo } from "../core/ports/db.ts";
 import { RevisionEnvelope, type Revision } from "../core/domain/config.ts";
@@ -41,9 +41,12 @@ const RevisionJson = z.object({
 
 const DriftJson = z.object({
   revision_id: z.string(),
+  ref: z.string(),
   kind: z.string(),
   name: z.string(),
-  path: z.string(),
+  scope: z.string(),
+  path: z.string().nullable(),
+  mark: z.literal("mirror stale"),
 });
 
 const CountersJson = z.object({
@@ -165,9 +168,9 @@ export const BriefOutput = z.object({
           measurement: MeasurementJson,
         }),
       ),
-      drift: z.array(DriftJson),
     }),
   ),
+  drift: z.array(DriftJson),
   nextSteps: z.array(z.string()).optional(),
 });
 type BriefResult = z.infer<typeof BriefOutput>;
@@ -185,12 +188,6 @@ function revisionJson(revision: Revision | null) {
     rev: revision.rev,
     created_at: iso(revision.created_at),
   };
-}
-
-function specPath(kind: string, name: string): string | null {
-  if (!/^[A-Za-z0-9._-]+$/.test(kind) || !/^[A-Za-z0-9._-]+$/.test(name))
-    return null;
-  return join("specs", kind, `${name}.yaml`);
 }
 
 function fileMatches(path: string, revision: Revision): boolean {
@@ -211,46 +208,25 @@ function fileMatches(path: string, revision: Revision): boolean {
   return revisionId(envelope.data) === revision.id;
 }
 
-function driftFor(
-  tree: BriefTree,
-): Map<string, BriefResult["stories"][number]["drift"]> {
-  const byStory = new Map<string, BriefResult["stories"][number]["drift"]>();
-  for (const item of tree.stories) {
-    const seen = new Set<string>();
-    const drift: BriefResult["stories"][number]["drift"] = [];
-    for (const run of item.runs) {
-      const snapshot = run.snapshot;
-      if (snapshot === null) continue;
-      const slots = [
-        { id: snapshot.crew_revision_id, revision: snapshot.crew },
-        { id: snapshot.process_revision_id, revision: snapshot.process },
-        { id: snapshot.policy_revision_id, revision: snapshot.policy },
-      ];
-      for (const slot of slots) {
-        if (seen.has(slot.id)) continue;
-        seen.add(slot.id);
-        if (slot.revision === null) {
-          drift.push({
-            revision_id: slot.id,
-            kind: "missing",
-            name: "missing",
-            path: "specs/missing/missing.yaml",
-          });
-          continue;
-        }
-        const path = specPath(slot.revision.kind, slot.revision.name);
-        if (path !== null && fileMatches(path, slot.revision)) continue;
-        drift.push({
-          revision_id: slot.revision.id,
-          kind: slot.revision.kind,
-          name: slot.revision.name,
-          path: path ?? "specs/missing/missing.yaml",
-        });
-      }
-    }
-    byStory.set(`${item.story.provider}\n${item.story.external_id}`, drift);
+async function mirrorDrift(
+  repo: Repo,
+  root: string,
+): Promise<BriefResult["drift"]> {
+  const drift: BriefResult["drift"] = [];
+  for (const revision of await mirrorSet(repo)) {
+    const path = mirrorPath(root, revision);
+    if (path !== null && fileMatches(path, revision)) continue;
+    drift.push({
+      revision_id: revision.id,
+      ref: revisionRef(revision),
+      kind: revision.kind,
+      name: revision.name,
+      scope: scopeText(revision),
+      path,
+      mark: "mirror stale",
+    });
   }
-  return byStory;
+  return drift;
 }
 
 async function pendingRequests(
@@ -262,10 +238,7 @@ async function pendingRequests(
     rows.push({
       op_key,
       ref: revision === null ? request.revision_id : revisionRef(revision),
-      scope:
-        request.scope_ref === ""
-          ? request.scope
-          : `${request.scope}:${request.scope_ref}`,
+      scope: scopeText(request),
       ticket: request.ticket,
       actor: request.actor,
       comment: request.comment,
@@ -278,8 +251,8 @@ function toBriefResult(
   tree: BriefTree,
   projects: readonly ProjectProfile[],
   pending: BriefResult["pending_requests"],
+  drift: BriefResult["drift"],
 ): BriefResult {
-  const drift = driftFor(tree);
   const current = new Map(projects.map((row) => [row.project, row.profile]));
   return {
     pending_requests: pending,
@@ -346,9 +319,8 @@ function toBriefResult(
         counters: run.counters,
         measurement: run.measurement,
       })),
-      drift:
-        drift.get(`${item.story.provider}\n${item.story.external_id}`) ?? [],
     })),
+    drift,
   };
 }
 
@@ -358,7 +330,11 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
   const host = readHostProfile();
   const connection = connect(databaseUrl(host));
   try {
-    const warnings = readCredentials(host).warnings();
+    const drift = await mirrorDrift(connection.db, host.mirrorDir);
+    const nextSteps = [
+      ...readCredentials(host).warnings(),
+      ...(drift.length === 0 ? [] : ["pod config export --all"]),
+    ];
     const tree = await connection.db.readBrief(externalId);
     if (externalId !== null && tree.stories.length === 0)
       throw new PodError(
@@ -372,8 +348,9 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
         tree,
         await projectProfiles(connection.db, tree),
         await pendingRequests(connection.db),
+        drift,
       ),
-      ...(warnings.length === 0 ? {} : { nextSteps: warnings }),
+      ...(nextSteps.length === 0 ? {} : { nextSteps }),
     });
     if (input.html !== undefined)
       writeFileSync(input.html, renderBriefHtml(JSON.stringify(result)));

@@ -1,4 +1,12 @@
-import { writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { stringify } from "yaml";
 import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
@@ -7,6 +15,12 @@ import {
   revisionRef,
   type ApplyOutcome,
 } from "../core/config/apply.ts";
+import {
+  mirrorPath,
+  mirrorSet,
+  mirrorYaml,
+  scopeText,
+} from "../core/config/mirror.ts";
 import { deriveSet } from "../core/config/set.ts";
 import { roadmapRefusal } from "../core/docs/roadmap.ts";
 import {
@@ -70,12 +84,6 @@ function scopeFlag(value: string): { scope: string; scope_ref: string } {
   return at === -1
     ? { scope: value, scope_ref: "" }
     : { scope: value.slice(0, at), scope_ref: value.slice(at + 1) };
-}
-
-function scopeText(envelope: { scope: string; scope_ref: string }): string {
-  return envelope.scope_ref === ""
-    ? envelope.scope
-    : `${envelope.scope}:${envelope.scope_ref}`;
 }
 
 function expectedFlag(value: string): string | null {
@@ -411,15 +419,43 @@ function envelopeOf(revision: Revision): RevisionEnvelope {
 }
 
 export const ConfigExportInput = z.strictObject({
-  args: z.tuple([z.string()]),
-  out: z.string().min(1),
+  args: z.union([z.tuple([]), z.tuple([z.string()])]),
+  out: z.string().min(1).optional(),
+  all: z.boolean().optional(),
+  prune: z.boolean().optional(),
 });
+type ConfigExportInput = z.infer<typeof ConfigExportInput>;
 
-export const ConfigExportOutput = z.object({
+const ExportOneOutput = z.object({
   ref: z.string(),
   id: z.string(),
   out: z.string(),
 });
+
+const ExportAllOutput = z.object({
+  dir: z.string(),
+  files: z.array(
+    z.object({
+      ref: z.string(),
+      id: z.string(),
+      scope: z.string(),
+      path: z.string(),
+    }),
+  ),
+  skipped: z.array(
+    z.object({
+      ref: z.string(),
+      id: z.string(),
+      scope: z.string(),
+      reason: z.string(),
+    }),
+  ),
+  orphans: z.array(z.string()),
+  pruned: z.boolean(),
+  nextSteps: z.array(z.string()),
+});
+
+export const ConfigExportOutput = z.union([ExportOneOutput, ExportAllOutput]);
 
 function parseRef(ref: string): { kind: Kind; name: string; rev: number } {
   const match = /^([^.]+)\.(.+)@([1-9][0-9]*)$/.exec(ref);
@@ -434,10 +470,67 @@ function parseRef(ref: string): { kind: Kind; name: string; rev: number } {
   return { kind: kind.data, name: match[2], rev: Number(match[3]) };
 }
 
-export async function configExport(
-  input: z.infer<typeof ConfigExportInput>,
-): Promise<z.infer<typeof ConfigExportOutput>> {
-  const [ref] = input.args;
+function yamlFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return yamlFiles(path);
+    return entry.isFile() && entry.name.endsWith(".yaml") ? [path] : [];
+  });
+}
+
+async function exportAll(
+  prune: boolean,
+): Promise<z.infer<typeof ExportAllOutput>> {
+  const host = readHostProfile();
+  const dir = host.mirrorDir;
+  if (existsSync(dir) && !statSync(dir).isDirectory())
+    throw usageError(`${dir} is not a directory`, [
+      "set mirror_dir in the host profile to a directory",
+    ]);
+  const connection = connect(databaseUrl(host));
+  try {
+    const result: z.infer<typeof ExportAllOutput> = {
+      dir,
+      files: [],
+      skipped: [],
+      orphans: [],
+      pruned: prune,
+      nextSteps: [
+        `git -C ${dir} add -A`,
+        `git -C ${dir} commit -m "pod config export --all"`,
+      ],
+    };
+    for (const revision of await mirrorSet(connection.db)) {
+      const row = {
+        ref: revisionRef(revision),
+        id: revision.id,
+        scope: scopeText(revision),
+      };
+      const path = mirrorPath(dir, revision);
+      if (path === null) {
+        result.skipped.push({ ...row, reason: "unsafe name or scope_ref" });
+        continue;
+      }
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, mirrorYaml(revision));
+      result.files.push({ ...row, path });
+    }
+    const written = new Set(result.files.map((file) => file.path));
+    result.orphans = yamlFiles(dir)
+      .filter((path) => !written.has(path))
+      .sort();
+    if (prune) for (const path of result.orphans) rmSync(path);
+    return result;
+  } finally {
+    await connection.close();
+  }
+}
+
+async function exportOne(
+  ref: string,
+  out: string,
+): Promise<z.infer<typeof ExportOneOutput>> {
   const { kind, name, rev } = parseRef(ref);
   const connection = connect(databaseUrl(readHostProfile()));
   try {
@@ -446,9 +539,26 @@ export async function configExport(
       throw new PodError("revision_not_found", 3, `no Revision ${ref}`, [
         "pod config apply FILE",
       ]);
-    writeFileSync(input.out, stringify(envelopeOf(revision)));
-    return { ref, id: revision.id, out: input.out };
+    writeFileSync(out, stringify(envelopeOf(revision)));
+    return { ref, id: revision.id, out };
   } finally {
     await connection.close();
   }
+}
+
+export async function configExport(
+  input: ConfigExportInput,
+): Promise<z.infer<typeof ConfigExportOutput>> {
+  const [ref] = input.args;
+  if (input.all === true) {
+    if (ref !== undefined || input.out !== undefined)
+      throw usageError(
+        "config export --all takes no kind.name@rev and no --out",
+      );
+    return exportAll(input.prune === true);
+  }
+  if (input.prune === true) throw usageError("--prune needs --all");
+  if (ref === undefined || input.out === undefined)
+    throw usageError("config export needs kind.name@rev --out FILE, or --all");
+  return exportOne(ref, input.out);
 }

@@ -47,6 +47,17 @@ const BriefPending = z.object({
   ),
 });
 
+const BriefDrift = z.object({
+  drift: z.array(
+    z.object({
+      ref: z.string(),
+      scope: z.string(),
+      path: z.string().nullable(),
+      mark: z.string(),
+    }),
+  ),
+});
+
 const BriefTables = z.object({
   stories: z.array(
     z.object({
@@ -237,10 +248,23 @@ function pendingTable(parsed: unknown): string {
   return `<table id="pending-requests">\n${rows.join("\n")}\n</table>`;
 }
 
+function driftTable(parsed: unknown): string {
+  const brief = BriefDrift.safeParse(parsed);
+  if (!brief.success || brief.data.drift.length === 0) return "";
+  const rows = [
+    row(["Revision", "scope", "mirror path", "mark"]),
+    ...brief.data.drift.map((item) =>
+      row([item.ref, item.scope, item.path ?? "no safe path", item.mark]),
+    ),
+  ];
+  return `<table id="mirror-stale">\n${rows.join("\n")}\n</table>`;
+}
+
 export function renderBriefHtml(resultJson: string): string {
   const parsed = parsedJson(resultJson);
   const tables = [
     pendingTable(parsed),
+    driftTable(parsed),
     testTables(parsed),
     measurementTables(parsed),
   ]
