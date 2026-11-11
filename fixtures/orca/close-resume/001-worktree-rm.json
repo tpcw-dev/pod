@@ -1,0 +1,18 @@
+{
+  "verb": "worktree-rm",
+  "match": {
+    "argv": [
+      "worktree",
+      "rm",
+      "--worktree",
+      "id:repo-1::/w/one",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"f2f5e026-65c5-48b3-8fdb-084c77003af0\",\n  \"ok\": true,\n  \"result\": {\n    \"removed\": true,\n    \"catalogVersion\": {\n      \"epoch\": \"98d7e55d-ed6e-4747-9515-a8411cfd206e\",\n      \"sequence\": 293\n    }\n  },\n  \"_meta\": {\n    \"runtimeId\": \"63a59710-aa1b-4c00-8b90-337b5bfc9fc1\"\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.253",
+  "recordedAt": "2026-11-10T09:41:07.000Z"
+}

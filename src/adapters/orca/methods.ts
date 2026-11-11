@@ -13,6 +13,7 @@ import {
   WorkerReleaseResult,
   WorkerStartResult,
   WorkerStopResult,
+  WorktreeRemoveResult,
   type OrcaPort,
   type Receipt,
 } from "../../core/ports/orca.ts";
@@ -39,5 +40,7 @@ export function methods(call: Call): Omit<OrcaPort, "version"> {
     workerList: (req) => call(argvFor.workerList(req), WorkerListResult),
     terminalShow: (req) => call(argvFor.terminalShow(req), TerminalShowResult),
     terminalRead: (req) => call(argvFor.terminalRead(req), TerminalReadResult),
+    worktreeRemove: (req) =>
+      call(argvFor.worktreeRemove(req), WorktreeRemoveResult),
   };
 }

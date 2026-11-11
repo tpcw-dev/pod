@@ -74,6 +74,12 @@ function placedWorktree(dispatch: Dispatch): string | undefined {
   return Placement.catch({}).parse(dispatch.requested_launch).worktree;
 }
 
+export function dispatchSelector(dispatch: Dispatch): string | null {
+  return dispatchWorktree(dispatch) === null
+    ? null
+    : (placedWorktree(dispatch) ?? null);
+}
+
 export function dispatchWorktree(dispatch: Dispatch): string | null {
   const worktree = placedWorktree(dispatch);
   const id = worktree?.startsWith("id:") === true ? worktree.slice(3) : null;

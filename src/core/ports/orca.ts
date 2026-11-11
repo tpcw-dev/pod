@@ -15,6 +15,7 @@ export interface OrcaPort {
   workerList(req: WorkerListRequest): Promise<Receipt<WorkerListResult>>
   terminalShow(req: TerminalShowRequest): Promise<Receipt<TerminalShowResult>>
   terminalRead(req: TerminalReadRequest): Promise<Receipt<TerminalReadResult>>
+  worktreeRemove(req: WorktreeRemoveRequest): Promise<Receipt<WorktreeRemoveResult>>
 }
 
 export interface Receipt<T> {
@@ -77,6 +78,11 @@ export interface TerminalShowRequest {
 
 export interface TerminalReadRequest {
   terminal: string;
+}
+
+export interface WorktreeRemoveRequest {
+  worktree: string;
+  force: boolean;
 }
 
 export interface TaskCreateRequest {
@@ -291,6 +297,9 @@ export const TerminalReadResult = z.looseObject({
   }),
 });
 export type TerminalReadResult = z.infer<typeof TerminalReadResult>;
+
+export const WorktreeRemoveResult = z.looseObject({ removed: z.boolean() });
+export type WorktreeRemoveResult = z.infer<typeof WorktreeRemoveResult>;
 
 export const LooseResult = z.looseObject({});
 export type SendResult = z.infer<typeof LooseResult>;

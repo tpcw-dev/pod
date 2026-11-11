@@ -37,7 +37,8 @@ import {
   throwRecordRefusal,
   usageError,
 } from "./errors.ts";
-import { gitStatus, worktreeStatus } from "./git.ts";
+import { codeHostFor } from "./code-host.ts";
+import { gitStatus, realGit, worktreeStatus } from "./git.ts";
 import {
   databaseUrl,
   podHome,
@@ -314,6 +315,8 @@ export async function runCloseVerb(
         worktreeStatus,
         now: () => new Date(),
         tracker,
+        codeHost: codeHostFor(),
+        git: realGit,
         actor: actorOf(await writerOf(db, host, process.env, false)),
       }),
   );
