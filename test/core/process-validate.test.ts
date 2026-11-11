@@ -90,6 +90,27 @@ function relay() {
   });
 }
 
+function withRetro(retro: Record<string, unknown> = {}) {
+  return variant((v) => {
+    v.roles = [...v.roles, "retro"];
+    v.steps.push({
+      id: "retro",
+      type: "worker",
+      role: "retro",
+      after: "close",
+      ...retro,
+    });
+    v.edges.push(
+      { from: "retro", on: "done", to: "done" },
+      { from: "retro", on: hold, to: "hold" },
+    );
+  });
+}
+
+const retroCrew = {
+  seats: [...crew.seats, { id: "retro", roles: ["retro"] }],
+};
+
 const cases: Case[] = [
   {
     name: "schema: an unknown top-level key",
@@ -402,11 +423,55 @@ const cases: Case[] = [
       seats: [
         { id: "dev", roles: ["developer"] },
         { id: "both", roles: ["developer", "reviewer"] },
+        { id: "retro", roles: ["retro"] },
       ],
     },
     policy: { gates },
     code: "reviewer_not_independent",
     message: "step review: no seat with role reviewer is free of developer",
+  },
+  {
+    name: "schema: a human_wait step that runs after close",
+    value: withRetro({ type: "human_wait", role: undefined }),
+    crew: retroCrew,
+    code: "schema_invalid",
+    message: "steps.2.after",
+  },
+  {
+    name: "schema: a step that runs after close and needs a step",
+    value: withRetro({ needs: ["build"] }),
+    crew: retroCrew,
+    code: "schema_invalid",
+    message: "steps.2.needs",
+  },
+  {
+    name: "schema: a step that needs a step that runs after close",
+    value: variant((v) => {
+      const retro = withRetro();
+      v.roles = retro.roles;
+      v.steps = retro.steps;
+      v.edges = retro.edges;
+      v.steps[1] = { ...v.steps[1], needs: ["build", "retro"] };
+    }),
+    crew: retroCrew,
+    code: "schema_invalid",
+    message: "steps.1.needs.1",
+  },
+  {
+    name: "schema: an edge that leads to a step that runs after close",
+    value: variant((v) => {
+      const retro = withRetro();
+      v.roles = retro.roles;
+      v.steps = retro.steps;
+      v.edges = retro.edges.map((edge) =>
+        edge["from"] === "review" && edge["on"] === "PASS"
+          ? { ...edge, to: "retro" }
+          : edge,
+      );
+    }),
+    crew: retroCrew,
+    code: "schema_invalid",
+    message: "edges.2.to",
   },
 ];
 
@@ -416,6 +481,12 @@ test.each(cases)("$name is $code", (c) => {
   expect(outcome.refusal.code).toBe(c.code);
   expect(outcome.refusal.message).toContain(c.message);
   expect(outcome.refusal.nextSteps).toHaveLength(1);
+});
+
+test("a step that runs after close passes though nothing reaches it", () => {
+  expect(validateProcess(withRetro(), retroCrew, policy)).toMatchObject({
+    ok: true,
+  });
 });
 
 test("the base value passes against a two-seat crew", () => {
@@ -442,10 +513,12 @@ test("policy gates read as a list of ids, a list of objects, or a map", () => {
     });
 });
 
-test("impl-small passes against a two-seat crew and a three-gate policy", () => {
-  expect(validateProcess(impl, crew, { gates })).toMatchObject({ ok: true });
+test("impl-small passes against a crew with a retro seat and a three-gate policy", () => {
+  expect(validateProcess(impl, retroCrew, { gates })).toMatchObject({
+    ok: true,
+  });
   expect(
-    validateProcess(impl, crew, {
+    validateProcess(impl, retroCrew, {
       gates: Object.fromEntries(
         gates.map((id) => [id, { keeper: "k", type: "AQA" }]),
       ),

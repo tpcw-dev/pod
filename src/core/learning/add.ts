@@ -32,6 +32,7 @@ export interface LearningRow {
   expected?: string | null;
   reporter: Reporter;
   repeat_of?: number | null;
+  wording?: string;
 }
 
 export interface AddLearningInput {
@@ -233,7 +234,7 @@ export async function writeLearning(
     story: request.source_story,
     occurred_on: now.toISOString().slice(0, 10),
     reporter: request.reporter,
-    wording: request.text,
+    wording: input.row.wording ?? request.text,
     evidence_id: evidenceId(input.row.evidence_refs),
     created_at: now,
   });

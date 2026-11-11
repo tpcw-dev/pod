@@ -1,0 +1,20 @@
+{
+  "verb": "task-create",
+  "match": {
+    "argv": [
+      "orchestration",
+      "task-create",
+      "--run",
+      "run_1",
+      "--task-title",
+      "retro",
+      "--json"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\n  \"id\": \"00000000-0000-4000-8000-000000000001\",\n  \"ok\": true,\n  \"result\": {\n    \"task\": {\n      \"id\": \"task_retro\",\n      \"run_id\": \"run_1\",\n      \"task_title\": \"retro\",\n      \"status\": \"ready\",\n      \"deps\": \"[]\"\n    }\n  }\n}\n",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-11-11T00:00:00.000Z"
+}

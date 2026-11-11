@@ -46,8 +46,21 @@ export const Step = z
     binds: Name.optional(),
     spec: z.string().optional(),
     method: z.string().refine(isMethod, methodRule).optional(),
+    after: z.literal("close").optional(),
   })
   .superRefine((step, ctx) => {
+    if (step.after !== undefined && step.type !== "worker")
+      ctx.addIssue({
+        code: "custom",
+        path: ["after"],
+        message: "only a worker step runs after close",
+      });
+    if (step.after !== undefined && step.needs.length > 0)
+      ctx.addIssue({
+        code: "custom",
+        path: ["needs"],
+        message: "a step that runs after close needs no step",
+      });
     if (step.type === "worker" && step.role === undefined)
       ctx.addIssue({
         code: "custom",
@@ -119,8 +132,33 @@ export const ProcessValue = z
             path: ["steps", i, "needs", j],
             message: `unknown step ${need}`,
           });
+    const later = new Set(
+      value.steps.filter((step) => afterClose(step)).map((step) => step.id),
+    );
+    for (const [i, step] of value.steps.entries())
+      for (const [j, need] of step.needs.entries())
+        if (later.has(need))
+          ctx.addIssue({
+            code: "custom",
+            path: ["steps", i, "needs", j],
+            message: `step ${need} runs after close, so no step needs it`,
+          });
+    for (const [k, edge] of value.edges.entries())
+      for (const field of ["to", "then"] as const) {
+        const target = edge[field];
+        if (target !== undefined && later.has(target))
+          ctx.addIssue({
+            code: "custom",
+            path: ["edges", k, field],
+            message: `step ${target} runs after close, so no edge leads to it`,
+          });
+      }
   });
 export type ProcessValue = z.infer<typeof ProcessValue>;
+
+export function afterClose(step: Pick<Step, "after">): boolean {
+  return step.after === "close";
+}
 
 export function edgeOutcomes(edge: Edge): Outcome[] {
   return typeof edge.on === "string" ? [edge.on] : edge.on;

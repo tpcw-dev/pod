@@ -4,11 +4,12 @@ schema_version: 1
 value:
   summary: prd stage, a writer drafts, an independent auditor audits, a person keeps prd review
   selector: { stage: prd }
-  roles: [writer, auditor]
+  roles: [writer, auditor, retro]
   steps:
     - { id: draft, type: worker, role: writer, produces: [document] }
     - { id: audit, type: worker, role: auditor, needs: [draft], gate: audit }
     - { id: prd_review, type: human_wait, needs: [audit], gate: prd_review }
+    - { id: retro, type: worker, role: retro, after: close }
   edges:
     - { from: draft, on: done, to: audit }
     - { from: draft, on: [timeout, cancel, unknown], to: hold }
@@ -18,5 +19,7 @@ value:
     - { from: prd_review, on: PASS, to: done }
     - { from: prd_review, on: FAIL, to: draft, new_task: true, then: audit }
     - { from: prd_review, on: cancel, to: hold }
+    - { from: retro, on: done, to: done }
+    - { from: retro, on: [timeout, cancel, unknown], to: hold }
   limits: { attempts_per_task: 3, rework_per_lineage: 3 }
   escalation: { to: decision-pair }

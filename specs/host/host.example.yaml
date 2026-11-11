@@ -21,6 +21,8 @@ value:
   harnesses:
     - harness-a
     - harness-b
+  transcripts:
+    harness-a: /path/to/harness-a/{session_id}.jsonl
   notion_harnesses:
     - harness-a
   notion: true

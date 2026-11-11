@@ -10,6 +10,7 @@ import type {
   WorkerStartResult,
 } from "../ports/orca.ts";
 import { handoffOf, returnSlot } from "./handoff.ts";
+import { withTranscript } from "./transcript.ts";
 
 export type LaunchArgs = Omit<WorkerStartRequest, "task" | "spec" | "run">;
 
@@ -202,7 +203,7 @@ export async function insertStart(tx: Repo, start: StartRow): Promise<void> {
     seat: start.seat,
     role: start.role,
     requested_launch: start.requested_launch,
-    effective_launch: Json.parse(launched.effective),
+    effective_launch: Json.parse(withTranscript(launched.effective)),
     model_attribution: start.model_attribution,
     retry_of: start.retry_of,
     op_key: start.op_key,

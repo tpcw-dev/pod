@@ -43,6 +43,7 @@ export type ErrorCode =
   | "wrong_host"
   | "learning_kind_unknown"
   | "learning_match_ambiguous"
+  | "retro_not_due"
   | "config_missing"
   | "failed";
 

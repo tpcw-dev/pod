@@ -37,6 +37,7 @@ export const RefusalCode = z.enum([
   "wrong_host",
   "learning_kind_unknown",
   "learning_match_ambiguous",
+  "retro_not_due",
   "usage",
   "failed",
 ]);
