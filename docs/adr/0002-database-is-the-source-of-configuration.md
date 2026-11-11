@@ -6,7 +6,7 @@ Pod stores configuration as append-only Revisions in `config.revision`, activate
 
 ## Decision
 
-The database is the source of configuration. Its mirror is the directory the host profile names in `mirror_dir`, default `<POD_HOME>/mirror`, outside any Pod checkout, written by `pod config export --all` with one file per active Revision; the operator keeps it in their own repository if they want a reviewable history (Jerry's ruling of 2026-11-10 on TPC-1480, narrowing the 2026-11-08 direction). The Pod repository's `specs/` holds generic seeds and examples only, so a fresh install can seed itself.
+The database is the source of configuration. Its mirror is the directory the host profile names in `mirror_dir`, default `<POD_HOME>/mirror`, outside any Pod checkout, written by `pod config export --all` with one file per active Revision; the operator keeps it in their own repository if they want a reviewable history (the operator's ruling of 2026-11-10 on TPC-1480, narrowing the 2026-11-08 direction). The Pod repository's `specs/` holds generic seeds and examples only, so a fresh install can seed itself.
 
 Writes go through two verbs. `pod config apply FILE` stays for whole-file seeding. `pod config set <kind>.<name> <path>=<value> --reason "<why>"` derives a new Revision from the active one, changes the named paths, and records the parent. Both record `actor` from identity, as `person:<principal>` or `seat:<Seat Address>`. Nothing writes `operator` as a constant.
 
