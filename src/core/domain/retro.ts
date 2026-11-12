@@ -52,7 +52,7 @@ export type RetroRunResult = z.infer<typeof RetroRunResult>;
 export const Ambiguous = z.object({
   index: z.int(),
   text: z.string(),
-  message: z.string(),
+  candidates: z.array(z.int()),
   nextSteps: z.array(z.string()),
 });
 export type Ambiguous = z.infer<typeof Ambiguous>;

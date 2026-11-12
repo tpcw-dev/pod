@@ -159,7 +159,16 @@ export async function retroRun(
         onFailure: "keep",
       },
     );
-    if (!created.ok) return retried(created.refusal, again);
+    if (!created.ok)
+      return retried(
+        {
+          ...created.refusal,
+          nextSteps: created.refusal.nextSteps.filter(
+            (line) => line !== "pod check",
+          ),
+        },
+        again,
+      );
     taskId = created.taskId;
   }
 

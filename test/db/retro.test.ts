@@ -446,9 +446,9 @@ describeDb("pod retro", () => {
       ]);
       expect(failed).toMatchObject({ ok: false, refusal: { code: "failed" } });
       if (!failed.ok)
-        expect(failed.refusal.nextSteps[0]).toBe(
+        expect(failed.refusal.nextSteps).toEqual([
           "pod retro run:run_1 --seat retro-1 --generation 1 --op-key <new>",
-        );
+        ]);
       expect((await conn.db.getRun("run_1"))?.state).toBe("done");
       expect(await events(conn, "hold")).toEqual([]);
       const again = await runRetro(retroLaunch, { attempt: "2" });
@@ -573,8 +573,12 @@ describeDb("pod retro", () => {
           created_at: now(),
           adoption_at: now(),
         });
-      const [first] = await conn.sql<{ id: number }[]>`
-        select id from ledger.learning order by id limit 1`;
+      const ids = (
+        await conn.sql<
+          { id: number }[]
+        >`select id from ledger.learning order by id`
+      ).map((row) => Number(row.id));
+      const [first] = ids;
       const plain = finding({
         evidence_refs: ["pr:7"],
         area: "impl",
@@ -585,15 +589,22 @@ describeDb("pod retro", () => {
         ok: true,
         result: {
           complete: false,
-          ambiguous: [{ index: 1, text: finding().text }],
+          ambiguous: [
+            {
+              index: 1,
+              text: finding().text,
+              candidates: ids,
+              nextSteps: ids.map(
+                (id) =>
+                  `add repeat_of: ${id} to finding 1 in FILE and rerun pod retro record FILE --run run_1`,
+              ),
+            },
+          ],
         },
       });
       expect(await events(conn, "retro")).toEqual([]);
       const before = await conn.sql`select id from ledger.learning_occurrence`;
-      const done = await record([
-        plain,
-        finding({ repeat_of: first?.id ?? 0 }),
-      ]);
+      const done = await record([plain, finding({ repeat_of: first ?? 0 })]);
       expect(done).toMatchObject({ ok: true, result: { complete: true } });
       const after = await conn.sql`select id from ledger.learning_occurrence`;
       expect(after.length).toBe(before.length + 1);

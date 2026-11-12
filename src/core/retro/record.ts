@@ -7,7 +7,14 @@ import {
   type RetroRecordResult,
   type RetroRecorded,
 } from "../domain/retro.ts";
-import { allowedKinds, unknownKind, writeLearning } from "../learning/add.ts";
+import {
+  allowedKinds,
+  learningIdentity,
+  unknownKind,
+  writeLearning,
+  type LearningRow,
+} from "../learning/add.ts";
+import { matchLearning } from "../learning/match.ts";
 import type { Db } from "../ports/db.ts";
 import { dueRun, recordedRetro, retroOpKey } from "./due.ts";
 import { retroStep } from "./run.ts";
@@ -92,21 +99,22 @@ export async function retroRecord(
   const occurrenceIds: number[] = [];
   const ambiguous: Ambiguous[] = [];
   for (const [index, finding] of input.findings.entries()) {
+    const row: LearningRow = {
+      source_story: run.story_external_id,
+      evidence_refs: finding.evidence_refs,
+      text: finding.text,
+      adoption: "new",
+      area: finding.area,
+      project_id: project,
+      kind: retroKind,
+      expected: finding.expected ?? null,
+      reporter: "retro",
+      repeat_of: finding.repeat_of ?? null,
+      wording: finding.wording,
+    };
     const added = await db.transaction((tx) =>
       writeLearning(tx, {
-        row: {
-          source_story: run.story_external_id,
-          evidence_refs: finding.evidence_refs,
-          text: finding.text,
-          adoption: "new",
-          area: finding.area,
-          project_id: project,
-          kind: retroKind,
-          expected: finding.expected ?? null,
-          reporter: "retro",
-          repeat_of: finding.repeat_of ?? null,
-          wording: finding.wording,
-        },
+        row,
         host: input.host,
         now: input.now,
         run_id: run.run_id,
@@ -116,16 +124,21 @@ export async function retroRecord(
     if (added.ok) {
       learningIds.push(added.id);
       occurrenceIds.push(added.occurrence_id);
-    } else if (added.refusal.code === "learning_match_ambiguous")
+    } else if (added.refusal.code === "learning_match_ambiguous") {
+      const candidates = matchLearning(
+        await db.listLearningsOfKind(retroKind),
+        learningIdentity(row),
+      );
       ambiguous.push({
         index,
         text: finding.text,
-        message: added.refusal.message,
-        nextSteps: [
-          `set repeat_of on finding ${index} in FILE to one of the matched ids, then rerun pod retro record FILE --run ${run.run_id}`,
-        ],
+        candidates,
+        nextSteps: candidates.map(
+          (id) =>
+            `add repeat_of: ${id} to finding ${index} in FILE and rerun pod retro record FILE --run ${run.run_id}`,
+        ),
       });
-    else return { ok: false, refusal: added.refusal };
+    } else return { ok: false, refusal: added.refusal };
   }
   const retroTask = (await db.listTasks(run.run_id)).find(
     (task) => task.step_id === retroStep,
@@ -136,9 +149,8 @@ export async function retroRecord(
     dispatch_id:
       retroTask === undefined
         ? null
-        : (dispatches
-            .filter((row) => row.task_id === retroTask.task_id)
-            .at(-1)?.dispatch_id ?? null),
+        : (dispatches.filter((row) => row.task_id === retroTask.task_id).at(-1)
+            ?.dispatch_id ?? null),
   };
   if (ambiguous.length > 0) return done(result, ambiguous, false);
 
