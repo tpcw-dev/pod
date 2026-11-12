@@ -63,6 +63,17 @@ test("the example host file is a host Revision that passes the host schema", () 
   expect(validateHost(example.value)).toBeNull();
 });
 
+test("a transcripts template without {session_id} is schema_invalid naming the harness", () => {
+  expect(
+    refusedAt(hostValue({ transcripts: { "harness-a": "/logs/all.jsonl" } })),
+  ).toEqual(["schema_invalid", "transcripts.harness-a"]);
+  expect(
+    validateHost(
+      hostValue({ transcripts: { "harness-a": "/logs/{session_id}.jsonl" } }),
+    ),
+  ).toBeNull();
+});
+
 test("slots.default above slots.max is schema_invalid naming slots.default", () => {
   expect(refusedAt(hostValue({ slots: { default: 4, max: 3 } }))).toEqual([
     "schema_invalid",

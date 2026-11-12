@@ -4,7 +4,7 @@ schema_version: 1
 value:
   summary: xl impl, the coordinator pair agrees the plan in a Decision round, several developer Tasks, a review per Task and of the integrated candidate, one PR
   selector: { stage: impl, size: [xl] }
-  roles: [planner, developer, reviewer]
+  roles: [planner, developer, reviewer, retro]
   steps:
     - { id: plan, type: worker, role: planner, produces: [plan], decision: plan }
     - id: implement
@@ -23,6 +23,7 @@ value:
       adapter: deploy
       event_fields: [environment, deployment_id, deployed_revision, source_commit]
     - { id: hqa, type: human_wait, needs: [deploy], gate: hqa_after_deploy, binds: deployed_revision }
+    - { id: retro, type: worker, role: retro, after: close }
   edges:
     - { from: plan, on: agreed, to: implement }
     - { from: plan, on: rework, to: plan, new_task: true }
@@ -45,5 +46,7 @@ value:
     - { from: hqa, on: PASS, to: done }
     - { from: hqa, on: FAIL, to: implement, new_task: true, then: review }
     - { from: hqa, on: cancel, to: hold }
+    - { from: retro, on: done, to: done }
+    - { from: retro, on: [timeout, cancel, unknown], to: hold }
   limits: { attempts_per_task: 3, rework_per_lineage: 3 }
   escalation: { to: decision-pair }

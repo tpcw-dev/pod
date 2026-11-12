@@ -75,3 +75,13 @@ test("an unknown need, a duplicate id, and a cycle are schema_invalid", () => {
     ]),
   ).toBe("steps: cycle a -> b -> a");
 });
+
+test("a step that runs after close is not projected at Run create", () => {
+  const steps = readSteps(
+    value([
+      { id: "build", type: "worker", role: "developer" },
+      { id: "retro", type: "worker", role: "retro", after: "close" },
+    ]),
+  );
+  expect(steps.map((step) => step.id)).toEqual(["build"]);
+});

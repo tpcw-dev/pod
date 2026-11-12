@@ -56,6 +56,15 @@ import {
 } from "./deploy-verbs.ts";
 import { DbMigrateInput, DbMigrateOutput, dbMigrate } from "./db-verbs.ts";
 import {
+  RetroRecordInput,
+  RetroRecordOutput,
+  retroMeta,
+  retroRecordVerb,
+  RetroRunInput,
+  RetroRunOutput,
+  retroRunVerb,
+} from "./retro-verbs.ts";
+import {
   DocsReadInput,
   DocsReadOutput,
   docsRead,
@@ -406,6 +415,30 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     evidenceRequired: [
       "a FILE of rows, each with a `source_ref` and at least one occurrence",
     ],
+  }),
+  row({
+    name: "retro",
+    input: RetroRunInput,
+    output: RetroRunOutput,
+    handler: retroRunVerb,
+    sideEffect: "orca",
+    cancelBy: ["coordinator", "operator"],
+    evidenceRequired: [
+      "a `close` event with `retro_due` true, a pinned process with a `retro` step that runs after close, the Run's owner host, and a Seat with no Dispatch in the Run",
+    ],
+    meta: retroMeta,
+  }),
+  row({
+    name: "retro record",
+    input: RetroRecordInput,
+    output: RetroRecordOutput,
+    handler: retroRecordVerb,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "a Run due a retro, a FILE of findings each with at least one evidence reference, and the `tech` kind in the policy's `learning.kinds`",
+    ],
+    meta: retroMeta,
   }),
   row({
     name: "learning query",

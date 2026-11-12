@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { RevisionEnvelope } from "../domain/config.ts";
 import type { Refusal } from "../domain/outcome.ts";
+import { sessionToken } from "../dispatch/transcript.ts";
 import type { Repo } from "../ports/db.ts";
 
 const anyProject = "*";
@@ -27,6 +28,17 @@ const HostValue = z.strictObject({
     `"${anyProject}" stands alone`,
   ),
   harnesses: Names.min(1).optional(),
+  transcripts: z
+    .record(
+      Name,
+      z
+        .string()
+        .refine(
+          (template) => template.includes(sessionToken),
+          `names ${sessionToken}`,
+        ),
+    )
+    .optional(),
   notion_harnesses: Names.optional(),
   notion: z.boolean().optional(),
   scheduler: z.enum(["orca", "nohup"]).optional(),
@@ -137,4 +149,19 @@ export async function hostRefusal(
   const { host, refusal } = checkHost(envelope.value);
   if (host === null) return refusal;
   return seatedElsewhere(repo, envelope.name, host.projects);
+}
+
+export async function hostTranscripts(
+  repo: Repo,
+  host: string,
+): Promise<Record<string, string>> {
+  const active = await repo.getActivation({
+    scope: "host",
+    scope_ref: host,
+    kind: "host",
+    name: host,
+  });
+  const revision =
+    active === null ? null : await repo.getRevision(active.revision_id);
+  return HostValue.safeParse(revision?.value).data?.transcripts ?? {};
 }

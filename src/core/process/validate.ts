@@ -1,5 +1,6 @@
 import { refuse, type Refused } from "../domain/outcome.ts";
 import {
+  afterClose,
   allowedOutcomes,
   optionalOutcomes,
   edgeOutcomes,
@@ -47,7 +48,7 @@ function gateIds(policy: unknown): Set<string> {
 }
 
 function unreachable(value: ProcessValue): Refused | null {
-  const [first] = value.steps;
+  const first = value.steps.find((step) => !afterClose(step));
   if (first === undefined) return null;
   const reached = new Set([first.id]);
   const queue = [first.id];
@@ -69,7 +70,9 @@ function unreachable(value: ProcessValue): Refused | null {
         queue.push(id);
       }
   }
-  const i = value.steps.findIndex((step) => !reached.has(step.id));
+  const i = value.steps.findIndex(
+    (step) => !afterClose(step) && !reached.has(step.id),
+  );
   const step = value.steps[i];
   return step === undefined
     ? null

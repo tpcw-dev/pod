@@ -21,6 +21,7 @@ import {
 } from "../manifest/references.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
+import { afterClose, ProcessValue } from "../process/schema.ts";
 import {
   recordReceipt,
   type DispatchResult,
@@ -64,6 +65,7 @@ interface Checked {
   run: Run;
   task: Task;
   seat: Seat | undefined;
+  postClose: boolean;
 }
 
 async function precondition(
@@ -71,7 +73,7 @@ async function precondition(
   input: DispatchInput,
   checked: Checked,
 ): Promise<{ refusal: Refusal } | { seat: Seat }> {
-  const { run, task, seat } = checked;
+  const { run, task, seat, postClose } = checked;
   const drained = await drainRefusal(tx, run.run_id);
   if (drained !== null) return { refusal: drained };
   const unmet: string[] = [];
@@ -89,7 +91,7 @@ async function precondition(
     task.state !== "ready" ||
     unmet.length > 0 ||
     inFlight.length > 0 ||
-    run.state !== "active" ||
+    run.state !== (postClose ? "done" : "active") ||
     blocked !== null
   )
     return stopWith(
@@ -121,6 +123,21 @@ async function precondition(
         "pod config apply crew.yaml with a Seat that fills it",
       ],
     );
+  if (postClose) {
+    const held = (await tx.listDispatches(run.run_id)).filter(
+      (row) => row.seat === input.seat && row.task_id !== task.task_id,
+    );
+    const [first] = held;
+    if (first !== undefined)
+      return stopWith(
+        "reviewer_not_independent",
+        `Seat ${input.seat} holds a ${first.role} Dispatch in Run ${run.run_id}`,
+        [
+          `Seat ${input.seat}`,
+          ...held.map((row) => `Dispatch ${row.dispatch_id}`),
+        ],
+      );
+  }
   if (task.role === "reviewer") {
     const held = (await tx.listDispatches(run.run_id)).filter(
       (row) => row.seat === input.seat && row.role === "developer",
@@ -189,6 +206,11 @@ export async function dispatch(
     return refuse("schema_invalid", error.message, [error.path]);
   }
   const seat = seats.find((item) => item.id === input.seat);
+  const pinned = await db.getRevision(snapshot.process_revision_id);
+  const step = ProcessValue.safeParse(pinned?.value).data?.steps.find(
+    (row) => row.id === task.step_id,
+  );
+  const postClose = step !== undefined && afterClose(step);
   const { version } = await orca.version();
   const opKey =
     input.opKey ??
@@ -237,7 +259,12 @@ export async function dispatch(
         ? await yieldDispatch(tx, run.coordinator_dispatch_id)
         : null;
     const handoff = yielded === null ? {} : { coordinator_waiting: yielded };
-    const found = await precondition(tx, input, { run, task: current, seat });
+    const found = await precondition(tx, input, {
+      run,
+      task: current,
+      seat,
+      postClose,
+    });
     if ("refusal" in found) {
       await returnSlot(tx, handoff);
       return record(found.refusal);

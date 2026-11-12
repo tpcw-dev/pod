@@ -95,6 +95,7 @@ test.each(["impl-large", "impl-xlarge"] as const)(
         { id: "plan-1", roles: ["planner"] },
         { id: "dev-1", roles: ["developer"] },
         { id: "both-1", roles: ["developer", "reviewer"] },
+        { id: "retro-1", roles: ["retro"] },
       ],
     };
     expect(validateProcess(value, crew, policy)).toMatchObject({
@@ -307,13 +308,15 @@ const shapes: { name: Name; needs: object; edges: string[] }[] = [
   },
 ];
 
+const retroEdges = ["retro done -> done", ...holds("retro")];
+
 describe.each(shapes)("$name", ({ name, needs, edges }) => {
-  test("names each step's needs", () => {
-    expect(needsOf(name)).toEqual(needs);
+  test("names each step's needs, with the retro step that runs after close", () => {
+    expect(needsOf(name)).toEqual({ ...needs, retro: [] });
   });
 
   test("has exactly the edge table of the tech spec", () => {
-    expect(edgesOf(name)).toEqual([...edges].sort());
+    expect(edgesOf(name)).toEqual([...edges, ...retroEdges].sort());
   });
 });
 

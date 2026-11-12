@@ -45,6 +45,7 @@ interface TaskPlan {
   reworkOf: string | null;
   state: TaskState;
   specRevisionId?: string;
+  onFailure?: "hold" | "keep";
 }
 
 const TaskRef = z.looseObject({ task_id: z.string() });
@@ -260,7 +261,7 @@ export async function applySupersede(
   return { state };
 }
 
-async function createTask(
+export async function createTask(
   ctx: ProjectContext,
   plan: TaskPlan,
 ): Promise<{ ok: true; taskId: string } | Refused> {
@@ -301,6 +302,7 @@ async function createTask(
           : failure("task-create", receipt.raw, receipt.exitCode),
         at,
       );
+      if (plan.onFailure === "keep") return;
       const from = (await tx.getRun(runId))?.state;
       await tx.setRunState(runId, "hold");
       await tx.appendEvent({

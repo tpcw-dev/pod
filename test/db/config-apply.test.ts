@@ -613,6 +613,7 @@ describeDb("pod config apply of a process", () => {
       seats: [
         { id: "dev-1", roles: ["developer"], runtime: "claude" },
         { id: "rev-1", roles: reviewer, runtime: "codex" },
+        { id: "retro-1", roles: ["retro"], runtime: "claude" },
       ],
     });
     await seedCrewAndPolicy(seats(["developer", "reviewer"]), {
@@ -725,6 +726,7 @@ describeDb("pod config apply of a process", () => {
         "taste_reviewer",
         "planner",
         "qa",
+        "retro",
       ].map((role) => ({ id: `${role}-1`, roles: [role], runtime: "claude" })),
     ],
   };
@@ -773,7 +775,7 @@ describe("crew example file", () => {
       text.match(
         /^    # Fill id, runtime, model, and host before this seat is used\.$/gm,
       ),
-    ).toHaveLength(7);
+    ).toHaveLength(8);
     expect(text).toContain("runtime: example");
     expect(text).toContain("model: example");
     expect(text).toContain("host: example-host");

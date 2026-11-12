@@ -49,3 +49,9 @@ value:
       model: example
       host: example-host
       independent_of: [decider, decider-fallback]
+    # Fill id, runtime, model, and host before this seat is used.
+    - id: retro
+      roles: [retro]
+      runtime: example
+      model: example
+      host: example-host

@@ -1,4 +1,9 @@
-import { issuePath, ProcessValue, type StepType } from "../process/schema.ts";
+import {
+  afterClose,
+  issuePath,
+  ProcessValue,
+  type StepType,
+} from "../process/schema.ts";
 
 export interface Step {
   id: string;
@@ -17,13 +22,15 @@ export class StepsInvalid extends Error {
 export function readSteps(value: unknown): Step[] {
   const parsed = ProcessValue.safeParse(value);
   if (!parsed.success) throw new StepsInvalid(issuePath(parsed.error));
-  const steps = parsed.data.steps.map((step) => ({
-    id: step.id,
-    type: step.type,
-    role: step.role ?? null,
-    needs: [...new Set(step.needs)],
-    spec: step.spec ?? null,
-  }));
+  const steps = parsed.data.steps
+    .filter((step) => !afterClose(step))
+    .map((step) => ({
+      id: step.id,
+      type: step.type,
+      role: step.role ?? null,
+      needs: [...new Set(step.needs)],
+      spec: step.spec ?? null,
+    }));
   topoOrder(steps);
   return steps;
 }

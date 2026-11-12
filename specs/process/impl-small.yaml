@@ -4,7 +4,7 @@ schema_version: 1
 value:
   summary: xs or s impl, one developer, one independent reviewer, one PR
   selector: { stage: impl, size: [xs, s] }
-  roles: [developer, reviewer]
+  roles: [developer, reviewer, retro]
   steps:
     - { id: implement, type: worker, role: developer, produces: [commit] }
     - { id: review, type: worker, role: reviewer, needs: [implement], gate: review }
@@ -16,6 +16,7 @@ value:
       adapter: deploy
       event_fields: [environment, deployment_id, deployed_revision, source_commit]
     - { id: hqa, type: human_wait, needs: [deploy], gate: hqa_after_deploy, binds: deployed_revision }
+    - { id: retro, type: worker, role: retro, after: close }
   edges:
     - { from: implement, on: done, to: review }
     - { from: implement, on: [timeout, cancel, unknown], to: hold }
@@ -31,5 +32,7 @@ value:
     - { from: hqa, on: PASS, to: done }
     - { from: hqa, on: FAIL, to: implement, new_task: true, then: review }
     - { from: hqa, on: cancel, to: hold }
+    - { from: retro, on: done, to: done }
+    - { from: retro, on: [timeout, cancel, unknown], to: hold }
   limits: { attempts_per_task: 3, rework_per_lineage: 3 }
   escalation: { to: decision-pair }
