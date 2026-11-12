@@ -141,6 +141,13 @@
       "when": 1794434039632,
       "tag": "0019_retro",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794444070503,
+      "tag": "0020_digest",
+      "breakpoints": true
     }
   ]
 }

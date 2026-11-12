@@ -1,0 +1,12 @@
+- theme: gates
+  text: Check the gate before the merge
+  learning_ids: [1, 2]
+  evidence_refs: [pr:1, pr:2]
+- theme: tests
+  text: Run the suite on the final head
+  learning_ids: [3]
+  evidence_refs: [pr:3]
+- theme: docs
+  text: Keep the spec pins with the spec
+  learning_ids: [4]
+  evidence_refs: [pr:4]

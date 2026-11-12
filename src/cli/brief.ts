@@ -9,7 +9,8 @@ import {
 import { pendingActivations, revisionRef } from "../core/config/apply.ts";
 import { revisionId } from "../core/config/canonical-json.ts";
 import { mirrorPath, mirrorSet, scopeText } from "../core/config/mirror.ts";
-import type { BriefTree } from "../core/domain/brief.ts";
+import { digestBrief } from "../core/digest/brief.ts";
+import type { BriefTree, DigestBrief } from "../core/domain/brief.ts";
 import type { Repo } from "../core/ports/db.ts";
 import { RevisionEnvelope, type Revision } from "../core/domain/config.ts";
 import { Json } from "../core/domain/json.ts";
@@ -96,6 +97,23 @@ const TestJson = z.object({
   timeout_seconds: z.number().nullable(),
 });
 
+const DigestJson = z.object({
+  cap: z.number(),
+  shown: z.number(),
+  queued: z.number(),
+  open: z.number(),
+  queue: z.number(),
+  proposals: z.array(
+    z.object({
+      number: z.number(),
+      theme: z.string(),
+      text: z.string(),
+      evidence_refs: z.array(z.string()),
+      ruling: z.enum(["open", "accept", "reject"]),
+    }),
+  ),
+});
+
 const PendingRequestJson = z.object({
   op_key: z.string(),
   ref: z.string(),
@@ -113,6 +131,7 @@ export const BriefOutput = z.object({
       profile: z.string().nullable(),
       policy: z.string().nullable(),
       line: z.string(),
+      digest: DigestJson,
     }),
   ),
   stories: z.array(
@@ -247,9 +266,19 @@ async function pendingRequests(
   return rows;
 }
 
+async function withDigests(repo: Repo, projects: readonly ProjectProfile[]) {
+  const now = () => new Date();
+  const rows: (ProjectProfile & { digest: DigestBrief })[] = [];
+  for (const row of projects) {
+    const project = row.project === globalProject ? null : row.project;
+    rows.push({ ...row, digest: await digestBrief(repo, project, now) });
+  }
+  return rows;
+}
+
 function toBriefResult(
   tree: BriefTree,
-  projects: readonly ProjectProfile[],
+  projects: readonly (ProjectProfile & { digest: DigestBrief })[],
   pending: BriefResult["pending_requests"],
   drift: BriefResult["drift"],
 ): BriefResult {
@@ -346,7 +375,7 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
     const result = BriefOutput.parse({
       ...toBriefResult(
         tree,
-        await projectProfiles(connection.db, tree),
+        await withDigests(connection.db, await projectProfiles(connection.db, tree)),
         await pendingRequests(connection.db),
         drift,
       ),

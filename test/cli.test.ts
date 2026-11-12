@@ -35,11 +35,12 @@ test("a positional is not help", () => {
   }
 });
 
-test("learning and docs help exit 0", () => {
+test("learning, digest, and docs help exit 0", () => {
   for (const args of [
     ["learning", "add", "--help"],
     ["learning", "import", "--help"],
     ["learning", "query", "--help"],
+    ["digest", "decide", "--help"],
     ["docs", "read", "--help"],
   ]) {
     const result = run(args);
@@ -68,6 +69,11 @@ test("help lists the verbs sorted by name", () => {
     "decide cancel",
     "decide ruling",
     "deploy record",
+    "digest assign",
+    "digest decide",
+    "digest post",
+    "digest prepare",
+    "digest queue",
     "dispatch",
     "docs read",
     "drain",

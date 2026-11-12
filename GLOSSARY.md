@@ -39,6 +39,9 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Area**: the classification of a learning, one of product, design, impl, process.
 - **Learning**: a record of one agent-only lesson, with a source story, evidence, text, a kind from the policy's `learning.kinds`, its occurrences, and an adoption state.
 - **Occurrence**: one time a learning was seen: a story, a date, a reporter, the wording, and an evidence id. A repeat lands as an occurrence on the existing learning, never as a second learning.
+- **Digest**: the day's proposals for one scope, at most the policy's `limits.digest_per_day`, put in front of the operator by `pod digest post`. It is complete when each shown proposal has a ruling.
+- **Proposal**: one theme-level change a Seat proposes from one or more `new` learnings, numbered by its ledger id. It is queued until a digest shows it, and a person's ruling accepts or rejects it.
+- **Tuning queue**: the adopted learnings that no Story acts on yet, grouped by theme; `pod digest assign` links one to its action Story.
 - **Adoption**: the state of a learning, one of new, proposed, adopted, rejected, done.
 - **Docs port**: Pod's read-only port to a docs tool. It reads one section of one page and never writes.
 - **Section**: the heading, paragraphs, and tables under one heading_2 of a docs page, up to the next heading.

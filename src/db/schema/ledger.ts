@@ -167,6 +167,38 @@ export const learningOccurrence = ledger.table(
   ],
 );
 
+export const digestProposal = ledger.table(
+  "digest_proposal",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    proposalKey: text("proposal_key").notNull(),
+    scope: text("scope").notNull(),
+    postedOn: date("posted_on", { mode: "string" }).notNull(),
+    theme: text("theme").notNull(),
+    text: text("text").notNull(),
+    learningIds: jsonb("learning_ids").notNull(),
+    evidenceRefs: jsonb("evidence_refs").notNull(),
+    shownOn: date("shown_on", { mode: "string" }),
+    ruling: text("ruling"),
+    ruledAt: timestamp("ruled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("digest_proposal_open_key_idx")
+      .on(t.proposalKey)
+      .where(sql`${t.ruling} is null`),
+    index("digest_proposal_scope_idx").on(t.scope, t.postedOn),
+    check(
+      "digest_proposal_ruling_check",
+      sql`${t.ruling} in ('accept', 'reject')`,
+    ),
+    check(
+      "digest_proposal_ruled_check",
+      sql`(${t.ruling} is null) = (${t.ruledAt} is null) and (${t.ruling} is null or ${t.shownOn} is not null)`,
+    ),
+  ],
+);
+
 export const operation = ledger.table(
   "operation",
   {
@@ -181,7 +213,7 @@ export const operation = ledger.table(
   (t) => [
     check(
       "operation_intent_check",
-      sql`${t.intent} in ('run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide', 'config_apply', 'config_activate', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning', 'close', 'retro')`,
+      sql`${t.intent} in ('run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide', 'config_apply', 'config_activate', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning', 'close', 'retro', 'digest', 'ruling')`,
     ),
     check(
       "operation_status_check",
@@ -343,7 +375,7 @@ export const event = ledger.table(
   (t) => [
     check(
       "event_type_check",
-      sql`${t.type} in ('start', 'delivery', 'receipt', 'activation', 'activation_requested', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'retry', 'ignored', 'unknown_launch', 'learning', 'outcome', 'close', 'retro')`,
+      sql`${t.type} in ('start', 'delivery', 'receipt', 'activation', 'activation_requested', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'retry', 'ignored', 'unknown_launch', 'learning', 'outcome', 'close', 'retro', 'digest', 'ruling')`,
     ),
     index("event_run_ts").on(t.runId, t.ts),
   ],

@@ -19,6 +19,11 @@ import type {
 } from "../domain/learning.ts";
 import type { BriefTree } from "../domain/brief.ts";
 import type {
+  DigestProposal,
+  NewDigestProposal,
+  Verdict,
+} from "../domain/digest.ts";
+import type {
   Decision,
   DecisionChange,
   DecisionRound,
@@ -128,6 +133,17 @@ export interface Repo {
   ): Promise<{ id: number; created: boolean }>;
   countOccurrencesSince(learningId: number, since: Date): Promise<number>;
   setLearningAdoption(id: number, adoption: Adoption, at: Date): Promise<void>;
+  setLearningTheme(id: number, theme: string): Promise<void>;
+  setLearningActionStory(id: number, story: string): Promise<void>;
+  insertDigestProposal(
+    row: NewDigestProposal,
+  ): Promise<{ proposal: DigestProposal; created: boolean }>;
+  getDigestProposal(id: number): Promise<DigestProposal | null>;
+  listOpenProposals(scope: string): Promise<DigestProposal[]>;
+  listShownProposals(scope: string, day: string): Promise<DigestProposal[]>;
+  showDigestProposal(id: number, day: string): Promise<void>;
+  ruleDigestProposal(id: number, verdict: Verdict, at: Date): Promise<boolean>;
+  failReceiptsSince(since: Date, project: string | null): Promise<GateReceipt[]>;
   insertManifest(
     row: EvidenceManifest,
   ): Promise<{ manifest: EvidenceManifest; created: boolean }>;
@@ -160,6 +176,10 @@ export interface Repo {
   messageRecorded(runId: string, messageId: string): Promise<boolean>;
   commentSpent(commentId: string): Promise<boolean>;
   eventWith(
+    type: EventType,
+    payload: Record<string, Json>,
+  ): Promise<Event | null>;
+  latestEventWith(
     type: EventType,
     payload: Record<string, Json>,
   ): Promise<Event | null>;

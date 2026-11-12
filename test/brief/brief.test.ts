@@ -13,8 +13,11 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { stringify } from "yaml";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { snapshotHash } from "../../src/core/config/canonical-json.ts";
+import { decideDigest } from "../../src/core/digest/decide.ts";
+import { postDigest } from "../../src/core/digest/post.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import type { Run, Story } from "../../src/core/domain/ledger.ts";
+import { addLearning } from "../../src/core/learning/add.ts";
 import { waitingOn } from "../../src/core/process/waiting.ts";
 import { envelope, storeRevision } from "../db/fixtures.ts";
 import { dbUrl, describeDb, openDb, podHome, resetDb } from "../db/helpers.ts";
@@ -487,6 +490,75 @@ describeDb("pod brief", () => {
       ok: false,
       error: { code: "story_not_found", nextSteps: ["pod brief"] },
     });
+  });
+
+  test("each project row carries the digest section, and the HTML adds its line and proposal list", async () => {
+    const now = () => new Date();
+    const ids: number[] = [];
+    for (const text of ["one", "two", "three", "four"]) {
+      const added = await addLearning(conn.db, {
+        row: {
+          source_story: "S-1",
+          evidence_refs: [`pr:${text}`],
+          text,
+          adoption: "new",
+          area: "process",
+          project_id: null,
+          kind: "lead",
+          reporter: "lead",
+        },
+        host: "local",
+        now,
+      });
+      if (!added.ok) throw new Error(added.refusal.message);
+      ids.push(added.id);
+    }
+    const posted = await postDigest(conn.db, {
+      project: null,
+      proposals: ids.map((id, n) => ({
+        theme: `t${n}`,
+        text: `a<b ${n}`,
+        learning_ids: [id],
+        evidence_refs: [`pr:${n}`],
+      })),
+      host: "local",
+      now,
+    });
+    if (!posted.ok) throw new Error(posted.refusal.message);
+    const [first] = posted.shown;
+    await decideDigest(conn.db, {
+      number: first?.number ?? 0,
+      verdict: "accept",
+      reason: "ok",
+      actor: "person:human",
+      host: "local",
+      now,
+    });
+    const html = join(cwd, "digest.html");
+    const result = runBrief(cwd, ["brief", "--html", html]);
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      result: { projects: { project: string; digest: Json }[] };
+    };
+    const global = parsed.result.projects.find((row) => row.project === "global");
+    expect(global?.digest).toEqual({
+      cap: 3,
+      shown: 3,
+      queued: 1,
+      open: 2,
+      queue: 1,
+      proposals: posted.shown.map((row, n) => ({
+        number: row.number,
+        theme: `t${n}`,
+        text: `a<b ${n}`,
+        evidence_refs: [`pr:${n}`],
+        ruling: n === 0 ? "accept" : "open",
+      })),
+    });
+    const file = readFileSync(html, "utf8");
+    expect(file).toContain('<p id="digest-global">Digest 3/3, 1 queued</p>');
+    expect(file).toContain('<table id="digest-proposals-global">');
+    expect(file).toContain("<td>a&lt;b 1</td>");
   });
 });
 
