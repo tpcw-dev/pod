@@ -160,12 +160,14 @@ describeDb.each(["hands-on", "standard", "hands-off"])(
           profile: null,
           policy: "default@1",
           line: "global: none (policy default@1)",
+          digest: expect.objectContaining({ shown: 0, queued: 0 }),
         },
         {
           project: "dogfood",
           profile,
           policy: "dogfood@1",
           line: `dogfood: ${profile} (policy dogfood@1)`,
+          digest: expect.objectContaining({ shown: 0, queued: 0 }),
         },
       ]);
       expect(result.stories[0]?.runs[0]).toMatchObject({

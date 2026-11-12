@@ -116,6 +116,28 @@ const BriefMeasurements = z.object({
   ),
 });
 
+const BriefDigest = z.object({
+  projects: z.array(
+    z.object({
+      project: z.string(),
+      digest: z.object({
+        cap: z.number(),
+        shown: z.number(),
+        queued: z.number(),
+        proposals: z.array(
+          z.object({
+            number: z.number(),
+            theme: z.string(),
+            text: z.string(),
+            evidence_refs: z.array(z.string()),
+            ruling: z.string(),
+          }),
+        ),
+      }),
+    }),
+  ),
+});
+
 function cell(value: string): string {
   return `<td>${escapeHtml(value)}</td>`;
 }
@@ -230,6 +252,34 @@ function testTables(parsed: unknown): string {
   return tables.join("\n");
 }
 
+function digestSections(parsed: unknown): string {
+  const brief = BriefDigest.safeParse(parsed);
+  if (!brief.success) return "";
+  return brief.data.projects
+    .flatMap(({ project, digest }) => {
+      const id = escapeHtml(project);
+      const line = `<p id="digest-${id}">Digest ${digest.shown}/${digest.cap}, ${digest.queued} queued</p>`;
+      if (digest.proposals.length === 0) return [line];
+      const rows = [
+        row(["number", "theme", "proposal", "evidence", "ruling"]),
+        ...digest.proposals.map((proposal) =>
+          row([
+            String(proposal.number),
+            proposal.theme,
+            proposal.text,
+            proposal.evidence_refs.join(" "),
+            proposal.ruling,
+          ]),
+        ),
+      ];
+      return [
+        line,
+        `<table id="digest-proposals-${id}">\n${rows.join("\n")}\n</table>`,
+      ];
+    })
+    .join("\n");
+}
+
 function pendingTable(parsed: unknown): string {
   const brief = BriefPending.safeParse(parsed);
   if (!brief.success || brief.data.pending_requests.length === 0) return "";
@@ -264,6 +314,7 @@ export function renderBriefHtml(resultJson: string): string {
   const parsed = parsedJson(resultJson);
   const tables = [
     pendingTable(parsed),
+    digestSections(parsed),
     driftTable(parsed),
     testTables(parsed),
     measurementTables(parsed),

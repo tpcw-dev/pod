@@ -57,6 +57,8 @@ function parse() {
       options: {
         help: { type: "boolean" },
         activate: { type: "boolean" },
+        accept: { type: "boolean" },
+        reject: { type: "boolean" },
         scope: { type: "string" },
         "expected-revision": { type: "string" },
         "op-key": { type: "string" },

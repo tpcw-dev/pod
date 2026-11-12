@@ -58,17 +58,26 @@ export function actorOf(identity: Identity): string {
     : `person:${identity.principal}`;
 }
 
-export function mayActivate(identity: Identity, activate: boolean): void {
-  if (activate && identity.kind === "seat")
+export function needsPerson(
+  identity: Identity,
+  what: string,
+  nextSteps: string[],
+): void {
+  if (identity.kind === "seat")
     throw new PodError(
       "activation_needs_person",
       3,
-      `${actorOf(identity)} is an agent Seat, and an activation needs a person`,
-      [
-        "write the Revision without --activate",
-        "a person runs the activation from the operator's shell",
-      ],
+      `${actorOf(identity)} is an agent Seat, and ${what} needs a person`,
+      nextSteps,
     );
+}
+
+export function mayActivate(identity: Identity, activate: boolean): void {
+  if (activate)
+    needsPerson(identity, "an activation", [
+      "write the Revision without --activate",
+      "a person runs the activation from the operator's shell",
+    ]);
 }
 
 async function checkPrincipal(repo: Repo, principal: string): Promise<void> {

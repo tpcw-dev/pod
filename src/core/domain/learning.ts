@@ -61,7 +61,7 @@ export interface LearningFilter {
   adoption?: Adoption;
   text?: string;
   area?: Area;
-  project?: string;
+  project?: string | null;
 }
 
 export interface LearningIdentity {

@@ -88,6 +88,7 @@ import {
 import { TaskState } from "../../core/domain/task-state.ts";
 import type { BundleResult, Db, Repo } from "../../core/ports/db.ts";
 import * as configSchema from "../../db/schema/config.ts";
+import { makeDigestRepo } from "./digest-repository.ts";
 import * as ledgerSchema from "../../db/schema/ledger.ts";
 
 const { activation, revision, snapshot } = configSchema;
@@ -382,6 +383,7 @@ function activationWhere(key: ActivationKey) {
 
 function makeRepo(x: Executor): Repo {
   const repo: Repo = {
+    ...makeDigestRepo(x),
     async insertRevision(row: NewRevision) {
       await x.execute(
         sql`select pg_advisory_xact_lock(hashtext(${`${row.kind}.${row.name}`}))`,
@@ -672,6 +674,22 @@ function makeRepo(x: Executor): Repo {
         .where(eq(gateReceipt.runId, runId))
         .orderBy(asc(gateReceipt.id));
       return rows.map(toGateReceipt);
+    },
+
+    async failReceiptsSince(since, project) {
+      const rows = await x
+        .select({ receipt: gateReceipt })
+        .from(gateReceipt)
+        .leftJoin(snapshot, eq(snapshot.runId, gateReceipt.runId))
+        .where(
+          and(
+            eq(gateReceipt.outcome, "FAIL"),
+            gte(gateReceipt.createdAt, since),
+            project === null ? undefined : eq(snapshot.project, project),
+          ),
+        )
+        .orderBy(asc(gateReceipt.id));
+      return rows.map((row) => toGateReceipt(row.receipt));
     },
 
     async setGateReceiptSync(id, state) {
@@ -1018,6 +1036,17 @@ function makeRepo(x: Executor): Repo {
         .where(eq(learning.id, id));
     },
 
+    async setLearningTheme(id: number, theme: string) {
+      await x.update(learning).set({ theme }).where(eq(learning.id, id));
+    },
+
+    async setLearningActionStory(id: number, story: string) {
+      await x
+        .update(learning)
+        .set({ actionStory: story })
+        .where(eq(learning.id, id));
+    },
+
     async listLearnings(filter: LearningFilter) {
       const rows = await x
         .select({ row: learning, occurrences: occurrenceCount })
@@ -1035,7 +1064,9 @@ function makeRepo(x: Executor): Repo {
               : eq(learning.area, filter.area),
             filter.project === undefined
               ? undefined
-              : eq(learning.projectId, filter.project),
+              : filter.project === null
+                ? isNull(learning.projectId)
+                : eq(learning.projectId, filter.project),
             filter.text === undefined
               ? undefined
               : ilike(learning.text, substring(filter.text)),
@@ -1519,6 +1550,21 @@ function makeRepo(x: Executor): Repo {
           ),
         )
         .orderBy(asc(event.id))
+        .limit(1);
+      return row === undefined ? null : toEvent(row);
+    },
+
+    async latestEventWith(type, payload) {
+      const [row] = await x
+        .select()
+        .from(event)
+        .where(
+          and(
+            eq(event.type, type),
+            sql`${event.payload} @> ${JSON.stringify(payload)}::jsonb`,
+          ),
+        )
+        .orderBy(desc(event.id))
         .limit(1);
       return row === undefined ? null : toEvent(row);
     },

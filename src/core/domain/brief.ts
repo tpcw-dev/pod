@@ -6,6 +6,7 @@ import {
 } from "../brief/counters.ts";
 import type { Revision } from "./config.ts";
 import type { DecisionRow } from "./decision.ts";
+import type { RulingState } from "./digest.ts";
 import type {
   Dispatch,
   Run,
@@ -84,6 +85,21 @@ export interface BriefStory {
   story: Story;
   runs: readonly BriefRun[];
   counters: BriefCounters;
+}
+
+export interface DigestBrief {
+  cap: number;
+  shown: number;
+  queued: number;
+  open: number;
+  queue: number;
+  proposals: {
+    number: number;
+    theme: string;
+    text: string;
+    evidence_refs: string[];
+    ruling: RulingState;
+  }[];
 }
 
 export interface BriefTree {

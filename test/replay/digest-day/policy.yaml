@@ -1,0 +1,9 @@
+kind: policy
+name: digest-day
+schema_version: 1
+value:
+  gates: []
+  limits:
+    digest_per_day: 2
+  learning:
+    kinds: [lead]
