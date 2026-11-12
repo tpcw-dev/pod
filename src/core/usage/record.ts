@@ -89,6 +89,7 @@ function runByPath(
 
 async function attribute(
   tx: Repo,
+  session: { runtime: string; session_id: string },
   units: readonly UnitRow[],
   host: string,
 ): Promise<{
@@ -96,18 +97,20 @@ async function attribute(
   dispatch_id: string | null;
   run_id: string | null;
 }> {
-  const [first] = units;
-  if (first === undefined) throw new Error("a session has no unit");
-  const located = await tx.dispatchByLocator(first.runtime, first.session_id);
+  const located = await tx.dispatchByLocator(
+    session.runtime,
+    session.session_id,
+  );
   if (located !== null)
     return {
       attribution: "locator",
       dispatch_id: located.dispatch_id,
       run_id: null,
     };
-  const cwd = [...units].reverse().find((unit) => unit.cwd !== null)?.cwd;
+  const cwd =
+    [...units].reverse().find((unit) => unit.cwd !== null)?.cwd ?? null;
   const runId =
-    cwd == null ? null : runByPath(cwd, await tx.hostStartedDispatches(host));
+    cwd === null ? null : runByPath(cwd, await tx.hostStartedDispatches(host));
   return runId === null
     ? { attribution: "unattributed", dispatch_id: null, run_id: null }
     : { attribution: "path", dispatch_id: null, run_id: runId };
@@ -182,7 +185,7 @@ async function recordSession(
     at: now,
   });
   if (!operation.created) return { ...empty, ...span, outcome: "replayed" };
-  const owner = await attribute(tx, units, input.host);
+  const owner = await attribute(tx, first, units, input.host);
   const ids: number[] = [];
   for (const [model, group] of byModel(units)) {
     const { totals, coverage } = sums(group);
