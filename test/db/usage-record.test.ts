@@ -129,7 +129,9 @@ describe("pace", () => {
   });
 
   test("use at the floor is ok even when ahead of the clock", () => {
-    expect(pace({ ...fiveHours, used_percent: 50 }, now, 50)).toBe("ok");
+    const early = { window_minutes: 300, resets_at: minutes(240) };
+    expect(pace({ ...early, used_percent: 50 }, now, 50)).toBe("ok");
+    expect(pace({ ...early, used_percent: 50.5 }, now, 50)).toBe("avoid");
   });
 
   test("use above the floor but behind the clock is ok", () => {
