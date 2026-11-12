@@ -59,6 +59,32 @@ test("the default policy seeds limits.digest_per_day 3 and validates", () => {
   expect(validatePolicy(defaultValue, null)).toBeNull();
 });
 
+test("the default policy seeds limits.usage 50 and 30 and validates", () => {
+  expect(defaultValue["limits"]).toMatchObject({
+    usage: { floor_percent: 50, stale_minutes: 30 },
+  });
+  expect(validatePolicy(defaultValue, null)).toBeNull();
+});
+
+const withUsage = (usage: unknown) => ({
+  ...defaultValue,
+  limits: { ...(defaultValue["limits"] as object), usage },
+});
+
+test.each([
+  [{ floor_percent: 101, stale_minutes: 30 }],
+  [{ floor_percent: 50, stale_minutes: 0 }],
+  [{ floor_percent: 50, stale_minutes: 2.5 }],
+  [{ floor_percent: 50 }],
+  [{ floor_percent: 50, stale_minutes: 30, extra: 1 }],
+  ["x"],
+])("limits.usage %j is schema_invalid", (usage) => {
+  expect(refusedAt(withUsage(usage))).toEqual([
+    "schema_invalid",
+    "limits.usage",
+  ]);
+});
+
 const withDigest = (digest: unknown) => ({
   ...defaultValue,
   limits: { ...(defaultValue["limits"] as object), digest_per_day: digest },

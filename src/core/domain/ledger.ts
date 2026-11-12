@@ -53,6 +53,7 @@ export const intents = [
   "retro",
   "digest",
   "ruling",
+  "usage",
 ] as const;
 export const Intent = z.enum(intents);
 export type Intent = z.infer<typeof Intent>;

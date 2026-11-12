@@ -1208,6 +1208,29 @@ describeDb("pod check usage observations", () => {
     expect(next.ok && next.result.nextSteps.at(-1)).toBe(line);
   });
 
+  test("a provider with a usage record row has a reader, so a later pass writes no no_source row for it", async () => {
+    await conn.db.insertUsageObservation({
+      provider: "claude",
+      seat: null,
+      window_start: later(-300),
+      window_end: later(-120),
+      value: "40",
+      coverage: "measured",
+      observed_at: later(-120),
+      source: { kind: "usage record", window: "example-window", pace: "ok" },
+    });
+    const outcome = await quiet(start);
+    expect(
+      (await observations()).map((row) => [row.provider, row.coverage]),
+    ).toEqual([
+      ["claude", "measured"],
+      ["codex", "no_source"],
+    ]);
+    expect(outcome.ok && outcome.result.nextSteps.at(-1)).toBe(
+      "usage has no source for codex; pod state shows unknown",
+    );
+  });
+
   test("a Run with no pinned configuration records nothing and prints no usage line", async () => {
     await conn.sql`truncate config.snapshot cascade`;
     const outcome = await quiet(start);

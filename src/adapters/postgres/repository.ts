@@ -86,6 +86,12 @@ import {
   type UsageObservation,
 } from "../../core/domain/ledger.ts";
 import { TaskState } from "../../core/domain/task-state.ts";
+import {
+  Attribution,
+  RecordCoverage,
+  type NewUsageRecord,
+  type UsageRecord,
+} from "../../core/domain/usage.ts";
 import type { BundleResult, Db, Repo } from "../../core/ports/db.ts";
 import * as configSchema from "../../db/schema/config.ts";
 import { makeDigestRepo } from "./digest-repository.ts";
@@ -107,6 +113,7 @@ const {
   story,
   task,
   usageObservation,
+  usageRecord,
 } = ledgerSchema;
 
 type Database = PostgresJsDatabase<Record<string, never>>;
@@ -350,6 +357,29 @@ function toUsageObservation(
     coverage: Coverage.parse(row.coverage),
     observed_at: row.observedAt,
     source: json(row.source),
+  };
+}
+
+function toUsageRecord(row: typeof usageRecord.$inferSelect): UsageRecord {
+  return {
+    id: row.id,
+    runtime: row.runtime,
+    session_id: row.sessionId,
+    model: row.model,
+    input: row.input,
+    cached_input: row.cachedInput,
+    cache_write: row.cacheWrite,
+    output: row.output,
+    reasoning: row.reasoning,
+    calls: row.calls,
+    first_at: row.firstAt,
+    through: row.through,
+    dispatch_id: row.dispatchId,
+    run_id: row.runId,
+    attribution: Attribution.parse(row.attribution),
+    coverage: RecordCoverage.parse(row.coverage),
+    op_key: row.opKey,
+    created_at: row.createdAt,
   };
 }
 
@@ -1107,6 +1137,71 @@ function makeRepo(x: Executor): Repo {
           desc(usageObservation.id),
         );
       return rows.map(toUsageObservation);
+    },
+
+    async insertUsageRecord(row: NewUsageRecord) {
+      const [inserted] = await x
+        .insert(usageRecord)
+        .values({
+          runtime: row.runtime,
+          sessionId: row.session_id,
+          model: row.model,
+          input: row.input,
+          cachedInput: row.cached_input,
+          cacheWrite: row.cache_write,
+          output: row.output,
+          reasoning: row.reasoning,
+          calls: row.calls,
+          firstAt: row.first_at,
+          through: row.through,
+          dispatchId: row.dispatch_id,
+          runId: row.run_id,
+          attribution: row.attribution,
+          coverage: row.coverage,
+          opKey: row.op_key,
+          createdAt: row.created_at,
+        })
+        .returning();
+      if (inserted === undefined)
+        throw new Error("usage record insert returned no row");
+      return toUsageRecord(inserted);
+    },
+
+    async usageWatermark(runtime: string, sessionId: string) {
+      const [row] = await x
+        .select({ through: sql<Date | null>`max(${usageRecord.through})` })
+        .from(usageRecord)
+        .where(
+          and(
+            eq(usageRecord.runtime, runtime),
+            eq(usageRecord.sessionId, sessionId),
+          ),
+        );
+      const through = row?.through ?? null;
+      return through === null ? null : new Date(through);
+    },
+
+    async dispatchByLocator(harness: string, sessionId: string) {
+      const [row] = await x
+        .select()
+        .from(dispatch)
+        .where(
+          sql`${dispatch.effectiveLaunch}->'transcript' = ${JSON.stringify({ harness, session_id: sessionId })}::jsonb`,
+        )
+        .orderBy(desc(dispatch.createdAt), desc(dispatch.dispatchId))
+        .limit(1);
+      return row === undefined ? null : toDispatch(row);
+    },
+
+    async hostStartedDispatches(host: string) {
+      const rows = await x
+        .select()
+        .from(dispatch)
+        .where(
+          sql`exists (select 1 from ${event} where ${event.dispatchId} = ${dispatch.dispatchId} and ${event.type} = 'start' and ${event.host} = ${host})`,
+        )
+        .orderBy(desc(dispatch.createdAt), desc(dispatch.dispatchId));
+      return rows.map(toDispatch);
     },
 
     async listDecisions(scope) {

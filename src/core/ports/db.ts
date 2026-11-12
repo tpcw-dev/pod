@@ -55,6 +55,7 @@ import type {
   Task,
   UsageObservation,
 } from "../domain/ledger.ts";
+import type { NewUsageRecord, UsageRecord } from "../domain/usage.ts";
 
 export interface Repo {
   insertRevision(
@@ -154,6 +155,13 @@ export interface Repo {
   latestUsageObservations(
     providers: readonly string[],
   ): Promise<UsageObservation[]>;
+  insertUsageRecord(row: NewUsageRecord): Promise<UsageRecord>;
+  usageWatermark(runtime: string, sessionId: string): Promise<Date | null>;
+  dispatchByLocator(
+    harness: string,
+    sessionId: string,
+  ): Promise<Dispatch | null>;
+  hostStartedDispatches(host: string): Promise<Dispatch[]>;
   listDecisions(scope: StateScope): Promise<Decision[]>;
   insertDecision(row: DecisionRow): Promise<void>;
   getDecision(id: string): Promise<DecisionRow | null>;

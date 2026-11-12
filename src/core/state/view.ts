@@ -21,6 +21,7 @@ import {
   usageSection,
   type StateContext,
 } from "./sections.ts";
+import { usageLimits } from "../config/limits.ts";
 
 export const stateBudget = 3000;
 
@@ -96,7 +97,11 @@ export async function buildState(
       await pendingRequests(ctx.repo, level, ref),
     ),
     decisions: await decisionsSection(ctx, scope),
-    usage: await usageSection(ctx, providersOf([crew, ...pinnedCrews(tree)])),
+    usage: await usageSection(
+      ctx,
+      providersOf([crew, ...pinnedCrews(tree)]),
+      usageLimits(policy?.value),
+    ),
     needs_human: await needsHumanSection(ctx, tree),
     learnings: await learningsSection(ctx, scope),
     truncated: false,

@@ -90,6 +90,7 @@ test("help lists the verbs sorted by name", () => {
     "run create",
     "state",
     "takeover",
+    "usage record",
     "verdict post",
   ]);
 });
