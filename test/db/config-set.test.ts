@@ -6,6 +6,9 @@ import {
   expect,
   test,
 } from "vitest";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { applyConfig } from "../../src/core/config/apply.ts";
 import { deriveSet } from "../../src/core/config/set.ts";
@@ -284,6 +287,57 @@ describe("pod config set", () => {
     );
     expect(refused.status).toBe(3);
     expect(refused.json.error?.code).toBe("activation_needs_person");
+    expect(await revisionCount()).toBe(before);
+  });
+
+  test("an unidentified terminal's config set is identity_missing and writes nothing", async () => {
+    const before = await revisionCount();
+    const refused = runCli(
+      ["config", "set", "crew.team", "seats[1].model=m-2", ...reason],
+      { ORCA_TERMINAL_HANDLE: "term-stray" },
+    );
+    expect(refused.status).toBe(3);
+    expect(refused.json.error?.code).toBe("identity_missing");
+    expect(refused.json.error?.nextSteps[0]).toBe(
+      "set POD_SEAT to your Seat Address and run again",
+    );
+    expect(await revisionCount()).toBe(before);
+  });
+
+  test("an unidentified terminal's config apply without --activate is identity_missing and writes nothing", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "pod-set-")), "task.yaml");
+    writeFileSync(
+      path,
+      "kind: task\nname: stray-1\nschema_version: 1\nscope: run\nscope_ref: run_1\nvalue: { spec: x }\n",
+    );
+    const before = await revisionCount();
+    const refused = runCli(["config", "apply", path], {
+      ORCA_TERMINAL_HANDLE: "term-stray",
+    });
+    expect(refused.status).toBe(3);
+    expect(refused.json.error?.code).toBe("identity_missing");
+    expect(await revisionCount()).toBe(before);
+  });
+
+  test("an unidentified terminal's config set --activate is activation_needs_person and writes nothing", async () => {
+    const before = await revisionCount();
+    const refused = runCli(
+      [
+        "config",
+        "set",
+        "crew.team",
+        "seats[1].model=m-2",
+        "--activate",
+        ...reason,
+      ],
+      { ORCA_TERMINAL_HANDLE: "term-stray" },
+    );
+    expect(refused.status).toBe(3);
+    expect(refused.json.error?.code).toBe("activation_needs_person");
+    expect(refused.json.error?.nextSteps).toEqual([
+      "write the Revision without --activate",
+      "a person runs the activation from the operator's shell",
+    ]);
     expect(await revisionCount()).toBe(before);
   });
 

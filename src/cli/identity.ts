@@ -10,6 +10,7 @@ export type Identity =
 export interface IdentityFacts {
   podSeat: string | null;
   recordedSeat: string | null;
+  handle: string | null;
   unresolved: readonly string[];
   operator: string | null;
 }
@@ -27,11 +28,27 @@ export function seatFromEnv(env: Env): string | null {
 
 const agentStep = "an agent Seat sets POD_SEAT to its Seat Address";
 
+export interface PersonNeed {
+  what: string;
+  nextSteps: string[];
+}
+
+export const activation: PersonNeed = {
+  what: "an activation",
+  nextSteps: [
+    "write the Revision without --activate",
+    "a person runs the activation from the operator's shell",
+  ],
+};
+
 function identityMissing(message: string, nextSteps: string[]): PodError {
   return new PodError("identity_missing", 3, message, nextSteps);
 }
 
-export function resolveIdentity(facts: IdentityFacts): Identity {
+export function resolveIdentity(
+  facts: IdentityFacts,
+  need: PersonNeed | null,
+): Identity {
   if (facts.podSeat !== null) return { kind: "seat", address: facts.podSeat };
   if (facts.recordedSeat !== null)
     return { kind: "seat", address: facts.recordedSeat };
@@ -44,6 +61,20 @@ export function resolveIdentity(facts: IdentityFacts): Identity {
         "run again after pod check settles them",
       ],
     );
+  if (facts.handle !== null) {
+    const message = `terminal ${facts.handle} is neither a Seat this host records nor the operator's shell`;
+    if (need !== null)
+      throw new PodError(
+        "activation_needs_person",
+        3,
+        `${message}, and ${need.what} needs a person`,
+        need.nextSteps,
+      );
+    throw identityMissing(message, [
+      "set POD_SEAT to your Seat Address and run again",
+      "the operator runs pod from a shell with no ORCA_TERMINAL_HANDLE",
+    ]);
+  }
   if (facts.operator !== null)
     return { kind: "person", principal: facts.operator };
   throw identityMissing("this run names no operator and no Seat", [
@@ -58,26 +89,14 @@ export function actorOf(identity: Identity): string {
     : `person:${identity.principal}`;
 }
 
-export function needsPerson(
-  identity: Identity,
-  what: string,
-  nextSteps: string[],
-): void {
+export function needsPerson(identity: Identity, need: PersonNeed): void {
   if (identity.kind === "seat")
     throw new PodError(
       "activation_needs_person",
       3,
-      `${actorOf(identity)} is an agent Seat, and ${what} needs a person`,
-      nextSteps,
+      `${actorOf(identity)} is an agent Seat, and ${need.what} needs a person`,
+      need.nextSteps,
     );
-}
-
-export function mayActivate(identity: Identity, activate: boolean): void {
-  if (activate)
-    needsPerson(identity, "an activation", [
-      "write the Revision without --activate",
-      "a person runs the activation from the operator's shell",
-    ]);
 }
 
 async function checkPrincipal(repo: Repo, principal: string): Promise<void> {
@@ -94,7 +113,7 @@ export async function writerOf(
   repo: Repo,
   host: HostSettings,
   env: Env,
-  activate: boolean,
+  need: PersonNeed | null,
 ): Promise<Identity> {
   const podSeat = seatFromEnv(env);
   const handle = envValue(env, "ORCA_TERMINAL_HANDLE");
@@ -103,13 +122,16 @@ export async function writerOf(
       ? null
       : await repo.terminalSeat(host.hostId, handle);
   const seated = podSeat !== null || recordedSeat !== null;
-  const identity = resolveIdentity({
-    podSeat,
-    recordedSeat,
-    unresolved: seated ? [] : await repo.unresolvedWorkers(host.hostId),
-    operator: host.operator,
-  });
-  mayActivate(identity, activate);
+  const identity = resolveIdentity(
+    {
+      podSeat,
+      recordedSeat,
+      handle,
+      unresolved: seated ? [] : await repo.unresolvedWorkers(host.hostId),
+      operator: host.operator,
+    },
+    need,
+  );
   if (identity.kind === "person")
     await checkPrincipal(repo, identity.principal);
   return identity;

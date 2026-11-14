@@ -34,8 +34,18 @@ import {
 import type { Repo } from "../core/ports/db.ts";
 import { parseTarget, setEdit, unsetEdit } from "./config-set.ts";
 import { exitFor, PodError, schemaError, usageError } from "./errors.ts";
-import { databaseUrl, readHostProfile } from "./host-profile.ts";
-import { actorOf, writerOf, type Identity } from "./identity.ts";
+import {
+  databaseUrl,
+  readHostProfile,
+  type HostSettings,
+} from "./host-profile.ts";
+import {
+  activation,
+  actorOf,
+  needsPerson,
+  writerOf,
+  type Identity,
+} from "./identity.ts";
 import { issuesOf, parseYaml, readText } from "./yaml-file.ts";
 
 export const ConfigApplyInput = z.strictObject({
@@ -210,6 +220,21 @@ async function refuseRoadmap(
     );
 }
 
+async function configWriter(
+  repo: Repo,
+  host: HostSettings,
+  activate: boolean,
+): Promise<Identity> {
+  const identity = await writerOf(
+    repo,
+    host,
+    process.env,
+    activate ? activation : null,
+  );
+  if (activate) needsPerson(identity, activation);
+  return identity;
+}
+
 export async function configApply(
   input: ConfigApplyInput,
 ): Promise<z.infer<typeof ConfigApplyOutput>> {
@@ -220,12 +245,7 @@ export async function configApply(
   const connection = connect(databaseUrl(host));
   try {
     await refuseRoadmap(envelope, connection.db);
-    const identity = await writerOf(
-      connection.db,
-      host,
-      process.env,
-      flags !== null,
-    );
+    const identity = await configWriter(connection.db, host, flags !== null);
     const outcome = await applyConfig(connection.db, {
       envelope,
       actor: actorOf(identity),
@@ -291,7 +311,7 @@ export async function configSet(
   const host = readHostProfile();
   const connection = connect(databaseUrl(host));
   try {
-    const identity = await writerOf(connection.db, host, process.env, activate);
+    const identity = await configWriter(connection.db, host, activate);
     const derived = await deriveSet(connection.db, {
       kind,
       name,
@@ -378,7 +398,7 @@ export async function configActivate(
   const host = readHostProfile();
   const connection = connect(databaseUrl(host));
   try {
-    const identity = await writerOf(connection.db, host, process.env, true);
+    const identity = await configWriter(connection.db, host, true);
     const revision = await connection.db.getRevisionByRef(kind, name, rev);
     if (revision === null)
       throw new PodError("revision_not_found", 3, `no Revision ${ref}`, [

@@ -171,6 +171,14 @@ export const DigestDecideOutput = z.object({
 });
 type DigestDecideOutput = z.infer<typeof DigestDecideOutput>;
 
+const digestRuling = {
+  what: "a digest ruling",
+  nextSteps: [
+    "Run pod digest decide from the operator's shell",
+    "An agent Seat proposes with pod digest post",
+  ],
+};
+
 export async function digestDecide(
   input: DigestDecideInput,
 ): Promise<DigestDecideOutput> {
@@ -180,11 +188,8 @@ export async function digestDecide(
   const verdict = input.accept === true ? "accept" : "reject";
   const host = readHostProfile();
   const outcome = await withDb(async (db, hostId) => {
-    const identity = await writerOf(db, host, process.env, false);
-    needsPerson(identity, "a digest ruling", [
-      "Run pod digest decide from the operator's shell",
-      "An agent Seat proposes with pod digest post",
-    ]);
+    const identity = await writerOf(db, host, process.env, digestRuling);
+    needsPerson(identity, digestRuling);
     return decideDigest(db, {
       number,
       verdict,

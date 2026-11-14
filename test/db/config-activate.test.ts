@@ -507,6 +507,31 @@ describeDb("config activate requests", () => {
     );
   });
 
+  test("pod config activate from an unidentified terminal is activation_needs_person and writes nothing", async () => {
+    const written = agentSet("m-2");
+    const before = await activeCrew();
+    const activations = await count("ledger.event", "type = 'activation'");
+    const refused = runCli(
+      [
+        "config",
+        "activate",
+        written.ref,
+        "--scope",
+        "global",
+        "--expected-revision",
+        before ?? "none",
+      ],
+      { ORCA_TERMINAL_HANDLE: "term-stray" },
+    );
+    expect(refused.status).toBe(3);
+    expect(refused.json.error?.code).toBe("activation_needs_person");
+    expect(await activeCrew()).toBe(before);
+    expect(await status(written.pending?.op_key ?? "")).toBe("pending");
+    expect(await count("ledger.event", "type = 'activation'")).toBe(
+      activations,
+    );
+  });
+
   test("pod config activate with a scope other than the Revision's is usage", () => {
     const written = agentSet("m-2");
     const refused = runCli([

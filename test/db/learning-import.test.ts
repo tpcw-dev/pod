@@ -295,6 +295,18 @@ describeDb("learning import", () => {
     expect(await counts()).toEqual({ learnings: 0, occurrences: 0, events: 0, ops: 0 });
   }, 120_000);
 
+  test("an unidentified terminal is refused activation_needs_person and imports nothing", async () => {
+    const result = runCli(["learning", "import", yaml(rows)], {
+      ORCA_TERMINAL_HANDLE: "term-stray",
+    });
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("activation_needs_person");
+    expect(result.json.error?.nextSteps).toEqual([
+      "Run pod learning import from the operator's shell",
+    ]);
+    expect(await counts()).toEqual({ learnings: 0, occurrences: 0, events: 0, ops: 0 });
+  });
+
   test("a Seat is refused usage", async () => {
     const result = runCli(["learning", "import", yaml(rows)], {
       POD_SEAT: "developer",
