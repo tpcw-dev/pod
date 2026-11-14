@@ -216,6 +216,10 @@ export interface Repo {
     type: EventType,
     payload: Record<string, Json>,
   ): Promise<Event | null>;
+  eventsWith(
+    type: EventType,
+    payload: Record<string, Json>,
+  ): Promise<Event[]>;
   latestEventWith(
     type: EventType,
     payload: Record<string, Json>,

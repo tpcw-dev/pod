@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { RevisionEnvelope } from "../domain/config.ts";
 import type { Refusal } from "../domain/outcome.ts";
 import { sessionToken } from "../dispatch/transcript.ts";
+import { isTimezone } from "../plan/clock.ts";
 import type { Repo } from "../ports/db.ts";
 
 const anyProject = "*";
@@ -16,8 +17,9 @@ function unique(list: readonly string[]): boolean {
 
 const Names = z.array(Name).refine(unique, "names one twice");
 
-const HostValue = z.strictObject({
+const HostRead = z.strictObject({
   driver: Name,
+  timezone: z.string().optional(),
   hostnames: Names.min(1),
   manager: z.boolean(),
   decision_seat: z.boolean().optional(),
@@ -50,6 +52,11 @@ const HostValue = z.strictObject({
       crew_swap_max: Size.optional(),
     })
     .optional(),
+});
+type HostRead = z.infer<typeof HostRead>;
+
+const HostValue = HostRead.extend({
+  timezone: z.string().refine(isTimezone, "needs an IANA time zone name"),
 });
 type HostValue = z.infer<typeof HostValue>;
 
@@ -126,7 +133,7 @@ async function seatedElsewhere(
     });
     const revision =
       active === null ? null : await repo.getRevision(active.revision_id);
-    const seated = HostValue.safeParse(revision?.value).data?.projects ?? [];
+    const seated = HostRead.safeParse(revision?.value).data?.projects ?? [];
     const taken = projects.find((project) => seated.includes(project));
     if (taken !== undefined)
       return invalid(
@@ -151,10 +158,15 @@ export async function hostRefusal(
   return seatedElsewhere(repo, envelope.name, host.projects);
 }
 
-async function activeHost(
+export interface ActiveHost {
+  revision_id: string;
+  value: HostRead;
+}
+
+export async function activeHostRevision(
   repo: Repo,
   host: string,
-): Promise<HostValue | null> {
+): Promise<ActiveHost | null> {
   const active = await repo.getActivation({
     scope: "host",
     scope_ref: host,
@@ -163,7 +175,17 @@ async function activeHost(
   });
   const revision =
     active === null ? null : await repo.getRevision(active.revision_id);
-  return HostValue.safeParse(revision?.value).data ?? null;
+  const value = HostRead.safeParse(revision?.value).data;
+  return revision === null || value === undefined
+    ? null
+    : { revision_id: revision.id, value };
+}
+
+async function activeHost(
+  repo: Repo,
+  host: string,
+): Promise<HostRead | null> {
+  return (await activeHostRevision(repo, host))?.value ?? null;
 }
 
 export async function hostTranscripts(

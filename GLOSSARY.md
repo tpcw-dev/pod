@@ -23,6 +23,8 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Gate**: a point in a process that needs a verdict before the run continues. A gate kept by a person is a human gate. A gate kept by an agent is an automated gate.
 - **Gate receipt**: the recorded verdict on a gate, bound to its source, the candidate revision, and the time it was read back.
 - **Plan review**: the review of a plan before implementation starts. In impl-medium and impl-large it is an automated gate kept by the decision pair. In impl-xlarge it is a decision round of the pair.
+- **Launch plan**: the ordered launch request for one host and one day, published as a `plan` event. A later plan for the same host and day replaces it. The claim authority reads it; it is not a schedule, and Pod never launches from it. Not the plan that plan review reviews.
+- **Plan override**: a hold, release, project priority, or explicit order an operator or an agent records against a launch plan. Each is one `plan` event that names its actor and expires at the end of the host's day unless `--until` names a later day.
 - **Integration review**: the review of the integrated candidate SHA after each task's review passes.
 - **Candidate SHA**: the commit a gate verdict binds to, the head of the run's newest recorded push.
 - **Relay principal**: a tracker identity that posts only what the human gatekeeper said, marking each comment with its relay session.

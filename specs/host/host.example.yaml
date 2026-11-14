@@ -9,6 +9,7 @@ value:
     - host-a
     - host-a.local
   manager: true
+  timezone: America/New_York
   decision_seat: true
   slots:
     default: 2
