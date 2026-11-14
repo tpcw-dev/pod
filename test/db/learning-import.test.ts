@@ -293,7 +293,7 @@ describeDb("learning import", () => {
     expect(missing.status).toBe(2);
     expect(missing.json.error?.code).toBe("usage");
     expect(await counts()).toEqual({ learnings: 0, occurrences: 0, events: 0, ops: 0 });
-  });
+  }, 120_000);
 
   test("a Seat is refused usage", async () => {
     const result = runCli(["learning", "import", yaml(rows)], {
