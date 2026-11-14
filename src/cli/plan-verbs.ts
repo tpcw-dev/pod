@@ -123,7 +123,7 @@ export async function plan(input: PlanInput): Promise<PlanOutput> {
         ? await publishPlan(db, {
             host,
             writer: profile.hostId,
-            actor: actorOf(await writerOf(db, profile, process.env, false)),
+            actor: actorOf(await writerOf(db, profile, process.env, null)),
             now,
           })
         : await readPlan(db, { host, now });
@@ -141,7 +141,7 @@ async function override(
   const profile = readHostProfile();
   const connection = connect(databaseUrl(profile));
   try {
-    const identity = await writerOf(connection.db, profile, process.env, false);
+    const identity = await writerOf(connection.db, profile, process.env, null);
     const outcome = await writeOverride(connection.db, {
       host: hostFlag ?? profile.hostId,
       writer: profile.hostId,
