@@ -190,3 +190,22 @@ export function capacityMissing(hostId: string): Refusal {
     ],
   };
 }
+
+export async function hostTimeZone(
+  repo: Repo,
+  host: string,
+): Promise<string | null> {
+  const active = await repo.getActivation({
+    scope: "host",
+    scope_ref: host,
+    kind: "host",
+    name: host,
+  });
+  const revision =
+    active === null ? null : await repo.getRevision(active.revision_id);
+  const value = revision?.value;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return null;
+  const zone = (value as Record<string, unknown>)["timezone"];
+  return typeof zone === "string" ? zone : null;
+}

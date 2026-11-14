@@ -430,11 +430,59 @@ describeDb("pod brief", () => {
         ('dec-1', 'run-1', 'task-1', 'plan', 'change_spec', 'Which plan?', '[]'::jsonb,
          'manifest-decision', 'needs_human', 'disagreement', 'run', '{}'::jsonb,
          '{}'::jsonb, ${at.toISOString()})`;
+    await conn.db.insertOperation({
+      op_key: "usage:ctx-dec",
+      intent: "usage",
+      owner_generation: 1,
+      at: opened,
+    });
+    await conn.db.insertUsageRecord({
+      runtime: "example-runtime",
+      session_id: "s-ctx-dec",
+      model: "example-model",
+      input: 1000,
+      cached_input: 200,
+      cache_write: 100,
+      output: 50,
+      reasoning: 10,
+      calls: 1,
+      first_at: opened,
+      through: opened,
+      dispatch_id: "ctx-dec",
+      run_id: null,
+      attribution: "locator",
+      coverage: "measured",
+      op_key: "usage:ctx-dec",
+      created_at: opened,
+    });
     const html = join(cwd, "measurement.html");
     const result = runBrief(cwd, ["brief", "story:S-1", "--html", html]);
     expect(result.status).toBe(0);
     const parsed = JSON.parse(result.stdout);
-    expect(parsed.result.stories[0].runs[0].measurement).toEqual({
+    const { usage, ...measurement } =
+      parsed.result.stories[0].runs[0].measurement;
+    expect(usage).toEqual({
+      tokens: {
+        input: null,
+        cached_input: null,
+        cache_write: null,
+        output: null,
+        reasoning: null,
+      },
+      running_minutes: null,
+      wall_minutes: null,
+      cost: {
+        basis: "list-price equivalent",
+        amount: null,
+        currency: null,
+        reason: "unmeasured",
+      },
+      unknown: {
+        tokens: ["ctx-1", "ctx-aud"],
+        minutes: ["ctx-1", "ctx-aud", "ctx-dec"],
+      },
+    });
+    expect(measurement).toEqual({
       pair: {
         decider: {
           seat: "decider-seat",
@@ -481,6 +529,67 @@ describeDb("pod brief", () => {
     );
     expect(table?.[0]).toContain(
       "<td>0</td><td>1</td><td>0</td><td>0</td><td>0</td><td>1/10</td>",
+    );
+  });
+
+  test("brief carries today's usage section as JSON and as the usage table", async () => {
+    const now = new Date();
+    await conn.db.insertOperation({
+      op_key: "usage:brief-loose",
+      intent: "usage",
+      owner_generation: 1,
+      at: now,
+    });
+    await conn.db.insertUsageRecord({
+      runtime: "example-runtime",
+      session_id: "s-brief-loose",
+      model: null,
+      input: 400,
+      cached_input: 0,
+      cache_write: 0,
+      output: 100,
+      reasoning: 0,
+      calls: 1,
+      first_at: now,
+      through: now,
+      dispatch_id: null,
+      run_id: null,
+      attribution: "unattributed",
+      coverage: "measured",
+      op_key: "usage:brief-loose",
+      created_at: now,
+    });
+    const html = join(cwd, "usage.html");
+    const result = runBrief(cwd, ["brief", "--html", html]);
+    expect(result.status).toBe(0);
+    const { usage } = JSON.parse(result.stdout).result;
+    expect(usage).toMatchObject({
+      day: now.toISOString().slice(0, 10),
+      time_zone: "UTC",
+      unattributed: [
+        {
+          runtime: "example-runtime",
+          records: 1,
+          tokens: {
+            input: 400,
+            cached_input: 0,
+            cache_write: 0,
+            output: 100,
+            reasoning: 0,
+          },
+          cost: { amount: null, reason: "unpriced" },
+        },
+      ],
+      coverage: { tokens_source: { unattributed: 1 } },
+    });
+    const table = readFileSync(html, "utf8").match(
+      /<table id="usage">([\s\S]*?)<\/table>/,
+    );
+    expect(table?.[0]).toContain(
+      "<td>overall</td><td>0</td><td>0</td><td>0</td><td>0.0000</td><td>0</td><td>unknown</td><td>unknown</td>",
+    );
+    expect(table?.[0]).toContain(
+      "<td>unattributed example-runtime</td><td>500</td><td></td><td></td><td>unknown (unpriced)</td>",
     );
   });
 

@@ -1202,6 +1202,85 @@ function makeRepo(x: Executor): Repo {
       return through === null ? null : new Date(through);
     },
 
+    async listUsageRecords(window) {
+      const rows = await x
+        .select()
+        .from(usageRecord)
+        .where(
+          and(
+            ne(usageRecord.attribution, "locator"),
+            gte(usageRecord.through, window.from),
+            lt(usageRecord.through, window.to),
+          ),
+        )
+        .orderBy(asc(usageRecord.id));
+      return rows.map(toUsageRecord);
+    },
+
+    async listDispatchUsageRecords(dispatchIds) {
+      if (dispatchIds.length === 0) return [];
+      const rows = await x
+        .select()
+        .from(usageRecord)
+        .where(inArray(usageRecord.dispatchId, [...dispatchIds]))
+        .orderBy(asc(usageRecord.id));
+      return rows.map(toUsageRecord);
+    },
+
+    async listRunUsageRecords(runId) {
+      const rows = await x
+        .select()
+        .from(usageRecord)
+        .where(
+          or(
+            eq(usageRecord.runId, runId),
+            inArray(
+              usageRecord.dispatchId,
+              x
+                .select({ id: dispatch.dispatchId })
+                .from(dispatch)
+                .where(eq(dispatch.runId, runId)),
+            ),
+          ),
+        )
+        .orderBy(asc(usageRecord.id));
+      return rows.map(toUsageRecord);
+    },
+
+    async listSettledDispatches(window) {
+      const rows = await x
+        .select()
+        .from(dispatch)
+        .where(
+          and(
+            gte(dispatch.settledAt, window.from),
+            lt(dispatch.settledAt, window.to),
+          ),
+        )
+        .orderBy(asc(dispatch.dispatchId));
+      return rows.map(toDispatch);
+    },
+
+    async listRunsDone(window) {
+      const rows = await x
+        .select({
+          runId: sql<string>`${operation.resultRef}->'request'->>'run_id'`,
+          doneAt: operation.updatedAt,
+        })
+        .from(operation)
+        .where(
+          and(
+            eq(operation.intent, "close"),
+            eq(operation.status, "done"),
+            sql`${operation.resultRef}->'request'->>'step' = 'done'`,
+            gte(operation.updatedAt, window.from),
+            lt(operation.updatedAt, window.to),
+          ),
+        )
+        .orderBy(asc(operation.updatedAt), asc(operation.opKey));
+      return rows.map((row) => ({ run_id: row.runId, done_at: row.doneAt }));
+    },
+
     async dispatchByLocator(harness: string, sessionId: string) {
       const [row] = await x
         .select()
