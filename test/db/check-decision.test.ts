@@ -1116,6 +1116,7 @@ describeDb("pod check reads a human ruling on a needs_human Decision", () => {
       activity: "waiting",
       settlement: "failed",
       settled_at: new Date(),
+      at: new Date(),
     });
     await conn.db.transaction((tx) =>
       failDecision(tx, { decision: id, at: new Date(), host: "local" }),

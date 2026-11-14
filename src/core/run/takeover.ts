@@ -248,6 +248,7 @@ async function settleOldCoordinator(
     activity: "settled",
     settlement: "stopped",
     settled_at: record.at,
+    at: record.at,
   });
   if (!moved) return;
   await tx.appendEvent({

@@ -170,6 +170,7 @@ describeDb("pod digest", () => {
       crew_revision_id: policy.id,
       process_revision_id: policy.id,
       policy_revision_id: policy.id,
+      rate_revision_id: null,
       effective_gate_map: {},
       hash: "hash",
       pinned_at: at,

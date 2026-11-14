@@ -141,6 +141,7 @@ describeDb("pod run close branches", () => {
       activity: "settled",
       settlement: "done",
       settled_at: new Date(),
+      at: new Date(),
     });
     await conn.sql`update ledger.dispatch set terminal_handle = null, requested_launch = jsonb_set(requested_launch, '{worktree}', to_jsonb(${`id:repo-1::${worktree}`}::text)) where dispatch_id = 'ctx_1'`;
     for (const number of prs)

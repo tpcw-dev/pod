@@ -102,6 +102,7 @@ const {
   decision,
   decisionRound,
   dispatch,
+  dispatchActivity,
   event,
   evidenceManifest,
   gateReceipt,
@@ -546,6 +547,7 @@ function makeRepo(x: Executor): Repo {
         crewRevisionId: row.crew_revision_id,
         processRevisionId: row.process_revision_id,
         policyRevisionId: row.policy_revision_id,
+        rateRevisionId: row.rate_revision_id,
         effectiveGateMap: row.effective_gate_map,
         hash: row.hash,
         pinnedAt: row.pinned_at,
@@ -565,6 +567,7 @@ function makeRepo(x: Executor): Repo {
         crew_revision_id: row.crewRevisionId,
         process_revision_id: row.processRevisionId,
         policy_revision_id: row.policyRevisionId,
+        rate_revision_id: row.rateRevisionId,
         effective_gate_map: json(row.effectiveGateMap),
         hash: row.hash,
         pinned_at: row.pinnedAt,
@@ -865,6 +868,11 @@ function makeRepo(x: Executor): Repo {
         manifestId: row.manifest_id,
         promptBytes: row.prompt_bytes,
       });
+      await x.insert(dispatchActivity).values({
+        dispatchId: row.dispatch_id,
+        activity: row.activity,
+        at: row.created_at,
+      });
     },
 
     async getDispatch(dispatchId) {
@@ -885,21 +893,34 @@ function makeRepo(x: Executor): Repo {
     },
 
     async settleDispatch(dispatchId, change) {
-      const rows = await x
-        .update(dispatch)
-        .set({
-          activity: change.activity,
-          settlement: change.settlement,
-          settledAt: change.settled_at,
-        })
-        .where(
-          and(
-            eq(dispatch.dispatchId, dispatchId),
-            eq(dispatch.settlement, "open"),
-          ),
+      const rows = await x.execute<{ id: string }>(sql`
+        with moved as (
+          update ledger.dispatch
+          set activity = ${change.activity}, settlement = ${change.settlement},
+            settled_at = ${change.settled_at?.toISOString() ?? null}::timestamptz
+          where dispatch_id = ${dispatchId} and settlement = 'open'
+          returning dispatch_id
         )
-        .returning({ id: dispatch.dispatchId });
+        insert into ledger.dispatch_activity (dispatch_id, activity, at)
+        select dispatch_id, ${change.activity}, ${change.at.toISOString()}::timestamptz
+        from moved
+        returning dispatch_id as id`);
       return rows.length > 0;
+    },
+
+    async listDispatchActivity(dispatchId) {
+      const rows = await x
+        .select({
+          activity: dispatchActivity.activity,
+          at: dispatchActivity.at,
+        })
+        .from(dispatchActivity)
+        .where(eq(dispatchActivity.dispatchId, dispatchId))
+        .orderBy(asc(dispatchActivity.at), asc(dispatchActivity.id));
+      return rows.map((row) => ({
+        activity: Activity.parse(row.activity),
+        at: row.at,
+      }));
     },
 
     async hostActivities(host) {
@@ -1353,17 +1374,16 @@ function makeRepo(x: Executor): Repo {
       return rows.map(toDecision);
     },
 
-    async setDispatchActivity(dispatchId, activity) {
-      const rows = await x
-        .update(dispatch)
-        .set({ activity })
-        .where(
-          and(
-            eq(dispatch.dispatchId, dispatchId),
-            eq(dispatch.settlement, "open"),
-          ),
+    async setDispatchActivity(dispatchId, activity, at) {
+      const rows = await x.execute<{ id: string }>(sql`
+        with moved as (
+          update ledger.dispatch set activity = ${activity}
+          where dispatch_id = ${dispatchId} and settlement = 'open'
+          returning dispatch_id
         )
-        .returning({ id: dispatch.dispatchId });
+        insert into ledger.dispatch_activity (dispatch_id, activity, at)
+        select dispatch_id, ${activity}, ${at.toISOString()}::timestamptz from moved
+        returning dispatch_id as id`);
       return rows.length > 0;
     },
 

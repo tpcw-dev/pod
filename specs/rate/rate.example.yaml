@@ -1,0 +1,15 @@
+kind: rate
+name: default
+schema_version: 1
+scope: global
+scope_ref: ""
+value:
+  currency: XXX
+  prices:
+    - runtime: example
+      model: example
+      input: 1
+      cached_input: 0.1
+      cache_write: 1.25
+      output: 5
+      per: 1000000

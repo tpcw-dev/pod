@@ -54,6 +54,7 @@ describeDb("a pinned Snapshot", () => {
       crew_revision_id: crew.id,
       process_revision_id: processId,
       policy_revision_id: policy.id,
+      rate_revision_id: null,
       effective_gate_map: gateMap,
       hash,
       pinned_at: new Date(),
