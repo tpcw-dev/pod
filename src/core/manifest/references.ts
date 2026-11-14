@@ -91,7 +91,11 @@ export function taskReference(task: Task): ManifestReference {
 }
 
 export function revisionReference(revision: Revision): ManifestReference {
-  if (revision.kind === "task" || revision.kind === "host")
+  if (
+    revision.kind === "task" ||
+    revision.kind === "host" ||
+    revision.kind === "project"
+  )
     throw new TypeError(
       `a ${revision.kind} Revision is not an S4 revision reference`,
     );
