@@ -304,10 +304,14 @@ describeDb("pod plan events", () => {
   });
 
   test("a host with no active Revision, or one with no timezone, is config_missing", async () => {
-    expect(runCli(["plan"])).toMatchObject({
+    const missing = runCli(["plan"]);
+    expect(missing).toMatchObject({
       status: 3,
       json: { ok: false, error: { code: "config_missing" } },
     });
+    expect(missing.json.error?.nextSteps[0]).toBe(
+      "pod config apply specs/host/local.yaml --ticket K",
+    );
     const bare = Object.fromEntries(
       Object.entries(hostValue(2) as Record<string, Json>).filter(
         ([key]) => key !== "timezone",
