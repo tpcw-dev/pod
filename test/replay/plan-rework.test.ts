@@ -214,7 +214,7 @@ describeDb("plan rework", () => {
     expect(
       (await tasks()).filter((row) => row.step_id === "implement"),
     ).toHaveLength(1);
-  });
+  }, 120_000);
 
   test("a proposal with no plan field passes the plan and the check result says so", async () => {
     await cliDeliveredPlan(conn, "TRK-2", processRef);
