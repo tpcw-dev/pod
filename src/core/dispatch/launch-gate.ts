@@ -1,4 +1,5 @@
 import type { Refusal } from "../domain/outcome.ts";
+import { capacityMissing } from "../config/host.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
 import type { Repo } from "../ports/db.ts";
 import { freeSlots, onHost, type OpenLaunch } from "./quota.ts";
@@ -22,9 +23,19 @@ export async function drainRefusal(
 export async function slotRefusal(
   tx: Repo,
   host: string,
-  capacity: number,
+  capacity: number | null,
   launches: readonly OpenLaunch[],
 ): Promise<Refusal | null> {
+  if (capacity === null) {
+    const missing = capacityMissing(host);
+    return {
+      ...missing,
+      nextSteps: [
+        ...missing.nextSteps,
+        "this refusal is recorded under its op key; pass a new --op-key once the host Revision is active",
+      ],
+    };
+  }
   const reservations = onHost(launches, host);
   const slots = freeSlots(
     capacity,

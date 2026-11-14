@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { singleActive } from "../core/config/active.ts";
+import { hostSlots } from "../core/config/host.ts";
 import { revisionId } from "../core/config/canonical-json.ts";
 import { decisionLimits } from "../core/config/limits.ts";
 import { fence, StaleGeneration } from "../core/check/fence.ts";
@@ -118,7 +119,7 @@ export async function decideVerb(input: DecideInput): Promise<DecideOutput> {
         opKey: input["op-key"] ?? null,
         supersedes: input.supersedes ?? null,
         host: host.hostId,
-        capacity: host.capacity,
+        capacity: await hostSlots(db, host.hostId),
         templates: await singleActive(db, "decision", "global", ""),
         limits: decisionLimits,
         now: () => new Date(),

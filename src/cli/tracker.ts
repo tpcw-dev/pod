@@ -72,8 +72,8 @@ async function workspaceKey(
 export async function trackerFor(
   sink: TrackerReceiptSink,
   host: HostSettings,
+  scale: string,
 ): Promise<TrackerWiring | null> {
-  const scale = host.estimateScale;
   const fixtures = env("POD_TRACKER_FIXTURES");
   if (fixtures !== null)
     return {

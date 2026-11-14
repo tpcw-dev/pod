@@ -10,10 +10,10 @@ import {
   cliXlRun,
   decider,
   generation,
-  oneSlotHome,
   seatOpens,
 } from "../db/decision-fixture.ts";
-import { describeDb, openDb, resetDb } from "../db/helpers.ts";
+import { describeDb, openDb, operatorHome, resetDb } from "../db/helpers.ts";
+import { seedHost } from "../db/seed.ts";
 import { workers } from "../db/run-fixture.ts";
 
 const dir = "test/replay/xl-takeover";
@@ -21,7 +21,7 @@ const newDecider = "ctx_new_decider";
 
 describeDb("xl-takeover", () => {
   let conn: Connection;
-  const home = oneSlotHome("keeper");
+  const home = operatorHome("keeper");
   const env = { POD_HOME: home };
 
   beforeAll(async () => {
@@ -36,6 +36,7 @@ describeDb("xl-takeover", () => {
       ],
       env,
     );
+    await seedHost(conn.db, 1);
   });
   afterAll(() => conn.close());
 

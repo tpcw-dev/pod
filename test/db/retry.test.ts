@@ -31,7 +31,7 @@ import {
   workers,
   worktreeId,
 } from "./run-fixture.ts";
-import { processValue } from "./seed.ts";
+import { processValue, seedHost } from "./seed.ts";
 
 const gitStatus = "## main...origin/main\n M src/a.ts";
 const retryArgv = [
@@ -61,6 +61,7 @@ describeDb("pod retry", () => {
   });
   beforeEach(async () => {
     await freshRun(conn);
+    await seedHost(conn.db);
     firstKey = await dispatched(conn, "ctx_1");
     await conn.sql`
       update ledger.dispatch set activity = 'settled', settlement = 'stopped', settled_at = now()
@@ -302,6 +303,7 @@ describeDb("pod retry", () => {
       source: { kind: "command", verb: "drain" },
     });
     await refused("quota_exhausted", { capacity: 0, opKey: "k-quota" });
+    await refused("config_missing", { capacity: null, opKey: "k-host" });
     await conn.db.insertOperation({
       op_key: "in-flight",
       intent: "dispatch",
@@ -315,7 +317,7 @@ describeDb("pod retry", () => {
     const rows = await conn.sql<{ op_key: string; status: string }[]>`
       select op_key, status from ledger.operation where intent = 'retry' order by op_key`;
     expect(rows.every((row) => row.status === "refused")).toBe(true);
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(7);
     await refused("duplicate_op", { opKey: firstKey });
   });
 

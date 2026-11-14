@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
-import { receiptLog, type ReceiptLog } from "../core/ledger/receipts.ts";
+import { serviceKinds } from "../core/config/service-kinds.ts";
+import { receiptLog } from "../core/ledger/receipts.ts";
 import { docsSectionNotFound, type Section } from "../core/ports/docs.ts";
 import { docsFor } from "./docs.ts";
 import { PodError, throwRecordRefusal } from "./errors.ts";
@@ -49,24 +50,21 @@ export function renderSection(section: Section): string {
 
 export async function docsRead(input: DocsReadInput): Promise<Section> {
   const host = readHostProfile();
-  let log: ReceiptLog | null = null;
-  const wiring = await docsFor((record) => {
-    if (log === null) throw new Error("docs receipt before the ledger opened");
-    return log.docsSink(record);
-  }, host);
-  if (wiring === null)
-    throw new PodError(
-      "docs_port_missing",
-      3,
-      "this host has no docs token and no docs fixtures",
-      [
-        credentialStep(host, host.docsTokenEnv, "docs token"),
-        "or set POD_DOCS_FIXTURES to a fixture directory",
-      ],
-    );
   const connection = connect(databaseUrl(host));
   try {
-    log = receiptLog(connection.db, host.hostId);
+    const log = receiptLog(connection.db, host.hostId);
+    const { docsKind } = await serviceKinds(connection.db);
+    const wiring = await docsFor(log.docsSink, host, docsKind);
+    if (wiring === null)
+      throw new PodError(
+        "docs_port_missing",
+        3,
+        "this host has no docs token and no docs fixtures",
+        [
+          credentialStep(host, host.docsTokenEnv, "docs token"),
+          "or set POD_DOCS_FIXTURES to a fixture directory",
+        ],
+      );
     const read = await wiring.port.readSection({
       page: input.page,
       heading: input.heading,

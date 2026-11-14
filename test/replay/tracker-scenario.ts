@@ -55,19 +55,19 @@ export async function scenario(
 ): Promise<Scenario> {
   const log = receiptLog(conn.db, "rec");
   const wired = recording
-    ? await trackerFor(log.trackerSink, {
-        hostId: "rec",
-        urlEnv: "POD_DB_URL",
-        credentialsFile: "/nonexistent/credentials",
-        mirrorDir: "/nonexistent/mirror",
-        capacity: 2,
-        trackerKind: "linear",
-        trackerTokenEnv: "POD_TRACKER_TOKEN",
-        estimateScale: "fibonacci",
-        docsKind: "notion",
-        docsTokenEnv: "POD_DOCS_TOKEN",
-        operator: null,
-      })
+    ? await trackerFor(
+        log.trackerSink,
+        {
+          hostId: "rec",
+          urlEnv: "POD_DB_URL",
+          credentialsFile: "/nonexistent/credentials",
+          mirrorDir: "/nonexistent/mirror",
+          trackerTokenEnv: "POD_TRACKER_TOKEN",
+          docsTokenEnv: "POD_DOCS_TOKEN",
+          operator: null,
+        },
+        "fibonacci",
+      )
     : null;
   const tracker =
     wired?.port ??

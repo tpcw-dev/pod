@@ -20,6 +20,7 @@ import {
   sent,
 } from "../db/decision-fixture.ts";
 import { describeDb, openDb, resetDb, runCli } from "../db/helpers.ts";
+import { seedHost } from "../db/seed.ts";
 
 const Truth = z.enum(["accept", "reject"]);
 const Classification = z.enum(["hit", "miss", "false_refusal"]);
@@ -81,6 +82,7 @@ describeDb("mixed auditor set", () => {
       "test/replay/decision-states/process.yaml",
       "specs/decision/default.yaml",
     ]);
+    await seedHost(conn.db);
   });
   afterAll(() => conn.close());
 

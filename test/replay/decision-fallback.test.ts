@@ -76,11 +76,7 @@ describeDb("decision-fallback", () => {
         urlEnv: "POD_DB_URL",
         credentialsFile: "/nonexistent/credentials",
         mirrorDir: "/nonexistent/mirror",
-        capacity: 2,
-        trackerKind: "linear",
         trackerTokenEnv: "POD_TRACKER_TOKEN",
-        estimateScale: "fibonacci",
-        docsKind: "notion",
         docsTokenEnv: "POD_DOCS_TOKEN",
         operator: null,
       };
@@ -92,7 +88,7 @@ describeDb("decision-fallback", () => {
       if (chosen === null) throw new Error("no Orca port");
       const orca: OrcaPort = chosen;
       const trackerWired = recording
-        ? await trackerFor(log.trackerSink, recHost)
+        ? await trackerFor(log.trackerSink, recHost, "fibonacci")
         : null;
       const trackerReplay = recording
         ? null

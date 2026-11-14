@@ -656,7 +656,7 @@ describeDb("pod config apply of a process", () => {
     );
   }
 
-  test("a roadmap whose provider is not the host docs kind is config_invalid at roadmap.provider", async () => {
+  test("a roadmap whose provider is not the docs kind is config_invalid at roadmap.provider", async () => {
     const before = await db.sql`select count(*)::int as n from config.revision`;
     const result = runCli([
       "config",
@@ -689,7 +689,7 @@ describeDb("pod config apply of a process", () => {
     expect(scalar.json.error?.message).toMatch(/^roadmap /);
   });
 
-  test("a roadmap on the host docs kind with a page applies", () => {
+  test("a roadmap on the docs kind with a page applies", () => {
     const result = runCli([
       "config",
       "apply",

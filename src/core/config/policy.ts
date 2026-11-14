@@ -389,6 +389,31 @@ export function storyStatusOf(value: unknown): StoryStatus | null {
   return StoryStatus.safeParse(fields(value)["story_status"]).data ?? null;
 }
 
+const Kind = z.string().min(1).optional();
+const Services = z.object({
+  tracker: z.strictObject({ kind: Kind, estimate_scale: Kind }).optional(),
+  docs: z.strictObject({ kind: Kind }).optional(),
+});
+export type Services = z.infer<typeof Services>;
+
+function servicesProblem(value: unknown): Problem {
+  const parsed = Services.safeParse(value);
+  if (parsed.success) return null;
+  const issue = parsed.error.issues[0];
+  const path = [
+    ...(issue?.path ?? []),
+    ...(issue?.code === "unrecognized_keys" ? issue.keys : []),
+  ].join(".");
+  return {
+    path,
+    message: `${path}: tracker is { kind, estimate_scale } and docs is { kind }, each a non-empty name`,
+  };
+}
+
+export function servicesOf(value: unknown): Services {
+  return Services.safeParse(value).data ?? {};
+}
+
 export function validatePolicy(
   value: unknown,
   crewValue: unknown | null,
@@ -402,6 +427,7 @@ export function validatePolicy(
     escalateProblem(value) ??
     limitsProblem(policy["limits"]) ??
     storyStatusProblem(value) ??
+    servicesProblem(value) ??
     learningProblem(value) ??
     authorizationsProblem(value);
   return problem === null

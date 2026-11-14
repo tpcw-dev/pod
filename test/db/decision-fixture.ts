@@ -13,8 +13,7 @@ import type { NewRevision, Revision } from "../../src/core/domain/config.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import { runCreate } from "../../src/core/run/create.ts";
 import { fixtures, ok, type TempEntry } from "../orca/temp-fixtures.ts";
-import { clearDb, operatorHome, runCli, type CliResult } from "./helpers.ts";
-import { operator } from "./identity-fixture.ts";
+import { clearDb, runCli, type CliResult } from "./helpers.ts";
 import {
   batch,
   dispatched,
@@ -24,7 +23,7 @@ import {
   started,
   workers,
 } from "./run-fixture.ts";
-import { activeRevision } from "./seed.ts";
+import { activeRevision, seedHost } from "./seed.ts";
 
 export const planTask = "task_plan";
 export const implementTask = "task_impl";
@@ -98,6 +97,7 @@ export async function seedDecision(
   await activeRevision(conn.db, "policy", "default", policy);
   await activeRevision(conn.db, "crew", "default", crew);
   await activeRevision(conn.db, "process", "plan", planProcess);
+  await seedHost(conn.db);
   return activeRevision(conn.db, "decision", "default", defaultTemplates());
 }
 
@@ -516,10 +516,6 @@ export function delivery(
     ...after,
     ok("worker-list", workers([]), run),
   ];
-}
-
-export function oneSlotHome(principal = operator): string {
-  return operatorHome(principal, "capacity: 1\n");
 }
 
 export const seatOpens = (

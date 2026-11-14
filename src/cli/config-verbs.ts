@@ -21,6 +21,8 @@ import {
   mirrorYaml,
   scopeText,
 } from "../core/config/mirror.ts";
+import { servicesOf } from "../core/config/policy.ts";
+import { serviceKinds } from "../core/config/service-kinds.ts";
 import { deriveSet } from "../core/config/set.ts";
 import { roadmapRefusal } from "../core/docs/roadmap.ts";
 import {
@@ -29,13 +31,10 @@ import {
   Scope,
   type Revision,
 } from "../core/domain/config.ts";
+import type { Repo } from "../core/ports/db.ts";
 import { parseTarget, setEdit, unsetEdit } from "./config-set.ts";
 import { exitFor, PodError, schemaError, usageError } from "./errors.ts";
-import {
-  databaseUrl,
-  readHostProfile,
-  type HostSettings,
-} from "./host-profile.ts";
+import { databaseUrl, readHostProfile } from "./host-profile.ts";
 import { actorOf, writerOf, type Identity } from "./identity.ts";
 import { issuesOf, parseYaml, readText } from "./yaml-file.ts";
 
@@ -193,11 +192,15 @@ function activationRequest(
   return expected === undefined ? { host } : { host, expected };
 }
 
-function refuseRoadmap(envelope: RevisionEnvelope, host: HostSettings): void {
-  const refusal =
-    envelope.kind === "policy"
-      ? roadmapRefusal(envelope.value, host.docsKind)
-      : null;
+async function refuseRoadmap(
+  envelope: RevisionEnvelope,
+  repo: Repo,
+): Promise<void> {
+  if (envelope.kind !== "policy") return;
+  const docsKind =
+    servicesOf(envelope.value).docs?.kind ??
+    (await serviceKinds(repo)).docsKind;
+  const refusal = roadmapRefusal(envelope.value, docsKind);
   if (refusal !== null)
     throw new PodError(
       refusal.code,
@@ -214,9 +217,9 @@ export async function configApply(
   const envelope = readEnvelope(file);
   const flags = activationFlags(input, envelope);
   const host = readHostProfile();
-  refuseRoadmap(envelope, host);
   const connection = connect(databaseUrl(host));
   try {
+    await refuseRoadmap(envelope, connection.db);
     const identity = await writerOf(
       connection.db,
       host,
@@ -326,7 +329,7 @@ export async function configSet(
         `the edited ${target} fails the Revision envelope schema`,
         issuesOf(envelope.error),
       );
-    refuseRoadmap(envelope.data, host);
+    await refuseRoadmap(envelope.data, connection.db);
     const outcome = await applyConfig(connection.db, {
       envelope: envelope.data,
       actor: actorOf(identity),

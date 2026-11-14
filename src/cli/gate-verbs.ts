@@ -98,14 +98,14 @@ export async function hqaRecordVerb(
   const externalId = story.slice("story:".length);
   const generation = Number(input.generation);
   const { result, orca } = await withOrca(
-    async ({ db, orca: port, tracker, log, host }) => {
+    async ({ db, orca: port, tracker, log, host, kinds }) => {
       if (tracker === null)
         throw usageError(`pod hqa record needs ${host.trackerTokenEnv}`, [
           credentialStep(host, host.trackerTokenEnv, "tracker token"),
         ]);
       try {
         return await recordHqa(db, port, tracker, log, {
-          story: { provider: host.trackerKind, external_id: externalId },
+          story: { provider: kinds.trackerKind, external_id: externalId },
           generation,
           host: host.hostId,
           hostName: hostname(),

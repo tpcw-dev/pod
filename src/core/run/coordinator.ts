@@ -13,7 +13,7 @@ import type { OrcaPort } from "../ports/orca.ts";
 
 export interface Seats {
   templates: Revision | null;
-  capacity: number;
+  capacity: number | null;
 }
 
 export interface PairInput extends Seats {
@@ -28,7 +28,7 @@ export function pairInput(
 ): PairInput {
   return {
     templates: seats?.templates ?? null,
-    capacity: seats?.capacity ?? 1,
+    capacity: seats === undefined ? 1 : seats.capacity,
     host,
     now,
   };

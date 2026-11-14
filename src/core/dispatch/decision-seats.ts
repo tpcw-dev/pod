@@ -139,7 +139,7 @@ export interface SeatInput {
   manifestId: string | null;
   generation: number;
   host: string;
-  capacity: number;
+  capacity: number | null;
   now: () => Date;
   relaunch?: number;
   handoff?: string | null;

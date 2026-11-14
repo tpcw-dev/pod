@@ -68,7 +68,7 @@ export interface DecideInput {
   opKey: string | null;
   supersedes?: string | null;
   host: string;
-  capacity: number;
+  capacity: number | null;
   templates: Revision | null;
   limits: (policyValue: unknown) => Limits;
   now: () => Date;

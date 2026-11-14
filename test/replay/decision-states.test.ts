@@ -30,6 +30,7 @@ import {
   taskSpec,
 } from "../db/decision-fixture.ts";
 import { describeDb, openDb, resetDb } from "../db/helpers.ts";
+import { seedHost } from "../db/seed.ts";
 import { empty, workers } from "../db/run-fixture.ts";
 
 const dir = "test/replay/decision-states";
@@ -195,6 +196,7 @@ describeDb("decision states", () => {
       `${dir}/process.yaml`,
       "specs/decision/default.yaml",
     ]);
+    await seedHost(conn.db);
   });
   afterAll(() => conn.close());
 

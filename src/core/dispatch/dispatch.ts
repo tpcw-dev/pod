@@ -38,7 +38,7 @@ export interface DispatchInput {
   generation: number;
   opKey: string | null;
   host: string;
-  capacity: number;
+  capacity: number | null;
   command: (opKey: string) => string;
   gitStatus?: string;
   now: () => Date;

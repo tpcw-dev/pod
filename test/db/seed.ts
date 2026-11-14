@@ -79,3 +79,39 @@ export async function seedConfig(
   const process = await activeRevision(db, "process", "impl", processValue);
   return { process, crew, policy };
 }
+
+export function hostValue(slots: number): Json {
+  return {
+    driver: "driver-a",
+    hostnames: ["host-a"],
+    manager: false,
+    slots: { default: slots, max: Math.max(slots, 1) },
+    reserved: {},
+    projects: [],
+  };
+}
+
+export async function seedHost(
+  db: Db,
+  slots = 2,
+  hostId = "local",
+): Promise<Revision> {
+  const revision = await storeRevision(db, {
+    ...envelope("host", hostId, hostValue(slots)),
+    scope: "host",
+    scope_ref: hostId,
+  });
+  const result = await db.activate({
+    scope: "host",
+    scope_ref: hostId,
+    kind: "host",
+    name: hostId,
+    expected: null,
+    revision_id: revision.id,
+    bundle_id: null,
+    activated_by: "operator",
+    activated_at: at,
+  });
+  if (!result.ok) throw new Error(`host.${hostId} is already active`);
+  return revision;
+}

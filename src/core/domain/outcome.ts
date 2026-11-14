@@ -39,6 +39,7 @@ export const RefusalCode = z.enum([
   "learning_match_ambiguous",
   "retro_not_due",
   "ruling_exists",
+  "config_missing",
   "usage",
   "failed",
 ]);

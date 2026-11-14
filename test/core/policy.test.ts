@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { parse } from "yaml";
-import { storyStatusOf, validatePolicy } from "../../src/core/config/policy.ts";
+import {
+  servicesOf,
+  storyStatusOf,
+  validatePolicy,
+} from "../../src/core/config/policy.ts";
 import {
   authorizationOf,
   budgetOf,
@@ -240,6 +244,32 @@ test.each([
   expect(validatePolicy({ ...defaultValue, story_status }, null)).toMatchObject(
     { code: "schema_invalid", nextSteps: [path] },
   );
+});
+
+test("the default policy names the tracker and docs kinds", () => {
+  expect(validatePolicy(defaultValue, null)).toBeNull();
+  expect(servicesOf(defaultValue)).toEqual({
+    tracker: { kind: "linear", estimate_scale: "fibonacci" },
+    docs: { kind: "notion" },
+  });
+  expect(
+    validatePolicy({ ...defaultValue, tracker: {}, docs: {} }, null),
+  ).toBeNull();
+});
+
+test.each([
+  [{ tracker: { kind: "linear", project: "x" } }, "tracker.project"],
+  [{ tracker: { estimate_scale: 5 } }, "tracker.estimate_scale"],
+  [{ tracker: { kind: "" } }, "tracker.kind"],
+  [{ tracker: "linear" }, "tracker"],
+  [{ docs: { kind: "notion", page: "x" } }, "docs.page"],
+  [{ docs: { kind: "" } }, "docs.kind"],
+  [{ docs: ["notion"] }, "docs"],
+])("%j refuses schema_invalid at %s", (services, path) => {
+  expect(validatePolicy({ ...defaultValue, ...services }, null)).toMatchObject({
+    code: "schema_invalid",
+    nextSteps: [path],
+  });
 });
 
 test("agent_activates is empty on each default profile", () => {

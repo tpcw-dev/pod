@@ -32,11 +32,7 @@ function home(profile: string | null): void {
 const defaults = () => ({
   credentialsFile: join(process.env["POD_HOME"] ?? "", "credentials"),
   mirrorDir: join(process.env["POD_HOME"] ?? "", "mirror"),
-  capacity: 2,
-  trackerKind: "linear",
   trackerTokenEnv: "POD_TRACKER_TOKEN",
-  estimateScale: "fibonacci",
-  docsKind: "notion",
   docsTokenEnv: "POD_DOCS_TOKEN",
   operator: null,
 });
@@ -90,32 +86,44 @@ test("an empty db.url_env is schema_invalid", () => {
   });
 });
 
-test("capacity and tracker.kind are read when set", () => {
-  home("capacity: 1\ntracker:\n  kind: other\n");
-  expect(readHostProfile()).toEqual({
-    hostId: "local",
-    urlEnv: "POD_DB_URL",
-    credentialsFile: join(process.env["POD_HOME"] ?? "", "credentials"),
-    mirrorDir: join(process.env["POD_HOME"] ?? "", "mirror"),
-    capacity: 1,
-    trackerKind: "other",
-    trackerTokenEnv: "POD_TRACKER_TOKEN",
-    estimateScale: "fibonacci",
-    docsKind: "notion",
-    docsTokenEnv: "POD_DOCS_TOKEN",
-    operator: null,
-  });
+function refusedAsMoved(profile: string, nextSteps: string[]): void {
+  home(profile);
+  let caught: unknown;
+  try {
+    readHostProfile();
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(PodError);
+  expect(caught).toMatchObject({ code: "schema_invalid", exit: 2, nextSteps });
+}
+
+test("capacity in host.yaml is refused as moved to the host Revision", () => {
+  refusedAsMoved("host_id: h\ncapacity: 1\n", [
+    "capacity: moved to slots.default of the active host Revision host.h",
+  ]);
 });
 
-test("tracker.token_env and tracker.estimate_scale are read when set", () => {
-  home("tracker:\n  token_env: T\n  estimate_scale: tshirt\n");
+test("tracker.kind in host.yaml is refused as moved to the global policy", () => {
+  refusedAsMoved("tracker:\n  kind: other\n", [
+    "tracker.kind: moved to tracker.kind of the active global policy Revision",
+  ]);
+});
+
+test("tracker.token_env is read when set", () => {
+  home("tracker:\n  token_env: T\n");
   expect(readHostProfile()).toEqual({
     ...defaults(),
     hostId: "local",
     urlEnv: "POD_DB_URL",
     trackerTokenEnv: "T",
-    estimateScale: "tshirt",
   });
+});
+
+test("tracker.estimate_scale in host.yaml is refused as moved to the global policy", () => {
+  refusedAsMoved("tracker:\n  estimate_scale: tshirt\n", [
+    "tracker.estimate_scale: moved to tracker.estimate_scale of the active global policy Revision",
+  ]);
 });
 
 test("a docs block without fields keeps the docs defaults", () => {
@@ -127,20 +135,33 @@ test("a docs block without fields keeps the docs defaults", () => {
   });
 });
 
-test("docs.kind and docs.token_env are read when set", () => {
-  home("docs:\n  kind: other\n  token_env: D\n");
+test("docs.token_env is read when set", () => {
+  home("docs:\n  token_env: D\n");
   expect(readHostProfile()).toEqual({
     ...defaults(),
     hostId: "local",
     urlEnv: "POD_DB_URL",
-    docsKind: "other",
     docsTokenEnv: "D",
   });
 });
 
-test("a capacity below 1 is schema_invalid", () => {
-  home("capacity: 0\n");
-  expect(() => readHostProfile()).toThrow(PodError);
+test("docs.kind in host.yaml is refused as moved to the global policy", () => {
+  refusedAsMoved("docs:\n  kind: other\n", [
+    "docs.kind: moved to docs.kind of the active global policy Revision",
+  ]);
+});
+
+test("a capacity in host.yaml is refused as moved whatever its value", () => {
+  refusedAsMoved("capacity: 0\n", [
+    "capacity: moved to slots.default of the active host Revision host.local",
+  ]);
+});
+
+test("a profile carrying two moved fields names both", () => {
+  refusedAsMoved("capacity: 2\ndocs:\n  kind: notion\n", [
+    "capacity: moved to slots.default of the active host Revision host.local",
+    "docs.kind: moved to docs.kind of the active global policy Revision",
+  ]);
 });
 
 test("operator: names the principal who runs this shell", () => {

@@ -3,6 +3,8 @@ name: default
 schema_version: 1
 scope: global
 value:
+  tracker: { kind: linear, estimate_scale: fibonacci }
+  docs: { kind: notion }
   gates:
     review: { keeper: reviewer-seat, type: AQA }
     merge: { keeper: lead, type: AQA }

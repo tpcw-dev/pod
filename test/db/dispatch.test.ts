@@ -20,7 +20,7 @@ import {
 } from "../orca/temp-fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { residentSeat } from "./resident-fixture.ts";
-import { seedConfig } from "./seed.ts";
+import { seedConfig, seedHost } from "./seed.ts";
 
 const requestId = "44444444-4444-4444-8444-444444444444";
 
@@ -544,7 +544,8 @@ describeDb("pod dispatch", () => {
     expect(await resultRef("h-6")).not.toHaveProperty("coordinator_waiting");
   });
 
-  test("the CLI prints the Dispatch with the owner generation in meta", () => {
+  test("the CLI prints the Dispatch with the owner generation in meta", async () => {
+    await seedHost(conn.db);
     const result = runCli(
       ["dispatch", "--task", "task_b", "--seat", "dev-1", "--generation", "1"],
       {

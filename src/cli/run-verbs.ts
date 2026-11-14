@@ -5,6 +5,11 @@ import { connect } from "../adapters/postgres/connection.ts";
 import { checkPass, checkWait, resume } from "../core/check/check.ts";
 import { launchLeaseSeconds } from "../core/check/reconcile.ts";
 import { singleActive } from "../core/config/active.ts";
+import { hostSlots } from "../core/config/host.ts";
+import {
+  serviceKinds,
+  type ServiceKinds,
+} from "../core/config/service-kinds.ts";
 import { dispatch } from "../core/dispatch/dispatch.ts";
 import { release } from "../core/dispatch/release.ts";
 import {
@@ -57,6 +62,7 @@ interface Wiring {
   docs: DocsPort | null;
   log: ReceiptLog;
   host: HostSettings;
+  kinds: ServiceKinds;
 }
 
 export async function withOrca<R extends { ok: true }>(
@@ -66,9 +72,14 @@ export async function withOrca<R extends { ok: true }>(
   const connection = connect(databaseUrl(host));
   try {
     const log = receiptLog(connection.db, host.hostId);
+    const kinds = await serviceKinds(connection.db);
     const orca = orcaFor(log.sink, host);
-    const tracker = await trackerFor(log.trackerSink, host);
-    const docs = await docsFor(log.docsSink, host);
+    const tracker = await trackerFor(
+      log.trackerSink,
+      host,
+      kinds.estimateScale,
+    );
+    const docs = await docsFor(log.docsSink, host, kinds.docsKind);
     const outcome = await work({
       db: connection.db,
       orca: orca.port,
@@ -76,6 +87,7 @@ export async function withOrca<R extends { ok: true }>(
       docs: docs?.port ?? null,
       log,
       host,
+      kinds,
     });
     throwRecordRefusal([
       ...orca.recordRefusals(),
@@ -177,7 +189,7 @@ export async function runCreateVerb(
     .map(quote)
     .join(" ");
   const { result, opKey, orca } = await withOrca(
-    async ({ db, orca: port, tracker, log, host }) =>
+    async ({ db, orca: port, tracker, log, host, kinds }) =>
       runCreate(db, port, tracker, log, {
         story: story.slice("story:".length),
         process: ref,
@@ -186,11 +198,11 @@ export async function runCreateVerb(
         project: input.project ?? null,
         coordinator,
         host: host.hostId,
-        provider: host.trackerKind,
+        provider: kinds.trackerKind,
         command,
         seats: {
           templates: await singleActive(db, "decision", "global", ""),
-          capacity: host.capacity,
+          capacity: await hostSlots(db, host.hostId),
         },
         now: () => new Date(),
       }),
@@ -261,7 +273,7 @@ export async function dispatchVerb(
         generation: Number(input.generation),
         opKey: input["op-key"] ?? null,
         host: host.hostId,
-        capacity: host.capacity,
+        capacity: await hostSlots(db, host.hostId),
         command,
         ...(worktree === null ? {} : { gitStatus: gitStatus(worktree) }),
         now: () => new Date(),
@@ -303,10 +315,10 @@ export async function runCloseVerb(
   const [story, file] = input.args;
   const report = closeReport(file);
   const { result, opKey } = await withOrca(
-    async ({ db, orca, log, host, tracker }) =>
+    async ({ db, orca, log, host, tracker, kinds }) =>
       closeRun(db, orca, log, {
         story: story.slice("story:".length),
-        provider: host.trackerKind,
+        provider: kinds.trackerKind,
         generation: Number(input.generation),
         report,
         reportHash: sha256Hex(canonicalJson(report)),
@@ -424,13 +436,13 @@ export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
   const run = input.run ?? "";
   let warnings: string[] = [];
   const { result, orca } = await withOrca(
-    ({ db, orca: port, tracker, log, host }) => {
+    async ({ db, orca: port, tracker, log, host }) => {
       warnings = readCredentials(host).warnings();
       const pass = {
         run,
         generation,
         host: host.hostId,
-        capacity: host.capacity,
+        capacity: await hostSlots(db, host.hostId),
         now,
         leaseSeconds: lease,
         hostName: hostname(),
@@ -503,7 +515,7 @@ export async function retryVerb(input: RetryInput): Promise<RetryOutput> {
         generation: Number(input.generation),
         opKey: input["op-key"] ?? null,
         host: host.hostId,
-        capacity: host.capacity,
+        capacity: await hostSlots(db, host.hostId),
         gitStatus: gitStatus(plan.worktreePath),
         command,
         now: () => new Date(),
