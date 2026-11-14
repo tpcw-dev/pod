@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TestResult } from "../domain/ledger.ts";
+import { tokenTotal } from "../usage/rollup.ts";
 
 const escapes: Readonly<Record<string, string>> = {
   "&": "&amp;",
@@ -138,6 +139,61 @@ const BriefDigest = z.object({
   ),
 });
 
+const Tokens = z.object({
+  input: z.number().nullable(),
+  cached_input: z.number().nullable(),
+  cache_write: z.number().nullable(),
+  output: z.number().nullable(),
+  reasoning: z.number().nullable(),
+});
+
+const UsageCost = z.object({
+  amount: z.number().nullable(),
+  currency: z.string().nullable(),
+  reason: z.string().nullable(),
+});
+
+const UsageTotals = z.object({
+  tokens: Tokens,
+  running_minutes: z.number().nullable(),
+  wall_minutes: z.number().nullable(),
+  cost: UsageCost,
+});
+
+const UsagePoints = z.object({
+  points_done: z.number(),
+  tokens_per_point: z.number().nullable(),
+  minutes_per_point: z.number().nullable(),
+});
+
+const BriefUsage = z.object({
+  usage: z.object({
+    day: z.string().nullable(),
+    time_zone: z.string(),
+    total: UsageTotals,
+    points: UsagePoints,
+    projects: z.array(
+      UsageTotals.extend({
+        project: z.string().nullable(),
+        points: UsagePoints,
+      }),
+    ),
+    unattributed: z.array(
+      z.object({ runtime: z.string(), tokens: Tokens, cost: UsageCost }),
+    ),
+    coverage: z.object({
+      tokens_source: z.object({
+        locator: z.number(),
+        path: z.number(),
+        unattributed: z.number(),
+      }),
+      null_values: z.array(z.unknown()),
+      no_record: z.array(z.string()),
+      unknown_minutes: z.array(z.string()),
+    }),
+  }),
+});
+
 function cell(value: string): string {
   return `<td>${escapeHtml(value)}</td>`;
 }
@@ -221,6 +277,79 @@ function measurementTables(parsed: unknown): string {
     }
   }
   return tables.join("\n");
+}
+
+function known(value: number | null): string {
+  return value === null ? "unknown" : String(Math.round(value * 10) / 10);
+}
+
+function costCell(cost: z.infer<typeof UsageCost>): string {
+  return cost.amount === null
+    ? `unknown (${cost.reason ?? "unpriced"})`
+    : `${cost.amount.toFixed(4)} ${cost.currency ?? ""}`.trim();
+}
+
+function usageRow(
+  name: string,
+  totals: z.infer<typeof UsageTotals>,
+  points: z.infer<typeof UsagePoints>,
+): string {
+  return row([
+    name,
+    known(tokenTotal(totals.tokens)),
+    known(totals.running_minutes),
+    known(totals.wall_minutes),
+    costCell(totals.cost),
+    String(points.points_done),
+    known(points.tokens_per_point),
+    known(points.minutes_per_point),
+  ]);
+}
+
+function usageTable(parsed: unknown): string {
+  const brief = BriefUsage.safeParse(parsed);
+  if (!brief.success) return "";
+  const { usage } = brief.data;
+  const { tokens_source: source } = usage.coverage;
+  const rows = [
+    row([
+      `usage ${usage.day ?? ""} (${usage.time_zone})`,
+      "tokens",
+      "running min",
+      "wall min",
+      "cost, list-price equivalent",
+      "points",
+      "tokens per point",
+      "minutes per point",
+    ]),
+    ...usage.projects.map((project) =>
+      usageRow(project.project ?? "no project", project, project.points),
+    ),
+    usageRow("overall", usage.total, usage.points),
+    ...usage.unattributed.map((line) =>
+      row([
+        `unattributed ${line.runtime}`,
+        known(tokenTotal(line.tokens)),
+        "",
+        "",
+        costCell(line.cost),
+        "",
+        "",
+        "",
+      ]),
+    ),
+    row([
+      "coverage",
+      `locator ${source.locator}, path ${source.path}, unattributed ${source.unattributed}`,
+      `null values ${usage.coverage.null_values.length}`,
+      `no record ${usage.coverage.no_record.length}`,
+      `unknown minutes ${usage.coverage.unknown_minutes.length}`,
+      "",
+      "",
+      "",
+    ]),
+  ];
+  return `<table id="usage">\n${rows.join("\n")}\n</table>`;
 }
 
 function testTables(parsed: unknown): string {
@@ -318,6 +447,7 @@ export function renderBriefHtml(resultJson: string): string {
     driftTable(parsed),
     testTables(parsed),
     measurementTables(parsed),
+    usageTable(parsed),
   ]
     .filter((table) => table !== "")
     .join("\n");

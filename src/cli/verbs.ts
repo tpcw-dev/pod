@@ -93,9 +93,13 @@ import {
 } from "./docs-verbs.ts";
 import { StateInput, StateOutput, stateVerb } from "./state-verbs.ts";
 import {
+  renderUsage,
+  UsageInput,
+  UsageOutput,
   UsageRecordInput,
   UsageRecordOutput,
   usageRecordVerb,
+  usageVerb,
 } from "./usage-verbs.ts";
 import { renderState } from "../core/state/render.ts";
 import {
@@ -474,6 +478,16 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
       "a Run due a retro, a FILE of findings each with at least one evidence reference, and the `tech` kind in the policy's `learning.kinds`",
     ],
     meta: retroMeta,
+  }),
+  row({
+    name: "usage",
+    input: UsageInput,
+    output: UsageOutput,
+    handler: usageVerb,
+    sideEffect: "none",
+    cancelBy: ["nobody"],
+    evidenceRequired: [],
+    render: renderUsage,
   }),
   row({
     name: "usage record",
