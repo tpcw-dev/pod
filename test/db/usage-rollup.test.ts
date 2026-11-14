@@ -1,3 +1,6 @@
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import type { Revision } from "../../src/core/domain/config.ts";
@@ -15,9 +18,18 @@ import {
   usageDay,
   type UsageDay,
 } from "../../src/core/usage/rollup.ts";
-import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import {
+  clearDb,
+  dbUrl,
+  describeDb,
+  openDb,
+  podHome,
+  resetDb,
+  runCli,
+} from "./helpers.ts";
 import { activeRevision, seedConfig } from "./seed.ts";
 
+const repo = fileURLToPath(new URL("../..", import.meta.url));
 const la = "America/Los_Angeles";
 const runtime = "example-runtime";
 const model = "example-model";
@@ -567,6 +579,21 @@ describeDb("usage rollup", () => {
         .status,
     ).toBe(2);
     expect(runCli(["usage", "--day", "2026-13-40", "--json"]).status).toBe(2);
+    const text = spawnSync(
+      join(repo, "node_modules/.bin/tsx"),
+      [join(repo, "src/cli/index.ts"), "usage", "--day", "2026-11-10"],
+      {
+        encoding: "utf8",
+        env: { ...process.env, POD_DB_URL: dbUrl(), POD_HOME: podHome },
+      },
+    );
+    expect(text.status).toBe(0);
+    expect(text.stdout).toContain(
+      "run run_b (alpha, 2 seats): tokens unknown (input unknown, cached unknown, cache write unknown, output unknown, reasoning unknown), running 90 min, wall 90 min, cost unknown (unmeasured) list-price equivalent",
+    );
+    expect(text.stdout).toContain(
+      "coverage: locator 3, path 1, unattributed 2; null values 1; no record d_b2; unknown minutes none",
+    );
     const daily = runCli(["usage", "--day", "2026-11-10", "--json"]);
     expect(daily.status).toBe(0);
     expect(daily.json.result).toMatchObject({
