@@ -119,8 +119,16 @@ export interface Repo {
   listDispatches(runId: string): Promise<Dispatch[]>;
   settleDispatch(
     dispatchId: string,
-    change: { activity: Activity; settlement: string; settled_at: Date | null },
+    change: {
+      activity: Activity;
+      settlement: string;
+      settled_at: Date | null;
+      at: Date;
+    },
   ): Promise<boolean>;
+  listDispatchActivity(
+    dispatchId: string,
+  ): Promise<{ activity: Activity; at: Date }[]>;
   hostActivities(host: string): Promise<Activity[]>;
   terminalSeat(host: string, handle: string): Promise<string | null>;
   unresolvedWorkers(host: string): Promise<string[]>;
@@ -144,7 +152,10 @@ export interface Repo {
   listShownProposals(scope: string, day: string): Promise<DigestProposal[]>;
   showDigestProposal(id: number, day: string): Promise<void>;
   ruleDigestProposal(id: number, verdict: Verdict, at: Date): Promise<boolean>;
-  failReceiptsSince(since: Date, project: string | null): Promise<GateReceipt[]>;
+  failReceiptsSince(
+    since: Date,
+    project: string | null,
+  ): Promise<GateReceipt[]>;
   insertManifest(
     row: EvidenceManifest,
   ): Promise<{ manifest: EvidenceManifest; created: boolean }>;
@@ -173,7 +184,11 @@ export interface Repo {
   listDecisionRounds(decisionId: string): Promise<DecisionRound[]>;
   openDecisionsForRun(runId: string): Promise<DecisionRow[]>;
   listRunDecisions(runId: string): Promise<DecisionRow[]>;
-  setDispatchActivity(dispatchId: string, activity: Activity): Promise<boolean>;
+  setDispatchActivity(
+    dispatchId: string,
+    activity: Activity,
+    at: Date,
+  ): Promise<boolean>;
   appendEvent(row: NewEvent): Promise<Event>;
   firstEvent(
     runId: string,

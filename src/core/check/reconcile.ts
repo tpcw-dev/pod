@@ -249,7 +249,7 @@ async function reconcileOne(
   const at = input.now();
   const closed = await db.transaction(async (tx) => {
     if (!(await claim(tx, input, operation, ref))) return null;
-    await returnSlot(tx, operation.result_ref);
+    await returnSlot(tx, operation.result_ref, at);
     await tx.moveOperation(
       operation.op_key,
       "done",

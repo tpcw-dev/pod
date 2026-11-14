@@ -102,7 +102,7 @@ export async function followDecisions(
       );
       continue;
     }
-    await db.setDispatchActivity(target.to, "running");
+    await db.setDispatchActivity(target.to, "running", context.now());
     await db.moveOperation(
       opKey,
       "done",

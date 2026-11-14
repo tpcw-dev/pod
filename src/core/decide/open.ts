@@ -259,7 +259,7 @@ export async function openDecision(
     });
     for (const row of await tx.listDispatches(run.run_id))
       if (row.task_id === current.task_id && row.activity === "running")
-        await tx.setDispatchActivity(row.dispatch_id, "waiting");
+        await tx.setDispatchActivity(row.dispatch_id, "waiting", now);
     return { kind: "send", decisionId };
   });
 

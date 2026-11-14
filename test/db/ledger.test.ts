@@ -226,6 +226,7 @@ describeDb("ledger repositories", () => {
       activity: "settled" as const,
       settlement: "done",
       settled_at: later(30),
+      at: later(30),
     };
     expect(await conn.db.settleDispatch("ctx-1", change)).toBe(true);
     expect(

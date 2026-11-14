@@ -332,7 +332,7 @@ async function launchSeat(
   const handoff: { coordinator_waiting?: string } = {};
   const refuseLaunch = (found: Refusal, raw: unknown, at: Date) =>
     db.transaction(async (tx) => {
-      await returnSlot(tx, handoff);
+      await returnSlot(tx, handoff, at);
       await tx.moveOperation(
         opKey,
         "refused",
@@ -369,7 +369,9 @@ async function launchSeat(
       return { kind: "done", dispatchId: done?.result?.dispatch_id ?? null };
     }
     const yielded =
-      input.handoff == null ? null : await yieldDispatch(tx, input.handoff);
+      input.handoff == null
+        ? null
+        : await yieldDispatch(tx, input.handoff, now);
     if (yielded !== null) handoff.coordinator_waiting = yielded;
     const found = await seatRefusal(tx, input);
     await tx.insertOperation({
@@ -386,7 +388,7 @@ async function launchSeat(
       }),
     });
     if (found === null) return { kind: "launch" };
-    await returnSlot(tx, handoff);
+    await returnSlot(tx, handoff, now);
     await tx.moveOperation(
       opKey,
       "refused",
@@ -551,8 +553,8 @@ export async function recordSeatStarted(
     at: input.at,
   });
   if (ref.request.role === "auditor" && ref.request.decision_id === null) {
-    await tx.setDispatchActivity(launched.dispatchId, "waiting");
-    await returnSlot(tx, Json.parse(ref));
+    await tx.setDispatchActivity(launched.dispatchId, "waiting", input.at);
+    await returnSlot(tx, Json.parse(ref), input.at);
   }
   return launched.dispatchId;
 }

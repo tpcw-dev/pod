@@ -117,6 +117,7 @@ describeDb("pod brief", () => {
       crew_revision_id: crewRow.id,
       process_revision_id: processRow.id,
       policy_revision_id: policyRow.id,
+      rate_revision_id: null,
       effective_gate_map: gateMap,
       hash,
       pinned_at: at,

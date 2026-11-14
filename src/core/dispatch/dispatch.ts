@@ -256,7 +256,7 @@ export async function dispatch(
     if (existing !== null) return { kind: "existing", operation: existing };
     const yielded =
       run.coordinator_dispatch_id !== null && run.host === input.host
-        ? await yieldDispatch(tx, run.coordinator_dispatch_id)
+        ? await yieldDispatch(tx, run.coordinator_dispatch_id, now)
         : null;
     const handoff = yielded === null ? {} : { coordinator_waiting: yielded };
     const found = await precondition(tx, input, {
@@ -266,7 +266,7 @@ export async function dispatch(
       postClose,
     });
     if ("refusal" in found) {
-      await returnSlot(tx, handoff);
+      await returnSlot(tx, handoff, now);
       return record(found.refusal);
     }
     const launch = seatLaunch(found.seat);

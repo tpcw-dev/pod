@@ -271,6 +271,25 @@ export const dispatch = ledger.table(
   ],
 );
 
+export const dispatchActivity = ledger.table(
+  "dispatch_activity",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dispatchId: text("dispatch_id")
+      .notNull()
+      .references(() => dispatch.dispatchId),
+    activity: text("activity").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index("dispatch_activity_dispatch_idx").on(t.dispatchId, t.at, t.id),
+    check(
+      "dispatch_activity_activity_check",
+      sql`${t.activity} in ('running', 'waiting', 'settled')`,
+    ),
+  ],
+);
+
 export const decision = ledger.table(
   "decision",
   {

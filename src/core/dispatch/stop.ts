@@ -41,6 +41,7 @@ export async function stopForSupersede(
         activity: "settled",
         settlement: "superseded",
         settled_at: at,
+        at,
       });
       if (!moved) return;
       await tx.appendEvent({

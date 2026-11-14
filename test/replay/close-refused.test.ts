@@ -95,6 +95,7 @@ describeDb("close-refused", () => {
       activity: "settled",
       settlement: "done",
       settled_at: new Date(),
+      at: new Date(),
     });
     await terminal(prompt);
     expect(await closeRun(conn.db, orca, log, input())).toMatchObject({

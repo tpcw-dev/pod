@@ -350,7 +350,7 @@ export async function recordReceipt(
       };
     }
     if (outcome.kind === "failed") {
-      if (pending) await returnSlot(tx, operation.result_ref);
+      if (pending) await returnSlot(tx, operation.result_ref, input.at);
       if (pending)
         await tx.moveOperation(
           input.opKey,

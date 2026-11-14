@@ -516,6 +516,7 @@ async function recordMessage(
         activity: row.activity,
         settlement: row.settlement,
         settled_at: row.settlement === "open" ? null : at,
+        at,
       });
     return;
   }
@@ -539,6 +540,7 @@ async function recordMessage(
     activity: row.activity,
     settlement: row.settlement,
     settled_at: row.settlement === "open" ? null : at,
+    at,
   });
   if (moved && task.state === "dispatched")
     await moveTask(tx, task.task_id, "delivered");
@@ -613,6 +615,7 @@ async function recordStops(
       activity: "settled",
       settlement: "stopped",
       settled_at: at,
+      at,
     });
     await tx.appendEvent({
       type: "stop",

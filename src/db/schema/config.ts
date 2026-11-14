@@ -36,7 +36,7 @@ export const revision = config.table(
     foreignKey({ columns: [t.parent], foreignColumns: [t.id] }),
     check(
       "revision_kind_check",
-      sql`${t.kind} in ('crew', 'process', 'policy', 'task', 'decision', 'host', 'project')`,
+      sql`${t.kind} in ('crew', 'process', 'policy', 'task', 'decision', 'host', 'project', 'rate')`,
     ),
     check(
       "revision_scope_check",
@@ -77,6 +77,7 @@ export const snapshot = config.table("snapshot", {
   policyRevisionId: text("policy_revision_id")
     .notNull()
     .references(() => revision.id),
+  rateRevisionId: text("rate_revision_id").references(() => revision.id),
   effectiveGateMap: jsonb("effective_gate_map").notNull(),
   hash: text("hash").notNull(),
   pinnedAt: timestamp("pinned_at", { withTimezone: true }).notNull(),

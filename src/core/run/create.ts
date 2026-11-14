@@ -2,6 +2,7 @@ import { z } from "zod";
 import { snapshotHash } from "../config/canonical-json.ts";
 import { noSingleActive, singleActive } from "../config/active.ts";
 import { activeProfile } from "../config/policy.ts";
+import { activeRate } from "../config/rate.ts";
 import type { Revision } from "../domain/config.ts";
 import type {
   Operation,
@@ -326,6 +327,7 @@ export async function runCreate(
   );
   const at = input.now();
   await db.transaction(async (tx) => {
+    const rate = await tx.getActivation(activeRate);
     await tx.insertRun({
       run_id: runId,
       story_provider: input.provider,
@@ -343,6 +345,7 @@ export async function runCreate(
       crew_revision_id: crew.id,
       process_revision_id: process.id,
       policy_revision_id: policy.id,
+      rate_revision_id: rate?.revision_id ?? null,
       effective_gate_map: {},
       hash,
       pinned_at: at,

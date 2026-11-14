@@ -113,13 +113,13 @@ A Snapshot hash is the sha256 of the canonical JSON of the three Revision ids pl
 
 #### Config tables
 
-`config.revision` holds one immutable version of a crew, process, policy, decision, host, or project spec, or a Task spec.
+`config.revision` holds one immutable version of a crew, process, policy, decision, host, project, or rate spec, or a Task spec.
 
 ```sql
 create table config.revision (
   id              text primary key,            -- sha256 of canonical JSON
   parent          text null references config.revision(id),
-  kind            text not null check (kind in ('crew', 'process', 'policy', 'task', 'decision', 'host', 'project')),
+  kind            text not null check (kind in ('crew', 'process', 'policy', 'task', 'decision', 'host', 'project', 'rate')),
   name            text not null,
   schema_version  int  not null,
   rev             int  not null,
@@ -154,7 +154,7 @@ create table config.activation (
 
 An apply that activates carries `expected_revision`. The current row's `revision_id` must equal it, or Pod refuses the apply with `revision_conflict`. `--expected-revision none` is the sentinel for a first activation. It succeeds only when no activation row exists for that scope, kind, and name, and otherwise Pod refuses it with `revision_conflict`. A bundle activates several rows in one transaction and stamps them with one `bundle_id`. A project activation overrides a global one. Every activation change also records an `activation` event, so the activation history survives the row replacement.
 
-Spec clarification: TPC-1479. A Revision that an agent Seat writes waits as a pending request until a person activates it. This adds no column to `config.revision` or `config.activation`. `pod config apply` or `pod config set` without `--activate` from a Seat stores the Revision. It then writes a `ledger.operation` row with intent `config_activate` and status `pending`, and an `activation_requested` event. The row's `result_ref.pending` carries the scope, kind, name, revision id, the expected Revision, the tracker ticket, and the actor. The expected Revision is the one active at the scope when the request was written: for `config set`, the Revision it derived from. The rule covers `crew`, `process`, `policy`, `decision`, `host`, and `project`. A run-scope `task` Revision, such as one that `pod decide --effect change_spec` writes, never waits. A person's activation runs the same CAS as `--activate`, through `pod config activate` or a verified tracker comment that `pod check` reads back. It records the `activation` event with `activated_by` set to `person:<principal>`. A Seat write of the Revision already active at its scope writes no request.
+Spec clarification: TPC-1479. A Revision that an agent Seat writes waits as a pending request until a person activates it. This adds no column to `config.revision` or `config.activation`. `pod config apply` or `pod config set` without `--activate` from a Seat stores the Revision. It then writes a `ledger.operation` row with intent `config_activate` and status `pending`, and an `activation_requested` event. The row's `result_ref.pending` carries the scope, kind, name, revision id, the expected Revision, the tracker ticket, and the actor. The expected Revision is the one active at the scope when the request was written: for `config set`, the Revision it derived from. The rule covers `crew`, `process`, `policy`, `decision`, `host`, `project`, and `rate`. A run-scope `task` Revision, such as one that `pod decide --effect change_spec` writes, never waits. A person's activation runs the same CAS as `--activate`, through `pod config activate` or a verified tracker comment that `pod check` reads back. It records the `activation` event with `activated_by` set to `person:<principal>`. A Seat write of the Revision already active at its scope writes no request.
 
 `config.snapshot` pins the three Revision ids a Run uses and the gate map they resolve to.
 
@@ -171,6 +171,8 @@ create table config.snapshot (
 ```
 
 A Snapshot copies no values. The pinned Revisions are immutable, so the ids rebuild the exact configuration later. An activation change never changes an existing Run's Snapshot hash.
+
+Spec clarification: TPC-1519. `config.snapshot` gains `rate_revision_id text null references config.revision(id)`. `pod run create` writes the `rate.default` Revision active at global scope, or null when none is active, in the transaction that inserts the Snapshot, and nothing changes it later, so a later rate activation never changes a Run's rate. The Snapshot hash is unchanged: it stays the three Revision ids plus the effective gate map.
 
 #### Ledger tables
 
@@ -463,6 +465,17 @@ create table ledger.usage_record (
 )
 ```
 
+Spec clarification: TPC-1519. `ledger.dispatch_activity` records each Dispatch activity with its time. Numbers and ids only.
+
+```sql
+create table ledger.dispatch_activity (
+  id           bigserial primary key,
+  dispatch_id  text not null references ledger.dispatch(dispatch_id),
+  activity     text not null check (activity in ('running', 'waiting', 'settled')),
+  at           timestamptz not null
+)
+```
+
 `ledger.learning` holds agent-only context. The docs tool never receives it.
 
 ```sql
@@ -524,6 +537,7 @@ The table below states who writes each table, what never changes, what a reader 
 | `ledger.digest_proposal` | S21c | `pod digest post`, `pod digest decide` | every field except `shown_on`, `ruling`, and `ruled_at`, each set once, trigger-enforced | at most one unruled row per proposal key, and a ruled row is shown |
 | `ledger.usage_observation` | S11 | `pod check`, `pod usage record` | every row | a null `value` means unknown |
 | `ledger.usage_record` | S23a | `pod usage record` | every row, trigger-enforced | one row per runtime, session, model, and `through`; a null count means unread |
+| `ledger.dispatch_activity` | TPC-1519 | every verb that inserts a Dispatch or changes its activity, through the repository | every row, trigger-enforced | the first row of a Dispatch inserted after TPC-1519 is its insert activity at `created_at` |
 | `ledger.decision` | S12 | `pod decide`, and `pod check` for `adoption` | id, category, `effect`, question, `binding` | `manifest_id` moves only to a child manifest through an evidence exchange, `spent` only increases, `binding` is always `run`, `adoption` moves along `pending` to `adopted`, `adopted` to `reworked` or `reversed`, and `reworked` to `reversed`, every change appends to `adoption_evidence` and records a `decision` event with the new state and its evidence, and the full history is the ordered `decision` events |
 | `ledger.decision_round` | S12 | `pod decide` | every row | at most three rounds per Decision |
 
@@ -596,6 +610,12 @@ Spec clarification: TPC-1480. The database is the source of configuration, and i
 Spec clarification: TPC-1532. The `host` kind holds one host's settings. A host Revision has `scope: host`, and its `scope_ref` and `name` are both the host id; any other scope or ref is `schema_invalid` naming `scope_ref`. Its value carries `driver`, `hostnames`, `manager`, `slots { default, max }`, `reserved { <project>: n }`, and `projects` (a list of project names, or `"*"` alone, possibly empty), and optionally `decision_seat`, `harnesses`, `notion_harnesses`, `notion`, `scheduler` (`orca` or `nohup`), and `limits { min_available_mb, max_swap_used_pct, crew_memory_max, crew_swap_max }`. Validation refuses with `schema_invalid` and names the field: `slots.default` above `slots.max`, a `reserved` total above `slots.max`, `decision_seat` without `manager`, a `notion_harnesses` entry missing from `harnesses`, and a `projects` entry, a name or `"*"`, that another host's active host Revision already seats, with the other host in the message. Pod stores the value as written and applies no defaults. `pod config get <kind>.<name> [--scope S]` prints the active Revision at the scope as `{ ref, id, scope, scope_ref, value }`. `--scope` takes `global` or `scope:ref`, and defaults to `host:<name>` for kind `host` and to `global` otherwise. It is a read: it resolves no identity and needs neither `operator` nor `POD_SEAT`. With no active Revision it refuses `config_missing`.
 
 Spec clarification: TPC-1482. The `project` kind holds one project's registry entry. A project Revision has `scope: global`, and its `name` is the repo name; any other scope is `schema_invalid` naming `scope`. Its value carries `repo` (`owner/name`, whose name part equals the Revision name, or `schema_invalid` naming `repo`), `category` (`Applications`, `Quant`, `Poker`, or `Meta`), `staging` (a boolean), and `tracker { project_name, project_id }`, all required, and no other key. The project's owner host stays in the `host` kind's `projects`, and its active profile stays on the project policy Revision. Validation refuses with `schema_invalid` and names the field. Pod stores the value as written and applies no defaults. `pod config list <kind> [--scope S]` prints every active Revision of the kind at the scope as `{ kind, scope, scope_ref, revisions: [{ ref, id, name, value }] }`, sorted by name. `--scope` takes `global` or `scope:ref` and defaults to `global`. With nothing active, `revisions` is empty and the exit is 0. A kind outside the config kinds or a malformed `--scope` is `usage`. Like `config get`, it is a read that resolves no identity.
+
+Spec clarification: TPC-1519. The `rate` kind holds the list prices Pod reads cost with. A rate Revision has `scope: global` and `name: default`; any other scope is `schema_invalid` naming `scope`, and any other name is `schema_invalid` naming `name`, so at most one rate is active. Its value is `{ currency, prices: [{ runtime, model, input, cached_input, cache_write, output, per }] }`, all required and no other key: `currency` is three capital letters, each price is a finite number of at least 0 per `per` tokens, and `per` is a positive integer. A second entry with the same `runtime` and `model` is `schema_invalid` naming `prices.<i>`. An agent Seat's apply waits for a person like the other kinds. The Pod repository carries only `specs/rate/rate.example.yaml`, whose runtime and model are `example`; real prices live only as rate Revisions, and `pod config export` prints one.
+
+Spec clarification: TPC-1519. Cost is a list-price equivalent, computed on read in `src/core/usage/cost.ts` and never stored. A `ledger.usage_record` row is priced with the rate its Run's Snapshot pins: the Run is `run_id` for a `path` row and the Dispatch's Run for a `locator` row. An `unattributed` row is priced with the rate active at read time. Cost = (input × price.input + cached_input × price.cached_input + cache_write × price.cache_write + output × price.output) ÷ price.per for the entry whose `runtime` and `model` equal the row's. `reasoning` is inside `output` and is not priced again, and a null count adds 0, so the row's `coverage` says whether the cost is complete. No rate, a null model, or no matching entry gives a null cost with reason `unpriced`. Every result carries `basis: "list-price equivalent"`, the `currency`, and the rate Revision id it read.
+
+Spec clarification: TPC-1519. Inserting a Dispatch writes its first `ledger.dispatch_activity` row, its activity at `created_at`. Each change of activity, through `setDispatchActivity` or `settleDispatch`, writes a row with the time the caller passes, in the same statement as the update. `src/core/usage/minutes.ts` reads them. `wall_minutes` is `settled_at` − `created_at`. `running_minutes` is the sum of the spans whose activity is `running`, each running from its row to the next row, and the last one to `settled_at`. A Dispatch not settled has both minutes unknown (null), never 0. A Dispatch whose first row is not at `created_at` was created before TPC-1519, when no history was kept, so its running minutes are unknown and its wall minutes are known. An `unattributed` usage row's running and wall minutes are both `through` − `first_at`.
 
 The evidence each side-effect verb requires before it acts:
 

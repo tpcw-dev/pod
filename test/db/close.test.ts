@@ -139,6 +139,7 @@ async function settle(dispatchId: string) {
     activity: "settled",
     settlement: "done",
     settled_at: new Date(),
+    at: new Date(),
   });
 }
 

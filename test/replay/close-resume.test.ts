@@ -37,6 +37,7 @@ describeDb("close-resume", () => {
       activity: "settled",
       settlement: "done",
       settled_at: new Date(),
+      at: new Date(),
     });
     await conn.sql`update ledger.dispatch set terminal_handle = null where dispatch_id = 'ctx_1'`;
     await conn.db.appendEvent({

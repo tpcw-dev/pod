@@ -1,7 +1,16 @@
 import { z } from "zod";
 import { Json } from "./json.ts";
 
-export const kinds = ["crew", "process", "policy", "task", "decision", "host", "project"] as const;
+export const kinds = [
+  "crew",
+  "process",
+  "policy",
+  "task",
+  "decision",
+  "host",
+  "project",
+  "rate",
+] as const;
 export const scopes = ["global", "project", "host", "run"] as const;
 
 export const Kind = z.enum(kinds);
@@ -69,6 +78,7 @@ export interface Snapshot {
   crew_revision_id: string;
   process_revision_id: string;
   policy_revision_id: string;
+  rate_revision_id: string | null;
   effective_gate_map: Json;
   hash: string;
   pinned_at: Date;

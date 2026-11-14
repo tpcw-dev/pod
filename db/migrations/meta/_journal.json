@@ -162,6 +162,13 @@
       "when": 1794623042743,
       "tag": "0022_usage_record",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794626099185,
+      "tag": "0023_rate_kind",
+      "breakpoints": true
     }
   ]
 }
