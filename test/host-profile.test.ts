@@ -9,8 +9,9 @@ import {
   readHostProfile,
 } from "../src/cli/host-profile.ts";
 import {
+  activation,
   actorOf,
-  mayActivate,
+  needsPerson,
   resolveIdentity,
   seatFromEnv,
 } from "../src/cli/identity.ts";
@@ -177,6 +178,7 @@ test("an empty operator: is schema_invalid", () => {
 const noFacts = {
   podSeat: null,
   recordedSeat: null,
+  handle: null,
   unresolved: [],
   operator: null,
 };
@@ -199,31 +201,34 @@ test("POD_SEAT is read from the environment, and empty reads as unset", () => {
 });
 
 test("POD_SEAT wins over the host operator", () => {
-  const identity = resolveIdentity({
-    ...noFacts,
-    podSeat: "developer",
-    operator: "alex",
-  });
+  const identity = resolveIdentity(
+    { ...noFacts, podSeat: "developer", operator: "alex" },
+    null,
+  );
   expect(actorOf(identity)).toBe("seat:developer");
 });
 
 test("a terminal the ledger records is a Seat, not the operator", () => {
-  const identity = resolveIdentity({
-    ...noFacts,
-    recordedSeat: "reviewer",
-    operator: "alex",
-  });
+  const identity = resolveIdentity(
+    {
+      ...noFacts,
+      recordedSeat: "reviewer",
+      handle: "term-1",
+      operator: "alex",
+    },
+    activation,
+  );
   expect(actorOf(identity)).toBe("seat:reviewer");
 });
 
 test("the host operator is a person", () => {
-  expect(actorOf(resolveIdentity({ ...noFacts, operator: "alex" }))).toBe(
-    "person:alex",
-  );
+  expect(
+    actorOf(resolveIdentity({ ...noFacts, operator: "alex" }, activation)),
+  ).toBe("person:alex");
 });
 
 test("neither POD_SEAT nor operator: is identity_missing", () => {
-  const refused = refusal(() => resolveIdentity(noFacts));
+  const refused = refusal(() => resolveIdentity(noFacts, null));
   expect(refused.code).toBe("identity_missing");
   expect(refused.next.join(" ")).toContain("operator:");
   expect(refused.next.join(" ")).toContain("POD_SEAT");
@@ -231,20 +236,32 @@ test("neither POD_SEAT nor operator: is identity_missing", () => {
 
 test("a worker the run cannot be told apart from is identity_missing, not the operator", () => {
   const refused = refusal(() =>
-    resolveIdentity({ ...noFacts, unresolved: ["d-1"], operator: "alex" }),
+    resolveIdentity(
+      { ...noFacts, unresolved: ["d-1"], handle: "term-1", operator: "alex" },
+      activation,
+    ),
   );
   expect(refused.code).toBe("identity_missing");
   expect(refused.next.join(" ")).toContain("d-1");
 });
 
 test("a Seat may write but not activate", () => {
-  const seat = resolveIdentity({ ...noFacts, podSeat: "developer" });
-  expect(() => mayActivate(seat, false)).not.toThrow();
-  expect(refusal(() => mayActivate(seat, true)).code).toBe(
+  const seat = resolveIdentity({ ...noFacts, podSeat: "developer" }, null);
+  expect(refusal(() => needsPerson(seat, activation)).code).toBe(
     "activation_needs_person",
   );
-  const person = resolveIdentity({ ...noFacts, operator: "alex" });
-  expect(() => mayActivate(person, true)).not.toThrow();
+  const person = resolveIdentity({ ...noFacts, operator: "alex" }, activation);
+  expect(() => needsPerson(person, activation)).not.toThrow();
+});
+
+test("an unidentified terminal is never the operator: identity_missing for a write, activation_needs_person for a person's step", () => {
+  const unidentified = { ...noFacts, handle: "term-9", operator: "alex" };
+  const write = refusal(() => resolveIdentity(unidentified, null));
+  expect(write.code).toBe("identity_missing");
+  expect(write.next[0]).toBe("set POD_SEAT to your Seat Address and run again");
+  const step = refusal(() => resolveIdentity(unidentified, activation));
+  expect(step.code).toBe("activation_needs_person");
+  expect(step.next).toEqual(activation.nextSteps);
 });
 
 const fileUrl = "scheme://user:example-not-a-secret@db.invalid/pod";

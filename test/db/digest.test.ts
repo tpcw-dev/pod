@@ -449,6 +449,30 @@ describeDb("pod digest", () => {
     expect(await digestBrief(conn.db, null, () => day2)).toMatchObject({ shown: 0, open: 2, proposals: [] });
   });
 
+  test("an unidentified terminal is refused digest decide and records no ruling", async () => {
+    const a = await learn("a");
+    const posted = runCli([
+      "digest",
+      "post",
+      yamlFile(`- theme: gates\n  text: Check the gate first\n  learning_ids: [${a}]\n  evidence_refs: [pr:1]\n`),
+    ]);
+    expect(posted.status).toBe(0);
+    const shown = posted.json.result?.["shown"] as { number: number }[];
+    const refused = runCli(
+      ["digest", "decide", String(shown[0]?.number), "--accept", "--reason", "ok"],
+      { ORCA_TERMINAL_HANDLE: "term-stray" },
+    );
+    expect(refused.status).toBe(3);
+    expect(refused.json.error?.code).toBe("activation_needs_person");
+    expect(refused.json.error?.nextSteps).toEqual([
+      "Run pod digest decide from the operator's shell",
+      "An agent Seat proposes with pod digest post",
+    ]);
+    const [row] = await conn.sql<{ n: number }[]>`
+      select count(*)::int as n from ledger.event where type = 'ruling'`;
+    expect(row?.n).toBe(0);
+  });
+
   test("the CLI posts a file, and an agent Seat is refused digest decide while it may still add a learning", async () => {
     const a = await learn("a");
     const posted = runCli([

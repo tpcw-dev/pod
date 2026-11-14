@@ -299,7 +299,7 @@ describe("a worker-level terminal cannot activate as the operator", () => {
     expect(await stored()).toBe(0);
   });
 
-  test("a recorded terminal on another host does not make this run a Seat", async () => {
+  test("a terminal recorded on another host leaves this run unidentified and refused activation_needs_person", async () => {
     await seatRun(db.db, "run-far", { host: "elsewhere" });
     await seatDispatch(db.db, {
       runId: "run-far",
@@ -308,8 +308,9 @@ describe("a worker-level terminal cannot activate as the operator", () => {
       terminal: "term-shared",
     });
     const result = runCli(activate, { ORCA_TERMINAL_HANDLE: "term-shared" });
-    expect(result.status).toBe(0);
-    expect(result.json.result?.["activation"]).not.toBeNull();
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("activation_needs_person");
+    expect(await stored()).toBe(0);
   });
 
   test("POD_SEAT is refused activation_needs_person", async () => {
@@ -326,11 +327,25 @@ describe("a worker-level terminal cannot activate as the operator", () => {
       terminal: null,
       settled: true,
     });
-    const result = runCli(activate, { ORCA_TERMINAL_HANDLE: "term-operator" });
+    const result = runCli(activate);
     expect(result.status).toBe(0);
     const [row] = await db.sql<
       { activated_by: string }[]
     >`select activated_by from config.activation where name = 'bypass'`;
     expect(row?.activated_by).toBe(`person:${operator}`);
+  });
+
+  test("once the workers settle, an unidentified terminal is still refused activation_needs_person", async () => {
+    await seatDispatch(db.db, {
+      runId: "run-1",
+      dispatchId: "d-4",
+      seat: "dev",
+      terminal: null,
+      settled: true,
+    });
+    const result = runCli(activate, { ORCA_TERMINAL_HANDLE: "term-operator" });
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("activation_needs_person");
+    expect(await stored()).toBe(0);
   });
 });

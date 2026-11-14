@@ -765,6 +765,20 @@ describeDb("pod run close", () => {
     });
   });
 
+  test("the CLI refuses an unidentified terminal identity_missing and writes no step", async () => {
+    await finishTasks();
+    const result = await cliReplay(
+      conn,
+      ["run", "close", "story:S-1", ...generation],
+      [],
+      { ORCA_TERMINAL_HANDLE: "term-stray" },
+    );
+    expect(result.status).toBe(3);
+    expect(result.json.error?.code).toBe("identity_missing");
+    expect(await operations()).toEqual([]);
+    expect(await runState()).not.toBe("done");
+  });
+
   test("the CLI takes --keep-files-reviewed past needs_file and records the operator", async () => {
     await readyToClose();
     const worktree = mkdtempSync(join(tmpdir(), "pod-close-cli-"));

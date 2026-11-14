@@ -329,7 +329,7 @@ export async function runCloseVerb(
         tracker,
         codeHost: codeHostFor(),
         git: realGit,
-        actor: actorOf(await writerOf(db, host, process.env, false)),
+        actor: actorOf(await writerOf(db, host, process.env, null)),
       }),
   );
   return { ...result, op_key: opKey };

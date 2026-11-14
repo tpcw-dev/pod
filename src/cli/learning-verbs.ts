@@ -169,11 +169,13 @@ export async function learningImport(
   const host = readHostProfile();
   const connection = connect(databaseUrl(host));
   try {
-    const identity = await writerOf(connection.db, host, process.env, false);
+    const need = {
+      what: "learning import",
+      nextSteps: ["Run pod learning import from the operator's shell"],
+    };
+    const identity = await writerOf(connection.db, host, process.env, need);
     if (identity.kind === "seat")
-      throw usageError(`learning import is operator only; ${identity.address} is a Seat`, [
-        "Run pod learning import from the operator's shell",
-      ]);
+      throw usageError(`learning import is operator only; ${identity.address} is a Seat`, need.nextSteps);
     const outcome = await importLearnings(connection.db, {
       rows: accepted.rows,
       host: host.hostId,
