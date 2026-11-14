@@ -1748,6 +1748,20 @@ function makeRepo(x: Executor): Repo {
       return row === undefined ? null : toEvent(row);
     },
 
+    async eventsWith(type, payload) {
+      const rows = await x
+        .select()
+        .from(event)
+        .where(
+          and(
+            eq(event.type, type),
+            sql`${event.payload} @> ${JSON.stringify(payload)}::jsonb`,
+          ),
+        )
+        .orderBy(asc(event.id));
+      return rows.map(toEvent);
+    },
+
     async latestEventWith(type, payload) {
       const [row] = await x
         .select()

@@ -169,6 +169,13 @@
       "when": 1794626099185,
       "tag": "0023_rate_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794676192430,
+      "tag": "0024_plan",
+      "breakpoints": true
     }
   ]
 }

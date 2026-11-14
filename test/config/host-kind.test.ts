@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { parse, stringify } from "yaml";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
-import { validateHost } from "../../src/core/config/host.ts";
+import { hostSlots, validateHost } from "../../src/core/config/host.ts";
+import { envelope, storeRevision } from "../db/fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "../db/helpers.ts";
 
 const examplePath = "specs/host/host.example.yaml";
@@ -24,6 +25,7 @@ function hostValue(overrides: Record<string, unknown> = {}) {
     driver: "hat-a",
     hostnames: ["box-a"],
     manager: false,
+    timezone: "America/New_York",
     slots: { default: 2, max: 3 },
     reserved: {},
     projects: [],
@@ -99,6 +101,11 @@ test.each([
     "limits.crew_memory_max",
   ],
   [{ hostnames: [] }, "hostnames"],
+  [{ timezone: undefined }, "timezone"],
+  [{ timezone: "Etc/UTC" }, "timezone"],
+  [{ timezone: "UTC" }, "timezone"],
+  [{ timezone: "+08:00" }, "timezone"],
+  [{ timezone: "Mars/Olympus_Mons" }, "timezone"],
   [{ extra: 1 }, "extra"],
 ])("%j is schema_invalid naming %s", (overrides, path) => {
   expect(refusedAt(hostValue(overrides))).toEqual(["schema_invalid", path]);
@@ -163,6 +170,46 @@ describeDb("host kind", () => {
     expect(
       apply("alpha", hostValue({ projects: ["p1"], driver: "hat-b" })).status,
     ).toBe(0);
+  });
+
+  test("an active host Revision with no timezone still gives its slots and seats its projects, and config set adds one", async () => {
+    const bare = Object.fromEntries(
+      Object.entries(hostValue({ projects: ["p1"] })).filter(
+        ([key]) => key !== "timezone",
+      ),
+    );
+    const revision = await storeRevision(conn.db, {
+      ...envelope("host", "alpha", bare),
+      scope: "host",
+      scope_ref: "alpha",
+    });
+    const activated = await conn.db.activate({
+      scope: "host",
+      scope_ref: "alpha",
+      kind: "host",
+      name: "alpha",
+      expected: null,
+      revision_id: revision.id,
+      bundle_id: null,
+      activated_by: "operator",
+      activated_at: new Date("2026-11-14T00:00:00.000Z"),
+    });
+    expect(activated.ok).toBe(true);
+    expect(await hostSlots(conn.db, "alpha")).toBe(2);
+    expect(apply("beta", hostValue({ projects: ["p1"] })).json.error?.message).toContain("alpha");
+    const set = runCli([
+      "config",
+      "set",
+      "host.alpha",
+      "timezone=America/Los_Angeles",
+      "--scope",
+      "host:alpha",
+      "--reason",
+      "add the host timezone",
+      "--ticket",
+      "TRK-2",
+    ]);
+    expect(set.status, set.json.error?.message).toBe(0);
   });
 
   test("the example written by a Seat and activated by a person round-trips through config get", () => {

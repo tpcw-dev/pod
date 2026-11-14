@@ -19,6 +19,20 @@ import {
 } from "./config-verbs.ts";
 import { BriefInput, BriefOutput, brief } from "./brief.ts";
 import {
+  PlanHoldInput,
+  PlanInput,
+  PlanListInput,
+  PlanOutput,
+  PlanOverrideOutput,
+  PlanReleaseInput,
+  plan,
+  planHold,
+  planOpKeyMeta,
+  planOrder,
+  planPriority,
+  planRelease,
+} from "./plan-verbs.ts";
+import {
   digestAssign,
   DigestAssignInput,
   DigestAssignOutput,
@@ -499,6 +513,63 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     evidenceRequired: [
       "a FILE or stdin of normalized usage rows, each line one unit or window object",
     ],
+  }),
+  row({
+    name: "plan",
+    input: PlanInput,
+    output: PlanOutput,
+    handler: plan,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "an active host Revision with a timezone for the host; `--publish` writes the plan",
+    ],
+  }),
+  row({
+    name: "plan hold",
+    input: PlanHoldInput,
+    output: PlanOverrideOutput,
+    handler: planHold,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "a KEY, a `--reason`, an `--until` no earlier than the host's day, and an active host Revision with a timezone",
+    ],
+    meta: planOpKeyMeta,
+  }),
+  row({
+    name: "plan release",
+    input: PlanReleaseInput,
+    output: PlanOverrideOutput,
+    handler: planRelease,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: ["a hold on KEY in force on the host"],
+    meta: planOpKeyMeta,
+  }),
+  row({
+    name: "plan priority",
+    input: PlanListInput,
+    output: PlanOverrideOutput,
+    handler: planPriority,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "one or more distinct PROJECTs, an `--until` no earlier than the host's day, and an active host Revision with a timezone",
+    ],
+    meta: planOpKeyMeta,
+  }),
+  row({
+    name: "plan order",
+    input: PlanListInput,
+    output: PlanOverrideOutput,
+    handler: planOrder,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "one or more distinct KEYs, an `--until` no earlier than the host's day, and an active host Revision with a timezone",
+    ],
+    meta: planOpKeyMeta,
   }),
   row({
     name: "learning query",

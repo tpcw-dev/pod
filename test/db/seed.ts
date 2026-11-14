@@ -85,6 +85,7 @@ export function hostValue(slots: number): Json {
     driver: "driver-a",
     hostnames: ["host-a"],
     manager: false,
+    timezone: "America/New_York",
     slots: { default: slots, max: Math.max(slots, 1) },
     reserved: {},
     projects: [],

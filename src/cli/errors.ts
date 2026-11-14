@@ -45,6 +45,7 @@ export type ErrorCode =
   | "learning_match_ambiguous"
   | "retro_not_due"
   | "ruling_exists"
+  | "not_held"
   | "config_missing"
   | "failed";
 
