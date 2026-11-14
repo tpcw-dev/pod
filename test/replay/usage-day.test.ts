@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
+import { readUsageDay, todayView } from "../../src/cli/usage-verbs.ts";
 import { parseRate } from "../../src/core/config/rate.ts";
 import type { Revision } from "../../src/core/domain/config.ts";
 import type { Json } from "../../src/core/domain/json.ts";
@@ -115,6 +116,10 @@ describeDb("usage-day", () => {
     });
   }
 
+  function podUsage() {
+    return readUsageDay(conn.db, "UTC", todayView("UTC", "2026-11-10"), null);
+  }
+
   async function ledger() {
     const records = await conn.sql`
       select runtime, session_id, model, input, cached_input, cache_write,
@@ -171,6 +176,12 @@ describeDb("usage-day", () => {
       ["s-other", null, "1000", "100", "50", null, "partial"],
     ]);
     expect(before.observations).toHaveLength(4);
+    const usage = await podUsage();
+    expect(usage.coverage.tokens_source).toEqual({
+      locator: 0,
+      path: 1,
+      unattributed: 3,
+    });
 
     const second = await ingest();
     expect(second.sessions.map((row) => row.outcome)).toEqual([
@@ -187,6 +198,7 @@ describeDb("usage-day", () => {
       "replayed",
     ]);
     expect(await ledger()).toEqual(before);
+    expect(await podUsage()).toEqual(usage);
   });
 
   async function records(): Promise<Map<string, UsageRecord>> {

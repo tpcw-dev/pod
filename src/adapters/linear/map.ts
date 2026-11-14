@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Size } from "../../core/domain/ledger.ts";
+import { estimateScales, sizes } from "../../core/domain/points.ts";
 import type {
   CommentRef,
   StoryRef,
@@ -7,15 +8,9 @@ import type {
   TrackerStory,
 } from "../../core/ports/tracker.ts";
 
-const sizes: readonly Size[] = ["xs", "s", "m", "l", "xl"];
-const scales: Readonly<Record<string, readonly number[]>> = {
-  fibonacci: [1, 2, 3, 5, 8],
-  tshirt: [1, 2, 3, 4, 5],
-};
-
 export function sizeOf(estimate: number | null, scale: string): Size | null {
-  if (estimate === null || !Object.hasOwn(scales, scale)) return null;
-  return sizes[scales[scale]?.indexOf(estimate) ?? -1] ?? null;
+  if (estimate === null || !Object.hasOwn(estimateScales, scale)) return null;
+  return sizes[estimateScales[scale]?.indexOf(estimate) ?? -1] ?? null;
 }
 
 export function stageOf(labels: readonly string[]): string | null {

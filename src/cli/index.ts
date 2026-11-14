@@ -78,6 +78,7 @@ function parse() {
         seat: { type: "string" },
         generation: { type: "string" },
         run: { type: "string" },
+        day: { type: "string" },
         wait: { type: "boolean" },
         interval: { type: "string" },
         timeout: { type: "string" },

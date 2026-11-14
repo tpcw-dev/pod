@@ -14,6 +14,8 @@ import type { BriefTree, DigestBrief } from "../core/domain/brief.ts";
 import type { Repo } from "../core/ports/db.ts";
 import { RevisionEnvelope, type Revision } from "../core/domain/config.ts";
 import { Json } from "../core/domain/json.ts";
+import { runLifetime } from "../core/usage/facts.ts";
+import { runUsage, type RunUsage } from "../core/usage/rollup.ts";
 import { renderBriefHtml } from "../core/manifest/html.ts";
 import { waitingOn } from "../core/process/waiting.ts";
 import { PodError } from "./errors.ts";
@@ -22,6 +24,13 @@ import {
   readCredentials,
   readHostProfile,
 } from "./host-profile.ts";
+import {
+  hostZone,
+  MeasurementUsageJson,
+  readUsageDay,
+  todayView,
+  UsageDayJson,
+} from "./usage-verbs.ts";
 import { parseYaml } from "./yaml-file.ts";
 
 const storyArg = z.string().regex(/^story:.+$/);
@@ -88,6 +97,7 @@ const MeasurementJson = z.object({
     sample: z.number(),
     target: z.number(),
   }),
+  usage: MeasurementUsageJson,
 });
 
 const TestJson = z.object({
@@ -190,6 +200,7 @@ export const BriefOutput = z.object({
     }),
   ),
   drift: z.array(DriftJson),
+  usage: UsageDayJson,
   nextSteps: z.array(z.string()).optional(),
 });
 type BriefResult = z.infer<typeof BriefOutput>;
@@ -276,11 +287,32 @@ async function withDigests(repo: Repo, projects: readonly ProjectProfile[]) {
   return rows;
 }
 
+async function runUsages(
+  repo: Repo,
+  tree: BriefTree,
+): Promise<Map<string, RunUsage>> {
+  const usages = new Map<string, RunUsage>();
+  for (const item of tree.stories)
+    for (const run of item.runs) {
+      const { seats, records } = await runLifetime(repo, run.run.run_id);
+      usages.set(run.run.run_id, runUsage(run.run.run_id, seats, records));
+    }
+  return usages;
+}
+
+function usageOf(usages: ReadonlyMap<string, RunUsage>, runId: string): RunUsage {
+  const usage = usages.get(runId);
+  if (usage === undefined) throw new Error(`no usage read for Run ${runId}`);
+  return usage;
+}
+
 function toBriefResult(
   tree: BriefTree,
   projects: readonly (ProjectProfile & { digest: DigestBrief })[],
   pending: BriefResult["pending_requests"],
   drift: BriefResult["drift"],
+  usages: ReadonlyMap<string, RunUsage>,
+  usage: BriefResult["usage"],
 ): BriefResult {
   const current = new Map(projects.map((row) => [row.project, row.profile]));
   return {
@@ -346,10 +378,14 @@ function toBriefResult(
           })),
         })),
         counters: run.counters,
-        measurement: run.measurement,
+        measurement: {
+          ...run.measurement,
+          usage: usageOf(usages, run.run.run_id),
+        },
       })),
     })),
     drift,
+    usage,
   };
 }
 
@@ -360,9 +396,11 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
   const connection = connect(databaseUrl(host));
   try {
     const drift = await mirrorDrift(connection.db, host.mirrorDir);
+    const zone = await hostZone(connection.db, host.hostId);
     const nextSteps = [
       ...readCredentials(host).warnings(),
       ...(drift.length === 0 ? [] : ["pod config export --all"]),
+      ...zone.nextSteps,
     ];
     const tree = await connection.db.readBrief(externalId);
     if (externalId !== null && tree.stories.length === 0)
@@ -378,6 +416,8 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
         await withDigests(connection.db, await projectProfiles(connection.db, tree)),
         await pendingRequests(connection.db),
         drift,
+        await runUsages(connection.db, tree),
+        await readUsageDay(connection.db, zone.zone, todayView(zone.zone), null),
       ),
       ...(nextSteps.length === 0 ? {} : { nextSteps }),
     });

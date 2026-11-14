@@ -57,6 +57,11 @@ import type {
 } from "../domain/ledger.ts";
 import type { NewUsageRecord, UsageRecord } from "../domain/usage.ts";
 
+export interface TimeWindow {
+  from: Date;
+  to: Date;
+}
+
 export interface Repo {
   insertRevision(
     row: NewRevision,
@@ -168,6 +173,15 @@ export interface Repo {
   ): Promise<UsageObservation[]>;
   insertUsageRecord(row: NewUsageRecord): Promise<UsageRecord>;
   usageWatermark(runtime: string, sessionId: string): Promise<Date | null>;
+  listUsageRecords(window: TimeWindow): Promise<UsageRecord[]>;
+  listDispatchUsageRecords(
+    dispatchIds: readonly string[],
+  ): Promise<UsageRecord[]>;
+  listRunUsageRecords(runId: string): Promise<UsageRecord[]>;
+  listSettledDispatches(window: TimeWindow): Promise<Dispatch[]>;
+  listRunsDone(
+    window: TimeWindow,
+  ): Promise<{ run_id: string; done_at: Date }[]>;
   dispatchByLocator(
     harness: string,
     sessionId: string,

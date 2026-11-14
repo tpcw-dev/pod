@@ -73,6 +73,7 @@ const extraVerbs = [
   { story: "S21c", name: "digest assign", sideEffect: "ledger" },
   { story: "TPC-1482", name: "config list", sideEffect: "none" },
   { story: "TPC-1518", name: "usage record", sideEffect: "ledger" },
+  { story: "S23c", name: "usage", sideEffect: "none" },
 ] as const;
 
 function trim(value: string): string {
