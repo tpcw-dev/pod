@@ -22,6 +22,8 @@ import type { DocsPort, Section } from "../ports/docs.ts";
 import { ProcessValue, type Step } from "../process/schema.ts";
 import { waitingOn } from "../process/waiting.ts";
 import { applicableDecisions } from "./decisions.ts";
+import type { UsageLimits } from "../domain/usage.ts";
+import { readHeadroom } from "../usage/pace.ts";
 
 export interface StateContext {
   repo: Repo;
@@ -322,6 +324,7 @@ export async function decisionsSection(
 export async function usageSection(
   ctx: StateContext,
   providers: readonly string[],
+  limits: UsageLimits,
 ): Promise<UsageSection> {
   const latest = new Map(
     (await ctx.repo.latestUsageObservations(providers)).map((row) => [
@@ -332,10 +335,10 @@ export async function usageSection(
   return {
     providers: providers.map((provider) => {
       const row = latest.get(provider);
-      const known = row !== undefined && row.coverage !== "no_source";
+      const headroom = readHeadroom(row, limits, ctx.now());
       return {
         provider,
-        value: known && row.value !== null ? row.value : "unknown",
+        value: headroom === "unknown" ? "unknown" : headroom.value,
         coverage: row?.coverage ?? "no_source",
         observed_at: row?.observed_at.toISOString() ?? null,
       };

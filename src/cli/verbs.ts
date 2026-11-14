@@ -92,6 +92,11 @@ import {
   renderSection,
 } from "./docs-verbs.ts";
 import { StateInput, StateOutput, stateVerb } from "./state-verbs.ts";
+import {
+  UsageRecordInput,
+  UsageRecordOutput,
+  usageRecordVerb,
+} from "./usage-verbs.ts";
 import { renderState } from "../core/state/render.ts";
 import {
   DrainInput,
@@ -469,6 +474,17 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
       "a Run due a retro, a FILE of findings each with at least one evidence reference, and the `tech` kind in the policy's `learning.kinds`",
     ],
     meta: retroMeta,
+  }),
+  row({
+    name: "usage record",
+    input: UsageRecordInput,
+    output: UsageRecordOutput,
+    handler: usageRecordVerb,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "a FILE or stdin of normalized usage rows, each line one unit or window object",
+    ],
   }),
   row({
     name: "learning query",

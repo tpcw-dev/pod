@@ -23,12 +23,16 @@ export async function recordNoSource(
   const latest = new Map(
     (await repo.latestUsageObservations(providers)).map((row) => [
       row.provider,
-      row.observed_at,
+      row,
     ]),
   );
   const due = providers.filter((provider) => {
-    const at = latest.get(provider);
-    return at === undefined || now.getTime() - at.getTime() > hourMs;
+    const row = latest.get(provider);
+    if (row === undefined) return true;
+    return (
+      row.coverage === "no_source" &&
+      now.getTime() - row.observed_at.getTime() > hourMs
+    );
   });
   for (const provider of due)
     await repo.insertUsageObservation({

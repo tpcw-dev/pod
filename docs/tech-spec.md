@@ -437,6 +437,32 @@ create table ledger.usage_observation (
 )
 ```
 
+`ledger.usage_record` holds one seat session's token sums per model over one ingest span. Numbers and ids only.
+
+```sql
+create table ledger.usage_record (
+  id            bigserial primary key,
+  runtime       text not null,
+  session_id    text not null,
+  model         text null,
+  input         bigint null,                   -- each count: null means unread, never zero
+  cached_input  bigint null,
+  cache_write   bigint null,
+  output        bigint null,
+  reasoning     bigint null,
+  calls         integer null,
+  first_at      timestamptz not null,
+  through       timestamptz not null,
+  dispatch_id   text null references ledger.dispatch(dispatch_id),
+  run_id        text null references ledger.run(run_id),
+  attribution   text not null check (attribution in ('locator', 'path', 'unattributed')),
+  coverage      text not null check (coverage in ('measured', 'partial')),
+  op_key        text not null references ledger.operation(op_key),
+  created_at    timestamptz not null,
+  unique nulls not distinct (runtime, session_id, model, through)
+)
+```
+
 `ledger.learning` holds agent-only context. The docs tool never receives it.
 
 ```sql
@@ -496,9 +522,12 @@ The table below states who writes each table, what never changes, what a reader 
 | `ledger.learning` | S10 | `pod learning add`, `pod learning import`, and `pod digest post`, `decide`, and `assign` for `adoption`, `theme`, and `action_story` | `text`, `evidence_refs`, `source_story`, `area`, `project_id`, `kind`, `expected` | never mirrored to the docs tool, `adoption_at` moves with every `adoption` change |
 | `ledger.learning_occurrence` | S21a | `pod learning add`, `pod learning import` | every row, trigger-enforced | one row per learning and `evidence_id` |
 | `ledger.digest_proposal` | S21c | `pod digest post`, `pod digest decide` | every field except `shown_on`, `ruling`, and `ruled_at`, each set once, trigger-enforced | at most one unruled row per proposal key, and a ruled row is shown |
-| `ledger.usage_observation` | S11 | `pod check` only | every row | a null `value` means unknown |
+| `ledger.usage_observation` | S11 | `pod check`, `pod usage record` | every row | a null `value` means unknown |
+| `ledger.usage_record` | S23a | `pod usage record` | every row, trigger-enforced | one row per runtime, session, model, and `through`; a null count means unread |
 | `ledger.decision` | S12 | `pod decide`, and `pod check` for `adoption` | id, category, `effect`, question, `binding` | `manifest_id` moves only to a child manifest through an evidence exchange, `spent` only increases, `binding` is always `run`, `adoption` moves along `pending` to `adopted`, `adopted` to `reworked` or `reversed`, and `reworked` to `reversed`, every change appends to `adoption_evidence` and records a `decision` event with the new state and its evidence, and the full history is the ordered `decision` events |
 | `ledger.decision_round` | S12 | `pod decide` | every row | at most three rounds per Decision |
+
+Spec clarification: S23a. `ledger.usage_observation` has a second writer, `pod usage record FILE|-`, which reads the normalized usage format that `docs/contract.md` defines: one JSON object per line, a `unit` row or a `window` row, with no message text and no credential; an unknown key refuses the input. A `window` row writes one observation: `provider` the runtime, `seat` null, `window_end` its `resets_at`, `window_start` that less `window_minutes`, `value` its used percent, `coverage` `measured` (or `partial` when the used percent is null), and `source` `{ kind: "usage record", window, pace }`, where `pace` is `spend`, `ok`, or `avoid` by the process usage pace rule at `observed_at` with the policy's `limits.usage.floor_percent`. An observation older than `limits.usage.stale_minutes` reads as unknown in `pod state`. `pod check` writes `no_source` only for a provider with no observation, or whose newest is `no_source` and more than an hour old, so a provider with a reader never gets one. A `unit` row's tokens become `ledger.usage_record` rows: one per session and model over each ingest span after the session's newest `through`, attributed to the Dispatch whose transcript locator is `{ harness: runtime, session_id }`, else to the Run with a Dispatch started on this host whose worktree holds the unit's `cwd`, else `unattributed`. The unit key only dedupes. Op-key intent `usage` keys a session span by (runtime, session_id, through) and a window by (runtime, window, observed_at), so the same reader output sent twice writes once. Like every table, both hold numbers and ids only (line 34).
 
 ### CLI framework, verb list, and error shape
 

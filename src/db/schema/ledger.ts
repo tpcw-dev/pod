@@ -14,6 +14,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { revision } from "./config.ts";
@@ -213,7 +214,7 @@ export const operation = ledger.table(
   (t) => [
     check(
       "operation_intent_check",
-      sql`${t.intent} in ('run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide', 'config_apply', 'config_activate', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning', 'close', 'retro', 'digest', 'ruling')`,
+      sql`${t.intent} in ('run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide', 'config_apply', 'config_activate', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning', 'close', 'retro', 'digest', 'ruling', 'usage')`,
     ),
     check(
       "operation_status_check",
@@ -455,5 +456,45 @@ export const usageObservation = ledger.table(
       sql`${t.coverage} in ('measured', 'partial', 'no_source')`,
     ),
     index("usage_observation_provider_idx").on(t.provider, t.observedAt),
+  ],
+);
+
+export const usageRecord = ledger.table(
+  "usage_record",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    runtime: text("runtime").notNull(),
+    sessionId: text("session_id").notNull(),
+    model: text("model"),
+    input: bigint("input", { mode: "number" }),
+    cachedInput: bigint("cached_input", { mode: "number" }),
+    cacheWrite: bigint("cache_write", { mode: "number" }),
+    output: bigint("output", { mode: "number" }),
+    reasoning: bigint("reasoning", { mode: "number" }),
+    calls: integer("calls"),
+    firstAt: timestamp("first_at", { withTimezone: true }).notNull(),
+    through: timestamp("through", { withTimezone: true }).notNull(),
+    dispatchId: text("dispatch_id").references(() => dispatch.dispatchId),
+    runId: text("run_id").references(() => run.runId),
+    attribution: text("attribution").notNull(),
+    coverage: text("coverage").notNull(),
+    opKey: text("op_key")
+      .notNull()
+      .references(() => operation.opKey),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    unique("usage_record_span_unique")
+      .on(t.runtime, t.sessionId, t.model, t.through)
+      .nullsNotDistinct(),
+    index("usage_record_session_idx").on(t.runtime, t.sessionId, t.through),
+    check(
+      "usage_record_attribution_check",
+      sql`${t.attribution} in ('locator', 'path', 'unattributed') and (${t.attribution} = 'locator') = (${t.dispatchId} is not null) and (${t.attribution} = 'path') = (${t.runId} is not null)`,
+    ),
+    check(
+      "usage_record_coverage_check",
+      sql`${t.coverage} in ('measured', 'partial')`,
+    ),
   ],
 );

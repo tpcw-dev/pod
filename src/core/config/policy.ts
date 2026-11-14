@@ -9,6 +9,7 @@ import {
 } from "../domain/policy.ts";
 import { GateEntry } from "../gate/receipt.ts";
 import { LearningKinds } from "./learning-kinds.ts";
+import { UsageLimitsValue } from "./limits.ts";
 import { isMethod, methodRule } from "../process/schema.ts";
 
 const Fields = z.record(z.string(), z.unknown());
@@ -294,6 +295,13 @@ function limitsProblem(limits: unknown): Problem {
     return {
       path: "limits.digest_per_day",
       message: "limits.digest_per_day: must be an integer from 1 to 10",
+    };
+  const usage = given["usage"];
+  if (usage !== undefined && !UsageLimitsValue.safeParse(usage).success)
+    return {
+      path: "limits.usage",
+      message:
+        "limits.usage: must be { floor_percent: a number from 0 to 100, stale_minutes: a positive integer }",
     };
   const budget = parseBudget(given["decision_budget"]);
   if (!budget.ok)

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Json } from "../domain/json.ts";
 import { defaultBudgetText, parseBudget } from "../domain/policy.ts";
+import type { UsageLimits } from "../domain/usage.ts";
 
 export interface DecisionLimits {
   decision_rounds: 1 | 2 | 3;
@@ -12,6 +13,7 @@ const Limits = z.looseObject({
     .looseObject({
       decision_rounds: z.unknown().optional(),
       decision_budget: z.unknown().optional(),
+      usage: z.unknown().optional(),
     })
     .optional(),
 });
@@ -27,4 +29,19 @@ export function decisionLimits(policyValue: unknown): DecisionLimits {
         ? budget.data
         : defaultBudgetText,
   };
+}
+
+export const UsageLimitsValue = z.strictObject({
+  floor_percent: z.number().finite().min(0).max(100),
+  stale_minutes: z.int().positive(),
+});
+
+export function usageLimits(policyValue: unknown): UsageLimits {
+  const usage = Limits.safeParse(policyValue).data?.limits?.usage;
+  return (
+    UsageLimitsValue.safeParse(usage).data ?? {
+      floor_percent: 50,
+      stale_minutes: 30,
+    }
+  );
 }
