@@ -9,7 +9,7 @@ import { roadmapPage, roadmapSection } from "../state/sections.ts";
 import { seatedProjects, type PlanHost, type SeatedProject } from "./host.ts";
 import type { PlanStory } from "./rank.ts";
 
-export const launchableStatus = "Todo";
+const launchableStatus = "Todo";
 
 export interface PartialRead {
   project: string;
