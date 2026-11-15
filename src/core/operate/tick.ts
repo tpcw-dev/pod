@@ -1,8 +1,12 @@
 import { activeSchedule, scheduleMissing } from "../config/schedule.ts";
 import { Json } from "../domain/json.ts";
 import type { Refused } from "../domain/outcome.ts";
-import type { StepName, StepOutcome, StepRecord } from "../domain/tick.ts";
-import type { TickPayload } from "../domain/tick.ts";
+import type {
+  StepName,
+  StepOutcome,
+  StepRecord,
+  TickPayload,
+} from "../domain/tick.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import { planHost } from "../plan/host.ts";
 import { inForce, newestPublished, overrideIds } from "../plan/overrides.ts";
@@ -150,7 +154,7 @@ function record(
   detail: Json | null,
 ): StepRecord {
   return {
-    step: step,
+    step,
     op_key: stepOpKey(ctx.host, step, ctx.plan),
     result,
     detail,
@@ -190,7 +194,6 @@ export async function runSteps(
       outcome = { result: "failed", detail: { message } };
     }
     if (outcome.plan !== undefined) plan = outcome.plan;
-    // read_plan's key names the plan it read, so it is derived after the read.
     results.push(
       record({ ...base, plan }, step.name, outcome.result, outcome.detail),
     );

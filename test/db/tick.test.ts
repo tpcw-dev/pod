@@ -148,7 +148,7 @@ describeDb("pod tick", () => {
 
   test("a failing step is recorded and later steps still run", async () => {
     await seed();
-    const ran_: string[] = [];
+    const called: string[] = [];
     const steps = withStep("observe", {
       built: true,
       run: () => Promise.reject(new Error("observe broke")),
@@ -158,7 +158,7 @@ describeDb("pod tick", () => {
             ...each,
             built: true,
             run: () => {
-              ran_.push(each.name);
+              called.push(each.name);
               return Promise.resolve({ result: "ok" as const, detail: null });
             },
           }
@@ -170,7 +170,7 @@ describeDb("pod tick", () => {
       result: "failed",
       detail: { message: "observe broke" },
     });
-    expect(ran_).toEqual(["close", "attention"]);
+    expect(called).toEqual(["close", "attention"]);
     expect(tick.steps[5]).toMatchObject({ step: "write_tick", result: "ok" });
   });
 
