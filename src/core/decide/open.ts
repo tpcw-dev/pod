@@ -47,7 +47,7 @@ import {
   type ReservedHit,
 } from "./reserved.ts";
 import { next, type DecisionEvent } from "./table.ts";
-import { failDecision } from "./advance.ts";
+import { failDecision, needsHumanTrigger } from "./advance.ts";
 import { spentNow } from "./budget.ts";
 import { changeSpecStates } from "./effects.ts";
 import { optionsText, renderTemplate, Templates } from "./templates.ts";
@@ -412,6 +412,8 @@ async function moveReserved(
     { reserved: { class: hit.class, member: hit.member } },
     "decide",
   );
+  if (step.to.kind === "needs_human")
+    await needsHumanTrigger(tx, decision, { ...context, verb: "decide" });
   return step.to;
 }
 

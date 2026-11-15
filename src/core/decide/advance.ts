@@ -368,7 +368,7 @@ export async function move(
     throw new Error(`Decision ${decision.id} moved from ${decision.state}`);
 }
 
-async function needsHumanTrigger(
+export async function needsHumanTrigger(
   tx: Repo,
   decision: DecisionRow,
   context: { at: Date; host: string; verb?: string },
