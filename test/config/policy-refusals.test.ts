@@ -103,3 +103,35 @@ test.each([[0], [11], ["x"], [2.5], [null]])(
     ]);
   },
 );
+
+test("the default policy seeds the packet limits 20, 2000, and 30 and validates", () => {
+  expect(defaultValue["limits"]).toMatchObject({
+    packet_items: 20,
+    packet_words: 2000,
+    packet_minutes: 30,
+  });
+  expect(validatePolicy(defaultValue, null)).toBeNull();
+});
+
+const withLimit = (key: string, limit: unknown) => ({
+  ...defaultValue,
+  limits: { ...(defaultValue["limits"] as object), [key]: limit },
+});
+
+test.each([
+  ["packet_items", 1, 100, "1 to 100"],
+  ["packet_words", 500, 8000, "500 to 8000"],
+  ["packet_minutes", 5, 120, "5 to 120"],
+])("limits.%s takes an integer from %i to %i", (key, low, high, range) => {
+  expect(refusedAt(withLimit(key, low))).toBeNull();
+  expect(refusedAt(withLimit(key, high))).toBeNull();
+  for (const bad of [low - 1, high + 1, low + 0.5, String(low)]) {
+    expect(refusedAt(withLimit(key, bad))).toEqual([
+      "schema_invalid",
+      `limits.${key}`,
+    ]);
+    expect(validatePolicy(withLimit(key, bad), null)?.message).toBe(
+      `limits.${key}: must be an integer from ${range}`,
+    );
+  }
+});

@@ -1,13 +1,31 @@
 import { z } from "zod";
 import type { RevisionEnvelope } from "../domain/config.ts";
+import { MetaStepName } from "../domain/tick.ts";
 import type { Refusal } from "../domain/outcome.ts";
 import type { Repo } from "../ports/db.ts";
 
 const Minutes = z.int().positive();
 
+const MetaSlot = z.strictObject({
+  name: z.string().min(1),
+  at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "needs HH:MM"),
+  steps: z
+    .array(MetaStepName)
+    .min(1)
+    .refine((steps) => new Set(steps).size === steps.length, "repeats a step"),
+});
+export type MetaSlot = z.infer<typeof MetaSlot>;
+
 const ScheduleValue = z.strictObject({
   tick_minutes: Minutes,
   hold_minutes: Minutes,
+  meta_slots: z
+    .array(MetaSlot)
+    .refine(
+      (slots) => new Set(slots.map((slot) => slot.name)).size === slots.length,
+      "repeats a slot name",
+    )
+    .optional(),
 });
 export type ScheduleValue = z.infer<typeof ScheduleValue>;
 

@@ -580,7 +580,7 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     sideEffect: "ledger",
     cancelBy: ["nobody"],
     evidenceRequired: [
-      "an active schedule Revision for the host; each `--trigger` is SOURCE:ID with SOURCE orchestration, tracker, timer, or operator; `--dry-run` writes nothing",
+      "an active schedule Revision for the host; each `--trigger` is SOURCE:ID with SOURCE orchestration, tracker, timer, or operator; `--agenda meta` runs the host's due `meta_slots` and takes `--slot NAME` and no `--trigger`; `--dry-run` writes nothing",
     ],
     meta: tickOpKeyMeta,
   }),

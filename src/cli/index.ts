@@ -111,6 +111,8 @@ function parse() {
         until: { type: "string" },
         trigger: { type: "string", multiple: true },
         "dry-run": { type: "boolean" },
+        agenda: { type: "string" },
+        slot: { type: "string" },
       },
       strict: true,
       allowPositionals: true,

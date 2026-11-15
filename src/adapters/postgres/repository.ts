@@ -1009,9 +1009,11 @@ function makeRepo(x: Executor): Repo {
       );
     },
 
-    async tryLockTick(host) {
+    async tryLockTick(host, agenda) {
+      const key =
+        agenda === undefined ? `tick:${host}` : `tick:${host}:${agenda}`;
       const [row] = await x.execute<{ locked: boolean }>(
-        sql`select pg_try_advisory_xact_lock(hashtext(${`tick:${host}`})) as locked`,
+        sql`select pg_try_advisory_xact_lock(hashtext(${key})) as locked`,
       );
       return row?.locked === true;
     },

@@ -6,3 +6,5 @@ scope_ref: host-a
 value:
   tick_minutes: 15
   hold_minutes: 60
+  meta_slots:
+    - { name: morning, at: "05:00", steps: [retro, digest] }

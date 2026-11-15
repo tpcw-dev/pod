@@ -10,6 +10,11 @@ import {
 import { GateEntry } from "../gate/receipt.ts";
 import { LearningKinds } from "./learning-kinds.ts";
 import { UsageLimitsValue } from "./limits.ts";
+import {
+  packetLimit,
+  packetLimitBounds,
+  type PacketLimitName,
+} from "./packet-limits.ts";
 import { isMethod, methodRule } from "../process/schema.ts";
 
 const Fields = z.record(z.string(), z.unknown());
@@ -296,6 +301,15 @@ function limitsProblem(limits: unknown): Problem {
       path: "limits.digest_per_day",
       message: "limits.digest_per_day: must be an integer from 1 to 10",
     };
+  for (const name of Object.keys(packetLimitBounds) as PacketLimitName[]) {
+    const limit = given[name];
+    const { min, max } = packetLimitBounds[name];
+    if (limit !== undefined && !packetLimit(name).safeParse(limit).success)
+      return {
+        path: `limits.${name}`,
+        message: `limits.${name}: must be an integer from ${min} to ${max}`,
+      };
+  }
   const usage = given["usage"];
   if (usage !== undefined && !UsageLimitsValue.safeParse(usage).success)
     return {

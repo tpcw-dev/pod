@@ -1,0 +1,7 @@
+{"at": "2026-11-15T09:30:00Z", "note": "before the morning slot, local 04:30", "expect": {"outcome": "not due", "slots": []}}
+{"at": "2026-11-15T10:30:00Z", "note": "first call past the morning slot", "expect": {"outcome": "ran", "slots": ["morning"]}}
+{"at": "2026-11-15T10:35:00Z", "note": "another caller holds the meta lock", "lock": "held", "expect": {"outcome": "coalesced", "slots": []}}
+{"at": "2026-11-15T12:00:00Z", "note": "the slot already ran this local day", "expect": {"outcome": "not due", "slots": []}}
+{"at": "2026-11-16T10:05:00Z", "note": "the next morning's slot is killed before its tick event", "crash": true, "expect": {"outcome": "crashed", "slots": []}}
+{"at": "2026-11-16T10:20:00Z", "note": "the killed slot reruns with the same op-keys", "expect": {"outcome": "ran", "slots": ["morning"]}}
+{"at": "2026-11-16T11:00:00Z", "note": "the operator forces the slot once more", "slot": "morning", "expect": {"outcome": "ran", "slots": ["morning"]}}

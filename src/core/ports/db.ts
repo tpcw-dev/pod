@@ -221,7 +221,7 @@ export interface Repo {
   ): Promise<Event | null>;
   eventsWith(type: EventType, payload: Record<string, Json>): Promise<Event[]>;
   recordTrigger(row: NewEvent): Promise<{ event: Event; created: boolean }>;
-  tryLockTick(host: string): Promise<boolean>;
+  tryLockTick(host: string, agenda?: "meta"): Promise<boolean>;
   latestEventWith(
     type: EventType,
     payload: Record<string, Json>,

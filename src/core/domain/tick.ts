@@ -59,3 +59,49 @@ export const TickPayload = z.strictObject({
   refuse: z.array(Json),
 });
 export type TickPayload = z.infer<typeof TickPayload>;
+
+export const metaStepNames = ["retro", "digest"] as const;
+export const MetaStepName = z.enum(metaStepNames);
+export type MetaStepName = z.infer<typeof MetaStepName>;
+
+export const MetaStepOutcome = z.enum([
+  "ok",
+  "failed",
+  "timed_out",
+  "not_built",
+  "planned",
+]);
+export type MetaStepOutcome = z.infer<typeof MetaStepOutcome>;
+
+export const MetaStepRecord = z.strictObject({
+  step: MetaStepName,
+  op_key: Name,
+  result: MetaStepOutcome,
+  detail: Json.nullable(),
+});
+export type MetaStepRecord = z.infer<typeof MetaStepRecord>;
+
+export const MetaTickPayload = z.strictObject({
+  agenda: z.literal("meta"),
+  host: Name,
+  tick_id: Name,
+  actor: Name,
+  schedule_revision: Name,
+  slot: Name,
+  steps: z.array(MetaStepRecord),
+});
+export type MetaTickPayload = z.infer<typeof MetaTickPayload>;
+
+export const Watermark = z.strictObject({
+  event_id: z.int().positive(),
+  ts: z.iso.datetime(),
+});
+export type Watermark = z.infer<typeof Watermark>;
+
+export const MetaOutputRef = z.strictObject({
+  step: MetaStepName,
+  scope: Name,
+  input: Watermark,
+  verified: z.literal(true),
+});
+export type MetaOutputRef = z.infer<typeof MetaOutputRef>;
