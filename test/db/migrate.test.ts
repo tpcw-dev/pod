@@ -635,8 +635,8 @@ describeDb("pod db migrate", () => {
       const trigger = (host: string) => conn.sql`
         insert into ledger.event (type, ts, host, payload, source)
         values ('trigger', now(), ${host},
-          ${conn.sql.json({ host, source: "timer", trigger_id: "t-1" })},
-          ${conn.sql.json({ kind: "command" })})`;
+          ${JSON.stringify({ host, source: "timer", trigger_id: "t-1" })}::jsonb,
+          ${JSON.stringify({ kind: "command" })}::jsonb)`;
       await trigger("host-a");
       await expect(trigger("host-b")).rejects.toThrow(
         /event_trigger_source_id/,
