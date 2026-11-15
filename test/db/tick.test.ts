@@ -109,6 +109,7 @@ describeDb("pod tick", () => {
       writer: "local",
       actor: "person:human",
       now: t0,
+      sources: { tracker: null, docs: null },
     });
     if (!published.ok || published.published === null)
       throw new Error("plan not published");
