@@ -7,6 +7,9 @@ import type {
 import type { DecisionRow } from "../domain/decision.ts";
 import type { Json } from "../domain/json.ts";
 import type { Dispatch, Event, Operation, Run, Task } from "../domain/ledger.ts";
+import type { TickLines } from "../domain/tick.ts";
+import { newestTick, tickEvents } from "../operate/triggers.ts";
+import type { Repo } from "../ports/db.ts";
 
 export const HAND_FILLED_VERBS = [
   "verdict post",
@@ -268,4 +271,21 @@ export function measureRun(
       target: 10,
     },
   };
+}
+
+/** The newest tick's needs_human lines for a host, as `pod brief` and `pod state` show them. */
+export async function newestTickLines(
+  repo: Repo,
+  host: string,
+): Promise<TickLines | null> {
+  const newest = newestTick(await tickEvents(repo, host));
+  return newest === null
+    ? null
+    : {
+        host,
+        tick_id: newest.payload.tick_id,
+        event_id: newest.id,
+        at: newest.ts.toISOString(),
+        needs_human: newest.payload.needs_human,
+      };
 }

@@ -14,6 +14,7 @@ const Limits = z.looseObject({
       decision_rounds: z.unknown().optional(),
       decision_budget: z.unknown().optional(),
       usage: z.unknown().optional(),
+      stall_minutes: z.unknown().optional(),
     })
     .optional(),
 });
@@ -44,4 +45,11 @@ export function usageLimits(policyValue: unknown): UsageLimits {
       stale_minutes: 30,
     }
   );
+}
+
+export const StallMinutes = z.int().positive();
+
+export function stallMinutes(policyValue: unknown): number {
+  const stall = Limits.safeParse(policyValue).data?.limits?.stall_minutes;
+  return StallMinutes.safeParse(stall).data ?? 30;
 }

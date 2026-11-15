@@ -34,6 +34,7 @@ export async function stateVerb(input: StateInput): Promise<StateView> {
     const built = await buildState(
       {
         repo: connection.db,
+        host: host.hostId,
         docs: wiring?.port ?? null,
         now: () => new Date(),
       },

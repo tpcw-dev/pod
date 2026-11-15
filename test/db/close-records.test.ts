@@ -204,7 +204,7 @@ describeDb("pod run close records", () => {
       "main went red after the merge",
     );
     const state = await buildState(
-      { repo: conn.db, docs: null, now: () => new Date() },
+      { repo: conn.db, host: "local", docs: null, now: () => new Date() },
       { story: "S-1", project: null },
     );
     if (!state.ok) throw new Error(state.refusal.message);

@@ -265,7 +265,7 @@ describeDb("decision states", () => {
 
   async function view(row: number) {
     const built = await buildState(
-      { repo: conn.db, docs: null, now: () => new Date() },
+      { repo: conn.db, host: "local", docs: null, now: () => new Date() },
       { story: story(row), project: null },
     );
     if (!built.ok) throw new Error(built.refusal.message);

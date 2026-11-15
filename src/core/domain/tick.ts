@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Json } from "./json.ts";
+import type { NewEvent } from "./ledger.ts";
 
 const Name = z.string().min(1);
 
@@ -17,6 +18,31 @@ export const TriggerPayload = z.strictObject({
   trigger_id: Name,
 });
 export type TriggerPayload = z.infer<typeof TriggerPayload>;
+
+/** The trigger that makes the next `pod tick` of a Run's host due at once. */
+export function orchestrationTrigger(input: {
+  run: { run_id: string; host: string };
+  trigger_id: string;
+  writer: string;
+  at: Date;
+  verb: string;
+}): NewEvent {
+  return {
+    type: "trigger",
+    ts: input.at,
+    host: input.writer,
+    run_id: input.run.run_id,
+    task_id: null,
+    dispatch_id: null,
+    op_key: null,
+    payload: Json.parse({
+      host: input.run.host,
+      source: "orchestration",
+      trigger_id: input.trigger_id,
+    }),
+    source: Json.parse({ kind: "command", verb: input.verb }),
+  };
+}
 
 export const stepNames = [
   "read_plan",
@@ -46,6 +72,39 @@ export const StepRecord = z.strictObject({
 });
 export type StepRecord = z.infer<typeof StepRecord>;
 
+export const NeedsHumanKind = z.enum([
+  "dispatch_silent",
+  "task_unlaunched",
+  "run_hold",
+  "decision_over_budget",
+  "worker_ended",
+  "escalation",
+  "decision_needs_human",
+]);
+export type NeedsHumanKind = z.infer<typeof NeedsHumanKind>;
+
+export const NeedsHumanLine = z.strictObject({
+  kind: NeedsHumanKind,
+  run_id: Name,
+  story: z.string(),
+  task_id: z.string().nullable(),
+  dispatch_id: z.string().nullable(),
+  decision_id: z.string().nullable(),
+  event_id: z.number().nullable(),
+  since: z.string(),
+  text: z.string(),
+});
+export type NeedsHumanLine = z.infer<typeof NeedsHumanLine>;
+
+export const TickLines = z.object({
+  host: Name,
+  tick_id: Name,
+  event_id: z.number(),
+  at: z.string(),
+  needs_human: z.array(NeedsHumanLine),
+});
+export type TickLines = z.infer<typeof TickLines>;
+
 export const TickPayload = z.strictObject({
   host: Name,
   tick_id: Name,
@@ -57,6 +116,7 @@ export const TickPayload = z.strictObject({
   steps: z.array(StepRecord),
   launch: z.array(Json),
   refuse: z.array(Json),
+  needs_human: z.array(NeedsHumanLine).default([]),
 });
 export type TickPayload = z.infer<typeof TickPayload>;
 

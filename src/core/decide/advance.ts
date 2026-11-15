@@ -26,6 +26,7 @@ import {
   specRevisionOf,
 } from "./effects.ts";
 import { exhausted, spentNow } from "./budget.ts";
+import { orchestrationTrigger } from "../domain/tick.ts";
 import { appendDecisionEvent, reasonText } from "./event.ts";
 import { oweSend, type FollowUp } from "./owed.ts";
 import { next, proposalStance, type DecisionEvent } from "./table.ts";
@@ -367,6 +368,24 @@ export async function move(
     throw new Error(`Decision ${decision.id} moved from ${decision.state}`);
 }
 
+async function needsHumanTrigger(
+  tx: Repo,
+  decision: DecisionRow,
+  context: { at: Date; host: string; verb?: string },
+): Promise<void> {
+  const run = await tx.getRun(decision.run_id);
+  if (run === null) throw new Error(`Run ${decision.run_id} vanished`);
+  await tx.recordTrigger(
+    orchestrationTrigger({
+      run,
+      trigger_id: `decision:${decision.id}:needs_human:${context.at.toISOString()}`,
+      writer: context.host,
+      at: context.at,
+      verb: context.verb ?? "check",
+    }),
+  );
+}
+
 export async function settle(
   tx: Repo,
   decision: DecisionRow,
@@ -383,6 +402,7 @@ export async function settle(
     { result: to.kind, text, ...outcome },
     context.at,
   );
+  if (to.kind === "needs_human") await needsHumanTrigger(tx, decision, context);
   const supersedes = decision.effect === "change_spec";
   if (!supersedes || to.kind !== "agreed" || "ruling" in detail)
     await appendDecisionEvent(

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { parse } from "yaml";
 import { droppedMember, validatePolicy } from "../../src/core/config/policy.ts";
+import { stallMinutes } from "../../src/core/config/limits.ts";
 
 const defaultValue = (
   parse(readFileSync("specs/policy/default.yaml", "utf8")) as {
@@ -84,6 +85,28 @@ test.each([
     "limits.usage",
   ]);
 });
+
+test("the default policy seeds limits.stall_minutes 30 and the tick reads it", () => {
+  expect(defaultValue["limits"]).toMatchObject({ stall_minutes: 30 });
+  expect(stallMinutes(defaultValue)).toBe(30);
+  expect(stallMinutes(withStall(45))).toBe(45);
+  expect(stallMinutes(withStall(0))).toBe(30);
+});
+
+const withStall = (stall: unknown) => ({
+  ...defaultValue,
+  limits: { ...(defaultValue["limits"] as object), stall_minutes: stall },
+});
+
+test.each([[0], [-5], [2.5], ["30"], [null]])(
+  "limits.stall_minutes %j is schema_invalid",
+  (stall) => {
+    expect(refusedAt(withStall(stall))).toEqual([
+      "schema_invalid",
+      "limits.stall_minutes",
+    ]);
+  },
+);
 
 const withDigest = (digest: unknown) => ({
   ...defaultValue,

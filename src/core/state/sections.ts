@@ -17,6 +17,7 @@ import type {
   UsageSection,
 } from "../domain/state.ts";
 import { gateOf } from "../gate/receipt.ts";
+import { newestTickLines } from "../brief/counters.ts";
 import type { Repo } from "../ports/db.ts";
 import type { DocsPort, Section } from "../ports/docs.ts";
 import { ProcessValue, type Step } from "../process/schema.ts";
@@ -27,6 +28,7 @@ import { readHeadroom } from "../usage/pace.ts";
 
 export interface StateContext {
   repo: Repo;
+  host: string;
   docs: DocsPort | null;
   now: () => Date;
 }
@@ -424,6 +426,7 @@ export async function needsHumanSection(
     }
   closed.sort((a, b) => b.at.localeCompare(a.at));
   return {
+    tick: await newestTickLines(ctx.repo, ctx.host),
     items: [...open, ...closed],
     source_revision: null,
     observed_at: observed(ctx),

@@ -765,11 +765,11 @@ async function recordWorkers(
   });
 }
 
-async function recordStops(
+export async function recordStops(
   tx: Repo,
   run: Run,
   rows: readonly WorkerRow[],
-  input: CheckInput,
+  input: Pick<CheckInput, "host" | "now">,
 ): Promise<string[]> {
   const stopped: string[] = [];
   for (const row of rows) {

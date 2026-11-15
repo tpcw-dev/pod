@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TestResult } from "../domain/ledger.ts";
+import { TickLines } from "../domain/tick.ts";
 import { tokenTotal } from "../usage/rollup.ts";
 
 const escapes: Readonly<Record<string, string>> = {
@@ -477,6 +478,21 @@ function pendingTable(parsed: unknown): string {
   return `<table id="pending-requests">\n${rows.join("\n")}\n</table>`;
 }
 
+const BriefTick = z.object({ tick: TickLines.nullable() });
+
+function needsHumanTable(parsed: unknown): string {
+  const brief = BriefTick.safeParse(parsed);
+  const tick = brief.success ? brief.data.tick : null;
+  if (tick === null || tick.needs_human.length === 0) return "";
+  const rows = [
+    row(["needs human", "Story", "Run", "since", "line"]),
+    ...tick.needs_human.map((line) =>
+      row([line.kind, line.story, line.run_id, line.since, line.text]),
+    ),
+  ];
+  return `<table id="needs-human">\n${rows.join("\n")}\n</table>`;
+}
+
 function driftTable(parsed: unknown): string {
   const brief = BriefDrift.safeParse(parsed);
   if (!brief.success || brief.data.drift.length === 0) return "";
@@ -495,6 +511,7 @@ export function renderBriefHtml(resultJson: string): string {
     pendingTable(parsed),
     digestSections(parsed),
     driftTable(parsed),
+    needsHumanTable(parsed),
     testTables(parsed),
     measurementTables(parsed),
     usageTable(parsed),

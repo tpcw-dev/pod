@@ -88,6 +88,7 @@ function view(
       ],
     },
     needs_human: {
+      tick: null,
       source_revision: null,
       observed_at,
       items: [

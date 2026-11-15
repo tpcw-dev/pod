@@ -6,6 +6,8 @@ import {
   projectProfiles,
   type ProjectProfile,
 } from "../core/brief/profiles.ts";
+import { newestTickLines } from "../core/brief/counters.ts";
+import { TickLines } from "../core/domain/tick.ts";
 import { pendingActivations, revisionRef } from "../core/config/apply.ts";
 import { revisionId } from "../core/config/canonical-json.ts";
 import { mirrorPath, mirrorSet, scopeText } from "../core/config/mirror.ts";
@@ -210,6 +212,7 @@ export const BriefOutput = z.object({
   drift: z.array(DriftJson),
   usage: UsageDayJson,
   yesterday: LogDayJson,
+  tick: TickLines.nullable(),
   nextSteps: z.array(z.string()).optional(),
 });
 type BriefResult = z.infer<typeof BriefOutput>;
@@ -344,7 +347,7 @@ function toBriefResult(
   drift: BriefResult["drift"],
   usages: ReadonlyMap<string, RunUsage>,
   usage: BriefResult["usage"],
-): Omit<BriefResult, "yesterday"> {
+): Omit<BriefResult, "yesterday" | "tick"> {
   const current = new Map(projects.map((row) => [row.project, row.profile]));
   return {
     pending_requests: pending,
@@ -470,6 +473,7 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
           zone.zone,
         ),
       ),
+      tick: await newestTickLines(connection.db, host.hostId),
       ...(nextSteps.length === 0 ? {} : { nextSteps }),
     });
     if (input.html !== undefined)
