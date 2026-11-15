@@ -345,8 +345,12 @@ describeDb("pod tick attention: stalls and the one automatic retry", () => {
     const attention = port(rows);
     const found = await lines(now, rows, attention);
     expect(attention.started).toEqual([]);
-    expect(kinds(found)).toContain("worker_ended ctx_1");
-    expect(kinds(found)).not.toContain("dispatch_silent ctx_1");
+    expect(found.filter((line) => line.dispatch_id === "ctx_1")).toEqual([
+      expect.objectContaining({
+        kind: "worker_ended",
+        text: "Dispatch ctx_1 worker succeeded with no delivery recorded; pod check has its report to read",
+      }),
+    ]);
     expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
       settlement: "open",
     });
