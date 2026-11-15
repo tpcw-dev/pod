@@ -133,14 +133,14 @@ function metaTickId(
   slot: string,
   ticks: readonly MetaTickEvent[],
 ): string {
-  const newest = ticks
+  const ids = ticks
     .filter((each) => each.payload.slot === slot)
-    .reduce<number | null>((max, each) => Math.max(max ?? 0, each.id), null);
+    .map((each) => each.id);
   return derivedOpKey("tick", {
     host,
     agenda: "meta",
     slot,
-    after: String(newest ?? "none"),
+    after: ids.length === 0 ? "none" : String(Math.max(...ids)),
   });
 }
 

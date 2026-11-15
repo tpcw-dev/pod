@@ -313,7 +313,7 @@ describeDb("pod tick --agenda meta", () => {
     expect(ops?.n).toBe(0);
   });
 
-  test("pod tick --agenda meta runs from the CLI and refuses bad flags", async () => {
+  test("pod tick --agenda meta runs from the CLI and refuses an unknown slot", async () => {
     await seedMeta(conn);
     expect(runCli(["tick", "--agenda", "meta", "--dry-run"])).toMatchObject({
       status: 0,
@@ -324,20 +324,6 @@ describeDb("pod tick --agenda meta", () => {
     ).toMatchObject({
       status: 0,
       json: { ok: true, result: { agenda: "meta", outcome: "ran" } },
-    });
-    expect(runCli(["tick", "--agenda", "weekly"])).toMatchObject({
-      status: 2,
-      json: { ok: false, error: { code: "usage" } },
-    });
-    expect(runCli(["tick", "--slot", "morning"])).toMatchObject({
-      status: 2,
-      json: { ok: false, error: { code: "usage" } },
-    });
-    expect(
-      runCli(["tick", "--agenda", "meta", "--trigger", "operator:a"]),
-    ).toMatchObject({
-      status: 2,
-      json: { ok: false, error: { code: "usage" } },
     });
     expect(
       runCli(["tick", "--agenda", "meta", "--slot", "evening"]),

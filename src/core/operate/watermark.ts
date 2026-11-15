@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { Json } from "../domain/json.ts";
 import type { EventType } from "../domain/ledger.ts";
 import {
@@ -7,6 +8,8 @@ import {
 } from "../domain/tick.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { Db, Repo } from "../ports/db.ts";
+
+const Output = z.looseObject({ meta: MetaOutputRef });
 
 /**
  * A step's watermark is the input upper bound cited by its newest verified
@@ -22,10 +25,8 @@ export async function readWatermark(
     meta: { step, scope, verified: true },
   });
   for (const each of [...outputs].reverse()) {
-    const ref = MetaOutputRef.safeParse(
-      (each.payload as Record<string, Json>)["meta"],
-    );
-    if (ref.success) return ref.data.input;
+    const ref = Output.safeParse(each.payload).data?.meta;
+    if (ref !== undefined) return ref.input;
   }
   return null;
 }
