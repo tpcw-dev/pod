@@ -3,13 +3,23 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import type { Kind } from "../../src/core/domain/config.ts";
-import type { Json } from "../../src/core/domain/json.ts";
+import { Json } from "../../src/core/domain/json.ts";
 import { TriggerSource } from "../../src/core/domain/tick.ts";
+import { makeFixtureCodeHost } from "../../src/adapters/code-host/fixture.ts";
+import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
+import {
+  canonicalJson,
+  sha256Hex,
+} from "../../src/core/config/canonical-json.ts";
+import { CloseReport } from "../../src/core/domain/close.ts";
+import { observedStates } from "../../src/core/operate/close-candidates.ts";
 import {
   dryRunTick,
+  operateSteps,
   runSteps,
   runTick,
   type TickOutcome,
+  type TickStep,
 } from "../../src/core/operate/tick.ts";
 import {
   recordTriggers,
@@ -17,7 +27,16 @@ import {
 } from "../../src/core/operate/triggers.ts";
 import { envelope, storeRevision } from "../db/fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb } from "../db/helpers.ts";
-import { hostValue } from "../db/seed.ts";
+import { fakeGit } from "../db/close-ports.ts";
+import { fakeTracker, trackerStory } from "../db/fake-tracker.ts";
+import { createRun, replay, workers } from "../db/run-fixture.ts";
+import {
+  activeRevision,
+  crewValue,
+  hostValue,
+  processValue,
+} from "../db/seed.ts";
+import { ok } from "../orca/temp-fixtures.ts";
 
 const dir = process.env["POD_ORCA_FIXTURES"] ?? "fixtures/orca/operate-day";
 const host = "local";
@@ -28,7 +47,12 @@ interface Call {
   triggers: string[];
   lock?: "held";
   crash?: boolean;
-  expect: { outcome: TickOutcome["outcome"] | "crashed"; consumed: string[] };
+  seed?: "finished_run";
+  expect: {
+    outcome: TickOutcome["outcome"] | "crashed";
+    consumed: string[];
+    closed?: string[];
+  };
 }
 
 const day = readFileSync(join(dir, "day.jsonl"), "utf8")
@@ -54,7 +78,61 @@ describeDb("operate-day", () => {
       tick_minutes: 15,
       hold_minutes: 60,
     });
+    await activeRevision(conn.db, "policy", "default", {
+      gates: ["pr"],
+      story_status: { done: "Done", human_wait: "In-review" },
+    });
+    await activeRevision(conn.db, "crew", "default", crewValue);
+    await activeRevision(conn.db, "process", "impl", processValue);
   });
+
+  async function seedFinishedRun(at: Date): Promise<void> {
+    await createRun(conn);
+    await conn.db.setTaskState("task_b", "done");
+    await conn.db.setTaskState("task_r", "done");
+    const report = CloseReport.parse({});
+    await conn.db.appendEvent({
+      type: "delivery",
+      ts: at,
+      host,
+      run_id: "run_1",
+      task_id: null,
+      dispatch_id: null,
+      op_key: null,
+      payload: Json.parse({
+        message_id: "m_close",
+        delivery_id: "delivery_close",
+        type: "status",
+        outcome: "close_report",
+        subject: null,
+        close_report: report,
+        report_hash: sha256Hex(canonicalJson(report)),
+      }),
+      source: { kind: "command", verb: "check" },
+    });
+  }
+
+  async function steps(): Promise<readonly TickStep[]> {
+    const live = await conn.db.listHostRuns(host, observedStates);
+    const { orca, log } = replay(
+      conn,
+      live.map((each) =>
+        ok("worker-list", workers([]), ["--run", each.run_id]),
+      ),
+    );
+    return operateSteps({
+      orca,
+      tracker: fakeTracker(
+        trackerStory({ status: "Done", statusType: "completed" }),
+      ),
+      log,
+      codeHost: makeFixtureCodeHost(),
+      git: fakeGit(),
+      worktreeStatus: () => null,
+      provider: "linear",
+      leaseSeconds: launchLeaseSeconds,
+    });
+  }
   afterAll(() => conn.close());
 
   async function activate(kind: Kind, name: string, value: Json) {
@@ -87,37 +165,49 @@ describeDb("operate-day", () => {
   }
 
   async function tick(call: Call): Promise<TickOutcome> {
+    const planned = await steps();
     const outcome =
       call.lock === "held"
         ? await conn.sql.begin(async (held) => {
             await held`select pg_advisory_xact_lock(hashtext(${`tick:${host}`}))`;
-            return runTick(conn.db, input(call));
+            return runTick(conn.db, input(call), planned);
           })
-        : await runTick(conn.db, input(call));
+        : await runTick(conn.db, input(call), planned);
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     for (const each of outcome.recorded)
       triggerIds.set(`${each.source}:${each.trigger_id}`, each.event_id);
     return outcome;
   }
 
-  test("a day of polls and triggers, one coalesced pair, and one crash and re-run", async () => {
+  test("a day of polls and triggers, one coalesced pair, one crash and re-run, and one Run closed by the tick", async () => {
     let crashed: { tick_id: string | null; op_keys: string[] } | null = null;
     const ticks: string[] = [];
     for (const call of day) {
       if (call.crash === true) {
-        const planned = await dryRunTick(conn.db, input(call));
+        const planned = await dryRunTick(conn.db, input(call), await steps());
         if (!planned.ok) throw new Error(planned.refusal.message);
         for (const each of await recordTriggers(conn.db, input(call)))
           triggerIds.set(`${each.source}:${each.trigger_id}`, each.event_id);
-        const steps = await runSteps(conn.db, input(call));
+        const partial = await runSteps(conn.db, input(call), await steps());
         crashed = {
           tick_id: planned.tick_id,
-          op_keys: steps.steps.map((each) => each.op_key),
+          op_keys: partial.steps.map((each) => each.op_key),
         };
         expect(call.expect.outcome, call.note).toBe("crashed");
         continue;
       }
+      if (call.seed === "finished_run")
+        await seedFinishedRun(new Date(call.at));
       const outcome = await tick(call);
+      if (call.expect.closed !== undefined) {
+        const close = outcome.steps.find((each) => each.step === "close");
+        expect(
+          (close?.detail as { closed: { run_id: string }[] }).closed.map(
+            (each) => each.run_id,
+          ),
+          call.note,
+        ).toEqual(call.expect.closed);
+      }
       expect(outcome.outcome, call.note).toBe(call.expect.outcome);
       expect(outcome.consumed, call.note).toEqual(
         call.expect.consumed.map((text) => triggerIds.get(text)),
@@ -142,5 +232,11 @@ describeDb("operate-day", () => {
       ticks: day.filter((call) => call.expect.outcome === "ran").length,
       triggers: 4,
     });
+    expect((await conn.db.getRun("run_1"))?.state).toBe("done");
+    const [closes] = await conn.sql<{ events: number; ops: number }[]>`
+      select (select count(*)::int from ledger.event where type = 'close') as events,
+        (select count(*)::int from ledger.operation where intent = 'close') as ops`;
+    expect(closes?.events).toBe(1);
+    expect(closes?.ops).toBeGreaterThan(0);
   });
 });

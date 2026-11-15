@@ -83,6 +83,7 @@ function parse() {
         interval: { type: "string" },
         timeout: { type: "string" },
         resume: { type: "boolean" },
+        observe: { type: "boolean" },
         dispatch: { type: "string" },
         retain: { type: "boolean" },
         end: { type: "boolean" },

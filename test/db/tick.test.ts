@@ -8,7 +8,6 @@ import {
   runSteps,
   runTick,
   stepOpKey,
-  tickSteps,
   type TickInput,
   type TickOutcome,
   type TickStep,
@@ -21,6 +20,7 @@ import { publishPlan } from "../../src/core/plan/plan.ts";
 import type { Refused } from "../../src/core/domain/outcome.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import { idleSteps } from "./operate-ports.ts";
 import { hostValue } from "./seed.ts";
 
 const t0 = new Date("2026-11-15T16:00:00.000Z");
@@ -97,7 +97,7 @@ describeDb("pod tick", () => {
   }
 
   function withStep(name: string, step: Partial<TickStep>): TickStep[] {
-    return tickSteps.map((each) =>
+    return idleSteps(conn.db).map((each) =>
       each.name === name ? { ...each, ...step } : each,
     );
   }
@@ -113,14 +113,14 @@ describeDb("pod tick", () => {
     if (!published.ok || published.published === null)
       throw new Error("plan not published");
     const planEvent = published.published.event_id;
-    const tick = ran(await runTick(conn.db, input(t0)));
+    const tick = ran(await runTick(conn.db, input(t0), idleSteps(conn.db)));
     expect(tick.outcome).toBe("ran");
     expect(tick.schedule_revision).toBe(schedule);
     expect(tick.steps.map((each) => each.step)).toEqual(order);
     expect(tick.steps.map((each) => each.result)).toEqual([
       "ok",
-      "not_built",
-      "not_built",
+      "ok",
+      "ok",
       "not_built",
       "not_built",
       "ok",
@@ -215,8 +215,12 @@ describeDb("pod tick", () => {
 
   test("with no trigger, a tick inside tick_minutes of the last one is not due and writes nothing", async () => {
     const schedule = await seed();
-    expect(ran(await runTick(conn.db, input(t0))).outcome).toBe("ran");
-    const early = ran(await runTick(conn.db, input(minutes(14))));
+    expect(
+      ran(await runTick(conn.db, input(t0), idleSteps(conn.db))).outcome,
+    ).toBe("ran");
+    const early = ran(
+      await runTick(conn.db, input(minutes(14)), idleSteps(conn.db)),
+    );
     expect(early).toMatchObject({
       outcome: "not due",
       due: false,
@@ -225,15 +229,22 @@ describeDb("pod tick", () => {
       steps: [],
     });
     expect(await count("tick")).toBe(1);
-    expect(ran(await runTick(conn.db, input(minutes(15)))).outcome).toBe("ran");
+    expect(
+      ran(await runTick(conn.db, input(minutes(15)), idleSteps(conn.db)))
+        .outcome,
+    ).toBe("ran");
     expect(await count("tick")).toBe(2);
   });
 
   test("a pending trigger makes the tick due inside tick_minutes", async () => {
     await seed();
-    ran(await runTick(conn.db, input(t0)));
+    ran(await runTick(conn.db, input(t0), idleSteps(conn.db)));
     const tick = ran(
-      await runTick(conn.db, input(minutes(1), [operator("op-1")])),
+      await runTick(
+        conn.db,
+        input(minutes(1), [operator("op-1")]),
+        idleSteps(conn.db),
+      ),
     );
     expect(tick.outcome).toBe("ran");
     expect(tick.consumed).toEqual([tick.recorded[0]?.event_id]);
@@ -244,7 +255,13 @@ describeDb("pod tick", () => {
     let coalesced: TickOutcome | null = null;
     await conn.sql.begin(async (held) => {
       await held`select pg_advisory_xact_lock(hashtext('tick:local'))`;
-      coalesced = ran(await runTick(conn.db, input(t0, [operator("op-1")])));
+      coalesced = ran(
+        await runTick(
+          conn.db,
+          input(t0, [operator("op-1")]),
+          idleSteps(conn.db),
+        ),
+      );
     });
     expect(coalesced).toMatchObject({
       outcome: "coalesced",
@@ -255,7 +272,9 @@ describeDb("pod tick", () => {
     expect((coalesced as TickOutcome | null)?.pending).toEqual([waiting]);
     expect(await count("trigger")).toBe(1);
     expect(await count("tick")).toBe(0);
-    const next = ran(await runTick(conn.db, input(minutes(1))));
+    const next = ran(
+      await runTick(conn.db, input(minutes(1)), idleSteps(conn.db)),
+    );
     expect(next.outcome).toBe("ran");
     expect(next.consumed).toHaveLength(1);
     expect(next.pending).toEqual([]);
@@ -264,19 +283,29 @@ describeDb("pod tick", () => {
   test("a trigger is written once and acknowledged by one tick only", async () => {
     await seed();
     const first = ran(
-      await runTick(conn.db, input(t0, [operator("op-1"), operator("op-1")])),
+      await runTick(
+        conn.db,
+        input(t0, [operator("op-1"), operator("op-1")]),
+        idleSteps(conn.db),
+      ),
     );
     expect(first.recorded.map((each) => each.created)).toEqual([true, false]);
     expect(await count("trigger")).toBe(1);
     expect(first.consumed).toHaveLength(1);
     const again = ran(
-      await runTick(conn.db, input(minutes(1), [operator("op-1")])),
+      await runTick(
+        conn.db,
+        input(minutes(1), [operator("op-1")]),
+        idleSteps(conn.db),
+      ),
     );
     expect(again).toMatchObject({
       outcome: "not due",
       recorded: [{ created: false }],
     });
-    const later = ran(await runTick(conn.db, input(minutes(30))));
+    const later = ran(
+      await runTick(conn.db, input(minutes(30)), idleSteps(conn.db)),
+    );
     expect(later.consumed).toEqual([]);
   });
 
@@ -284,11 +313,19 @@ describeDb("pod tick", () => {
     await seed("local");
     await seed("other");
     const other = ran(
-      await runTick(conn.db, input(t0, [operator("op-b")], "other")),
+      await runTick(
+        conn.db,
+        input(t0, [operator("op-b")], "other"),
+        idleSteps(conn.db),
+      ),
     );
     expect(other.consumed).toHaveLength(1);
     const stored = ran(
-      await runTick(conn.db, input(minutes(1), [operator("op-b")])),
+      await runTick(
+        conn.db,
+        input(minutes(1), [operator("op-b")]),
+        idleSteps(conn.db),
+      ),
     );
     expect(stored.recorded).toEqual([
       expect.objectContaining({ host: "other", created: false }),
@@ -313,7 +350,9 @@ describeDb("pod tick", () => {
         return { result: "ok", detail: { created: row.created } };
       },
     });
-    const predecessor = ran(await runTick(conn.db, input(t0)));
+    const predecessor = ran(
+      await runTick(conn.db, input(t0), idleSteps(conn.db)),
+    );
     const [trigger] = await recordTriggers(conn.db, {
       ...input(minutes(1), [operator("op-1")]),
     });
@@ -336,7 +375,11 @@ describeDb("pod tick", () => {
 
   test("with no active schedule Revision the tick refuses config_missing and keeps its trigger", async () => {
     await activate("host", "local", "local", hostValue(2));
-    const refused = await runTick(conn.db, input(t0, [operator("op-1")]));
+    const refused = await runTick(
+      conn.db,
+      input(t0, [operator("op-1")]),
+      idleSteps(conn.db),
+    );
     expect(refused).toMatchObject({
       ok: false,
       refusal: { code: "config_missing" },
@@ -347,17 +390,21 @@ describeDb("pod tick", () => {
   test("a dry run writes nothing and plans the keys a real tick records", async () => {
     await seed();
     const dry = ran(
-      await dryRunTick(conn.db, {
-        host: "local",
-        now: t0,
-        triggers: [operator("op-1")],
-      }),
+      await dryRunTick(
+        conn.db,
+        {
+          host: "local",
+          now: t0,
+          triggers: [operator("op-1")],
+        },
+        idleSteps(conn.db),
+      ),
     );
     expect(dry).toMatchObject({ outcome: "dry run", due: true });
     expect(dry.steps.map((each) => each.result)).toEqual([
       "planned",
-      "not_built",
-      "not_built",
+      "planned",
+      "planned",
       "not_built",
       "not_built",
       "planned",
@@ -366,7 +413,7 @@ describeDb("pod tick", () => {
     const [ops] = await conn.sql<{ n: number }[]>`
       select count(*)::int as n from ledger.operation where intent = 'tick'`;
     expect(ops?.n).toBe(0);
-    const real = ran(await runTick(conn.db, input(t0)));
+    const real = ran(await runTick(conn.db, input(t0), idleSteps(conn.db)));
     expect(real.tick_id).toBe(dry.tick_id);
     expect(real.steps.map((each) => each.op_key)).toEqual(
       dry.steps.map((each) => each.op_key),
@@ -376,16 +423,26 @@ describeDb("pod tick", () => {
 
   test("a dry run counts only a trigger not yet recorded", async () => {
     await seed();
-    ran(await runTick(conn.db, input(t0, [operator("op-1")])));
+    ran(
+      await runTick(conn.db, input(t0, [operator("op-1")]), idleSteps(conn.db)),
+    );
     const repeat = { host: "local", now: minutes(1) };
     expect(
       ran(
-        await dryRunTick(conn.db, { ...repeat, triggers: [operator("op-1")] }),
+        await dryRunTick(
+          conn.db,
+          { ...repeat, triggers: [operator("op-1")] },
+          idleSteps(conn.db),
+        ),
       ),
     ).toMatchObject({ outcome: "dry run", due: false });
     expect(
       ran(
-        await dryRunTick(conn.db, { ...repeat, triggers: [operator("op-2")] }),
+        await dryRunTick(
+          conn.db,
+          { ...repeat, triggers: [operator("op-2")] },
+          idleSteps(conn.db),
+        ),
       ),
     ).toMatchObject({ due: true });
   });

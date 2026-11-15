@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { singleActive } from "../config/active.ts";
+import { canonicalJson, sha256Hex } from "../config/canonical-json.ts";
 import { activateRequested, pendingActivations } from "../config/apply.ts";
 import { decisionLimits } from "../config/limits.ts";
 import { advanceDecision, chargeBudget } from "../decide/advance.ts";
@@ -11,6 +12,8 @@ import {
   deliveryFacts,
   deliveryOutcome,
   planFields,
+  closeReportKind,
+  readCloseReport,
   readDecisionMessage,
   type DecisionMessage,
   type DeliveryRow,
@@ -114,35 +117,13 @@ export async function checkPass(
   const { run } = owned;
   const { version } = await orca.version();
   const workers = memoWorkers(orca, run.run_id);
-  const result: CheckResult = {
-    run_id: run.run_id,
-    reconciled: [],
-    deliveries: [],
-    ignored: 0,
-    acked: [],
-    stopped: [],
-    unknown_workers: [],
-    free_slots: 0,
-    nextSteps: [],
-  };
+  const result = emptyResult(run.run_id);
   const tracked: string[] = [];
   try {
-    if (tracker !== null) {
-      const synced = await syncStory(db, tracker, log, {
-        run,
-        generation: input.generation,
-        host: input.host,
-        now: input.now,
-      });
-      if (synced.error !== null)
-        tracked.push(
-          `tracker read of story:${run.story_external_id} failed: ${synced.error}; run pod check again`,
-        );
-      if (synced.canceled)
-        tracked.push(
-          `story:${run.story_external_id} is ${synced.status ?? "Canceled"} in the tracker; the Run is on hold`,
-        );
-    }
+    if (tracker !== null)
+      tracked.push(
+        ...(await trackerLines(db, tracker, log, run, input.generation, input)),
+      );
     const takeover = await reconcileTakeovers(db, orca, log, {
       run,
       generation: input.generation,
@@ -171,12 +152,7 @@ export async function checkPass(
     });
     result.reconciled = launches.reconciled;
     await chargeOpenDecisions(db, run, input);
-    result.nextSteps = [
-      ...launches.reconciled
-        .filter((row) => row.to === "unknown")
-        .map((row) => `pod check: launch ${row.op_key} is still unknown`),
-      ...launches.nextSteps,
-    ];
+    result.nextSteps = launchLines(launches);
     if (tracker !== null) {
       const drained = await drainOutbox(db, tracker, log, {
         run_id: run.run_id,
@@ -256,21 +232,149 @@ export async function checkPass(
     throw error;
   }
 
-  if (input.capacity === null) {
-    const missing = capacityMissing(input.host);
-    result.nextSteps.push(missing.message, ...missing.nextSteps);
-  } else
-    result.free_slots = await hostFreeSlots(db, input.host, input.capacity);
+  await freeSlots(db, input, result);
   if (result.free_slots >= 1)
     result.nextSteps.push(...(await nextKeys(db, run, input.generation)));
   result.nextSteps.push(...(await recordNoSource(db, run, input.now())));
   return { ok: true, result, orca: version };
 }
 
+export interface ObserveInput {
+  run: string;
+  host: string;
+  capacity: number | null;
+  now: () => Date;
+  leaseSeconds: number;
+}
+
+/**
+ * Reconciles a Run without its coordinator: it never calls Orca check, so no
+ * delivery is acked, and it writes fenced at the owner generation it read.
+ */
+export async function checkObserve(
+  db: Db,
+  orca: OrcaPort,
+  tracker: TrackerPort | null,
+  log: ReceiptLog,
+  input: ObserveInput,
+): Promise<Checked<CheckResult & { owner_generation: number }>> {
+  const run = await db.getRun(input.run);
+  if (run === null)
+    return refuse("task_not_ready", `no Run ${input.run}`, ["pod brief"]);
+  if (run.host !== input.host)
+    return refuse(
+      "wrong_host",
+      `Run ${run.run_id} belongs to host ${run.host}, not ${input.host}`,
+      [`pod check --run ${run.run_id} --observe on host ${run.host}`],
+    );
+  const generation = run.owner_generation;
+  const { version } = await orca.version();
+  const workers = memoWorkers(orca, run.run_id);
+  const result = emptyResult(run.run_id);
+  try {
+    if (tracker !== null)
+      result.nextSteps.push(
+        ...(await trackerLines(db, tracker, log, run, generation, input)),
+      );
+    const launches = await reconcileLaunches(db, orca, log, {
+      run,
+      generation,
+      workers,
+      now: input.now,
+      leaseSeconds: input.leaseSeconds,
+    });
+    result.reconciled = launches.reconciled;
+    result.nextSteps.push(...launchLines(launches));
+    await chargeOpenDecisions(db, run, { ...input, generation });
+    const rows = await workers();
+    if (rows === null)
+      result.nextSteps.push("worker-list unreadable; run pod check again");
+    else
+      result.unknown_workers = await db.transaction(async (tx) => {
+        await fence(tx, run.run_id, generation);
+        return (await recordUnknownWorkers(tx, run, rows, input)).unknown;
+      });
+  } catch (error) {
+    if (error instanceof StaleGeneration) return stale(error.run, generation);
+    throw error;
+  }
+  await freeSlots(db, input, result);
+  result.nextSteps.push(...(await recordNoSource(db, run, input.now())));
+  return {
+    ok: true,
+    result: { ...result, owner_generation: generation },
+    orca: version,
+  };
+}
+
+function emptyResult(runId: string): CheckResult {
+  return {
+    run_id: runId,
+    reconciled: [],
+    deliveries: [],
+    ignored: 0,
+    acked: [],
+    stopped: [],
+    unknown_workers: [],
+    free_slots: 0,
+    nextSteps: [],
+  };
+}
+
+async function trackerLines(
+  db: Db,
+  tracker: TrackerPort,
+  log: ReceiptLog,
+  run: Run,
+  generation: number,
+  input: { host: string; now: () => Date },
+): Promise<string[]> {
+  const synced = await syncStory(db, tracker, log, {
+    run,
+    generation,
+    host: input.host,
+    now: input.now,
+  });
+  const lines: string[] = [];
+  if (synced.error !== null)
+    lines.push(
+      `tracker read of story:${run.story_external_id} failed: ${synced.error}; run pod check again`,
+    );
+  if (synced.canceled)
+    lines.push(
+      `story:${run.story_external_id} is ${synced.status ?? "Canceled"} in the tracker; the Run is on hold`,
+    );
+  return lines;
+}
+
+function launchLines(launches: {
+  reconciled: Reconciled[];
+  nextSteps: string[];
+}): string[] {
+  return [
+    ...launches.reconciled
+      .filter((row) => row.to === "unknown")
+      .map((row) => `pod check: launch ${row.op_key} is still unknown`),
+    ...launches.nextSteps,
+  ];
+}
+
+async function freeSlots(
+  db: Db,
+  input: { host: string; capacity: number | null },
+  result: CheckResult,
+): Promise<void> {
+  if (input.capacity === null) {
+    const missing = capacityMissing(input.host);
+    result.nextSteps.push(missing.message, ...missing.nextSteps);
+  } else
+    result.free_slots = await hostFreeSlots(db, input.host, input.capacity);
+}
+
 async function chargeOpenDecisions(
   db: Db,
   run: Run,
-  input: CheckInput,
+  input: { generation: number; host: string; now: () => Date },
 ): Promise<void> {
   for (const decision of await db.openDecisionsForRun(run.run_id))
     await db.transaction(async (tx) => {
@@ -410,7 +514,6 @@ async function recordMessage(
     message,
     await matchOf(tx, run, known),
   );
-  if (row.kind === "none") return;
   const at = input.now();
   const base = {
     ts: at,
@@ -434,6 +537,25 @@ async function recordMessage(
     });
     result.ignored += 1;
   };
+  const report = closeReportFields(run, message, known, result);
+  if (report.kind === "ignored") return ignore(report.reason);
+  if (report.kind === "report" && (known === null || row.kind !== "delivery")) {
+    await tx.appendEvent({
+      ...base,
+      type: "delivery",
+      payload: Json.parse({
+        ...said,
+        outcome: closeReportKind,
+        subject: message.subject ?? null,
+        ...report.fields,
+      }),
+    });
+    result.nextSteps.push(
+      `recorded the lead's close report ${String(report.fields["report_hash"])} from message ${message.id}`,
+    );
+    return;
+  }
+  if (row.kind === "none") return;
   if (known === null && row.kind === "ignored") {
     const parent = await messageFollowUp(tx, run, message);
     if (parent !== null) return ignore("follow_up", { follow_up_of: parent });
@@ -486,6 +608,7 @@ async function recordMessage(
       outcome: row.outcome,
       subject: message.subject ?? null,
       ...decision,
+      ...(report.kind === "report" ? report.fields : {}),
     }),
   });
   result.deliveries.push({
@@ -552,6 +675,50 @@ async function recordMessage(
       host: input.host,
       source: base.source,
     });
+}
+
+type CloseReportFields =
+  | { kind: "none" }
+  | {
+      kind: "ignored";
+      reason: "close_report_sender" | "malformed_close_report";
+    }
+  | { kind: "report"; fields: Record<string, Json> };
+
+function fromLead(
+  run: Run,
+  message: OrcaMessage,
+  known: Dispatch | null,
+): boolean {
+  if (run.coordinator_dispatch_id !== null)
+    return known?.dispatch_id === run.coordinator_dispatch_id;
+  return (
+    message.payload.dispatchId === undefined &&
+    message.from_handle === run.coordinator
+  );
+}
+
+function closeReportFields(
+  run: Run,
+  message: OrcaMessage,
+  known: Dispatch | null,
+  result: CheckResult,
+): CloseReportFields {
+  const read = readCloseReport(message);
+  if (read.kind === "none") return read;
+  if (!fromLead(run, message, known))
+    return { kind: "ignored", reason: "close_report_sender" };
+  if (read.kind === "malformed") {
+    result.nextSteps.push(`ignored ${read.detail}`);
+    return { kind: "ignored", reason: "malformed_close_report" };
+  }
+  return {
+    kind: "report",
+    fields: {
+      close_report: Json.parse(read.report),
+      report_hash: sha256Hex(canonicalJson(read.report)),
+    },
+  };
 }
 
 function decisionFields(message: DecisionMessage): Record<string, Json> {
@@ -641,7 +808,7 @@ async function recordUnknownWorkers(
   tx: Repo,
   run: Run,
   rows: readonly WorkerRow[],
-  input: CheckInput,
+  input: { host: string; now: () => Date },
 ): Promise<{ unknown: string[]; followUps: FollowUp[] }> {
   const dispatches = await tx.listDispatches(run.run_id);
   const known = new Set(dispatches.map((row) => row.dispatch_id));

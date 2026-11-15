@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CloseReport } from "./close.ts";
 import { Stance } from "./decision.ts";
 import { TestResult } from "./ledger.ts";
 import { manifestSources } from "../manifest/references.ts";
@@ -21,7 +22,9 @@ export type IgnoredReason =
   | "settled_dispatch"
   | "settled_decision"
   | "out_of_turn"
-  | "malformed_decision";
+  | "malformed_decision"
+  | "close_report_sender"
+  | "malformed_close_report";
 
 export type DeliveryRow =
   | { kind: "ignored"; reason: IgnoredReason }
@@ -239,4 +242,26 @@ export function readDecisionMessage(message: OrcaMessage): DecisionRead {
       detail: `${kind.data} on message ${message.id}: ${parsed.error.issues[0]?.message ?? "malformed"}`,
     };
   return { kind: "message", message: parsed.data };
+}
+
+export const closeReportKind = "close_report";
+
+export type CloseReportRead =
+  | { kind: "none" }
+  | { kind: "malformed"; detail: string }
+  | { kind: "report"; report: CloseReport };
+
+export function readCloseReport(message: OrcaMessage): CloseReportRead {
+  const payload: Record<string, unknown> = message.payload;
+  if (payload["kind"] !== closeReportKind) return { kind: "none" };
+  const parsed = CloseReport.safeParse(payload["report"]);
+  if (!parsed.success) {
+    const [issue] = parsed.error.issues;
+    const path = issue === undefined ? "" : ["report", ...issue.path].join(".");
+    return {
+      kind: "malformed",
+      detail: `close_report on message ${message.id}: ${path} ${issue?.message ?? "malformed"}`,
+    };
+  }
+  return { kind: "report", report: parsed.data };
 }

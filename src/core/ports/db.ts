@@ -101,6 +101,9 @@ export interface Repo {
   insertRun(row: Run): Promise<void>;
   getRun(runId: string): Promise<Run | null>;
   lockRun(runId: string): Promise<Run | null>;
+  listHostRuns(host: string, states: readonly RunState[]): Promise<Run[]>;
+  /** The newest event of the Run that records a fact; receipts are not facts. */
+  newestRunEventId(runId: string): Promise<number | null>;
   setRunState(runId: string, state: RunState): Promise<void>;
   advanceOwner(
     runId: string,
@@ -216,10 +219,7 @@ export interface Repo {
     type: EventType,
     payload: Record<string, Json>,
   ): Promise<Event | null>;
-  eventsWith(
-    type: EventType,
-    payload: Record<string, Json>,
-  ): Promise<Event[]>;
+  eventsWith(type: EventType, payload: Record<string, Json>): Promise<Event[]>;
   recordTrigger(row: NewEvent): Promise<{ event: Event; created: boolean }>;
   tryLockTick(host: string): Promise<boolean>;
   latestEventWith(

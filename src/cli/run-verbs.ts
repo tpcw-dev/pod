@@ -2,7 +2,12 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
-import { checkPass, checkWait, resume } from "../core/check/check.ts";
+import {
+  checkObserve,
+  checkPass,
+  checkWait,
+  resume,
+} from "../core/check/check.ts";
 import { launchLeaseSeconds } from "../core/check/reconcile.ts";
 import { singleActive } from "../core/config/active.ts";
 import { hostSlots } from "../core/config/host.ts";
@@ -344,7 +349,8 @@ export const CheckInput = z
     args: z.tuple([]),
     run: z.string().min(1).optional(),
     task: z.string().min(1).optional(),
-    generation: Generation,
+    generation: Generation.optional(),
+    observe: z.boolean().optional(),
     wait: z.boolean().optional(),
     interval: Seconds.optional(),
     timeout: Seconds.optional(),
@@ -352,18 +358,28 @@ export const CheckInput = z
     resume: z.boolean().optional(),
   })
   .refine((input) =>
-    input.resume === true
-      ? (input.run === undefined) !== (input.task === undefined) &&
+    input.observe === true
+      ? input.run !== undefined &&
+        input.generation === undefined &&
+        input.task === undefined &&
         input.wait === undefined &&
         input.interval === undefined &&
         input.timeout === undefined &&
-        input.decision === undefined
-      : input.run !== undefined &&
-        input.task === undefined &&
-        (input.wait === true ||
-          (input.interval === undefined &&
+        input.decision === undefined &&
+        input.resume === undefined
+      : input.generation !== undefined &&
+        (input.resume === true
+          ? (input.run === undefined) !== (input.task === undefined) &&
+            input.wait === undefined &&
+            input.interval === undefined &&
             input.timeout === undefined &&
-            input.decision === undefined)),
+            input.decision === undefined
+          : input.run !== undefined &&
+            input.task === undefined &&
+            (input.wait === true ||
+              (input.interval === undefined &&
+                input.timeout === undefined &&
+                input.decision === undefined))),
   );
 type CheckInput = z.infer<typeof CheckInput>;
 
@@ -404,7 +420,7 @@ const ResumeOutput = z.object({
 export const CheckOutput = z.union([PassOutput, ResumeOutput]);
 type CheckOutput = z.infer<typeof CheckOutput>;
 
-function leaseSeconds(): number {
+export function launchLease(): number {
   const value = process.env["POD_LAUNCH_LEASE_SECONDS"];
   if (value === undefined || value === "") return launchLeaseSeconds;
   if (!Seconds.safeParse(value).success)
@@ -418,9 +434,10 @@ function leaseSeconds(): number {
 }
 
 export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
-  const lease = leaseSeconds();
-  const generation = Number(input.generation);
+  const lease = launchLease();
   const now = () => new Date();
+  if (input.observe === true) return observeVerb(input.run ?? "", lease, now);
+  const generation = Number(input.generation);
   if (input.resume === true) {
     const { result } = await withOrca(({ db, host }) =>
       resume(db, {
@@ -464,6 +481,31 @@ export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
     ...result,
     nextSteps: [...result.nextSteps, ...warnings],
     owner_generation: generation,
+    orca,
+  };
+}
+
+async function observeVerb(
+  run: string,
+  leaseSeconds: number,
+  now: () => Date,
+): Promise<CheckOutput> {
+  let warnings: string[] = [];
+  const { result, orca } = await withOrca(
+    async ({ db, orca: port, tracker, log, host }) => {
+      warnings = readCredentials(host).warnings();
+      return checkObserve(db, port, tracker, log, {
+        run,
+        host: host.hostId,
+        capacity: await hostSlots(db, host.hostId),
+        now,
+        leaseSeconds,
+      });
+    },
+  );
+  return {
+    ...result,
+    nextSteps: [...result.nextSteps, ...warnings],
     orca,
   };
 }

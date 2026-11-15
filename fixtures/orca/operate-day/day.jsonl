@@ -6,6 +6,6 @@
 {"at": "2026-11-15T17:12:00Z", "note": "the same operator trigger again", "triggers": ["operator:op-1"], "expect": {"outcome": "not due", "consumed": []}}
 {"at": "2026-11-15T17:30:00Z", "note": "crash after the steps, before the tick event", "crash": true, "triggers": ["tracker:trk-9"], "expect": {"outcome": "crashed", "consumed": []}}
 {"at": "2026-11-15T17:31:00Z", "note": "re-run after the crash", "triggers": [], "expect": {"outcome": "ran", "consumed": ["tracker:trk-9"]}}
-{"at": "2026-11-15T17:46:00Z", "note": "timer trigger", "triggers": ["timer:t-1"], "expect": {"outcome": "ran", "consumed": ["timer:t-1"]}}
+{"at": "2026-11-15T17:46:00Z", "note": "timer trigger; a finished Run with its lead's close report is closed by the tick", "seed": "finished_run", "triggers": ["timer:t-1"], "expect": {"outcome": "ran", "consumed": ["timer:t-1"], "closed": ["run_1"]}}
 {"at": "2026-11-15T18:00:00Z", "note": "poll inside tick_minutes", "triggers": [], "expect": {"outcome": "not due", "consumed": []}}
-{"at": "2026-11-15T18:01:00Z", "note": "poll at tick_minutes", "triggers": [], "expect": {"outcome": "ran", "consumed": []}}
+{"at": "2026-11-15T18:01:00Z", "note": "poll at tick_minutes; the closed Run is no longer a candidate", "triggers": [], "expect": {"outcome": "ran", "consumed": [], "closed": []}}
