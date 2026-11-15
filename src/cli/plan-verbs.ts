@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
+import type { Db } from "../core/ports/db.ts";
 import type { Refusal } from "../core/domain/outcome.ts";
 import {
   Held,
@@ -7,11 +8,19 @@ import {
   Ranked,
   type OverrideRequest,
 } from "../core/domain/plan.ts";
-import { publishPlan, readPlan } from "../core/plan/plan.ts";
+import { serviceKinds } from "../core/config/service-kinds.ts";
+import { receiptLog } from "../core/ledger/receipts.ts";
+import { publishPlan, readPlan, type PlanSources } from "../core/plan/plan.ts";
 import { writeOverride } from "../core/plan/write.ts";
-import { PodError, exitFor } from "./errors.ts";
-import { databaseUrl, readHostProfile } from "./host-profile.ts";
+import { docsFor } from "./docs.ts";
+import { PodError, exitFor, throwRecordRefusal } from "./errors.ts";
+import {
+  databaseUrl,
+  readHostProfile,
+  type HostSettings,
+} from "./host-profile.ts";
 import { actorOf, writerOf } from "./identity.ts";
+import { trackerFor } from "./tracker.ts";
 
 function failWith(refusal: Refusal): never {
   throw new PodError(
@@ -41,6 +50,7 @@ const HoldInForce = z.object({
   ...Expiry,
   key: z.string(),
   reason: z.string(),
+  project: z.string().optional(),
 });
 const PriorityInForce = z.object({
   ...Stamp,
@@ -75,8 +85,16 @@ export const PlanOutput = z.object({
     priority: PriorityInForce.nullable(),
     order: OrderInForce.nullable(),
   }),
+  partial: z.array(z.object({ project: z.string(), error: z.string() })),
   ranked: z.array(Ranked),
   held: z.array(Held),
+  reserved: z.array(
+    z.object({
+      project: z.string(),
+      slots: z.number(),
+      covers: z.array(z.string()),
+    }),
+  ),
   published: z
     .object({
       ...Stamp,
@@ -100,6 +118,7 @@ export const PlanOverrideOutput = z.object({
   replayed: z.boolean(),
   key: z.string().optional(),
   reason: z.string().optional(),
+  project: z.string().optional(),
   projects: z.array(z.string()).optional(),
   keys: z.array(z.string()).optional(),
   until: z.string().nullable().optional(),
@@ -111,6 +130,30 @@ export function planOpKeyMeta(output: PlanOverrideOutput) {
   return { opKey: output.op_key };
 }
 
+async function withSources<R>(
+  db: Db,
+  profile: HostSettings,
+  work: (sources: PlanSources) => Promise<R>,
+): Promise<R> {
+  const log = receiptLog(db, profile.hostId);
+  const kinds = await serviceKinds(db);
+  const tracker = await trackerFor(
+    log.trackerSink,
+    profile,
+    kinds.estimateScale,
+  );
+  const docs = await docsFor(log.docsSink, profile, kinds.docsKind);
+  const result = await work({
+    tracker: tracker?.port ?? null,
+    docs: docs?.port ?? null,
+  });
+  throwRecordRefusal([
+    ...(tracker?.recordRefusals() ?? []),
+    ...(docs?.recordRefusals() ?? []),
+  ]);
+  return result;
+}
+
 export async function plan(input: PlanInput): Promise<PlanOutput> {
   const profile = readHostProfile();
   const host = input.host ?? profile.hostId;
@@ -118,15 +161,17 @@ export async function plan(input: PlanInput): Promise<PlanOutput> {
   try {
     const db = connection.db;
     const now = new Date();
-    const outcome =
+    const outcome = await withSources(db, profile, async (sources) =>
       input.publish === true
-        ? await publishPlan(db, {
+        ? publishPlan(db, {
             host,
             writer: profile.hostId,
             actor: actorOf(await writerOf(db, profile, process.env, null)),
             now,
+            sources,
           })
-        : await readPlan(db, { host, now });
+        : readPlan(db, { host, now, sources }),
+    );
     if (!outcome.ok) failWith(outcome.refusal);
     return outcome;
   } finally {
@@ -162,6 +207,7 @@ export const PlanHoldInput = z.strictObject({
   args: z.tuple([z.string().min(1)]),
   reason: z.string().min(1),
   until: Until,
+  project: z.string().min(1).optional(),
   host: HostFlag,
 });
 
@@ -173,6 +219,7 @@ export function planHold(
     key: input.args[0],
     reason: input.reason,
     until: input.until ?? null,
+    ...(input.project === undefined ? {} : { project: input.project }),
   });
 }
 

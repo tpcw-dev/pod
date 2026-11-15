@@ -10,7 +10,11 @@ import { pendingActivations, revisionRef } from "../core/config/apply.ts";
 import { revisionId } from "../core/config/canonical-json.ts";
 import { mirrorPath, mirrorSet, scopeText } from "../core/config/mirror.ts";
 import { digestBrief } from "../core/digest/brief.ts";
-import type { BriefTree, DigestBrief } from "../core/domain/brief.ts";
+import {
+  sumBriefCounters,
+  type BriefTree,
+  type DigestBrief,
+} from "../core/domain/brief.ts";
 import type { Repo } from "../core/ports/db.ts";
 import { RevisionEnvelope, type Revision } from "../core/domain/config.ts";
 import { Json } from "../core/domain/json.ts";
@@ -37,6 +41,7 @@ const storyArg = z.string().regex(/^story:.+$/);
 
 export const BriefInput = z.strictObject({
   args: z.union([z.tuple([]), z.tuple([storyArg])]),
+  project: z.string().min(1).optional(),
   html: z.string().min(1).optional(),
 });
 type BriefInput = z.infer<typeof BriefInput>;
@@ -205,6 +210,25 @@ export const BriefOutput = z.object({
 });
 type BriefResult = z.infer<typeof BriefOutput>;
 
+function forProject(tree: BriefTree, project: string | null): BriefTree {
+  if (project === null) return tree;
+  return {
+    ...tree,
+    stories: tree.stories.flatMap((item) => {
+      const runs = item.runs.filter((run) => run.snapshot?.project === project);
+      if (runs.length === 0) return [];
+      const kept = runs.some((run) => run.run.run_id === item.story.run_id);
+      return [
+        {
+          story: { ...item.story, run_id: kept ? item.story.run_id : null },
+          runs,
+          counters: sumBriefCounters(runs.map((run) => run.counters)),
+        },
+      ];
+    }),
+  };
+}
+
 function iso(date: Date): string {
   return date.toISOString();
 }
@@ -300,7 +324,10 @@ async function runUsages(
   return usages;
 }
 
-function usageOf(usages: ReadonlyMap<string, RunUsage>, runId: string): RunUsage {
+function usageOf(
+  usages: ReadonlyMap<string, RunUsage>,
+  runId: string,
+): RunUsage {
   const usage = usages.get(runId);
   if (usage === undefined) throw new Error(`no usage read for Run ${runId}`);
   return usage;
@@ -402,22 +429,34 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
       ...(drift.length === 0 ? [] : ["pod config export --all"]),
       ...zone.nextSteps,
     ];
-    const tree = await connection.db.readBrief(externalId);
-    if (externalId !== null && tree.stories.length === 0)
+    const project = input.project ?? null;
+    const read = await connection.db.readBrief(externalId);
+    if (externalId !== null && read.stories.length === 0)
       throw new PodError(
         "story_not_found",
         3,
         `no Story has external_id ${externalId}`,
         ["pod brief"],
       );
+    const tree = forProject(read, project);
     const result = BriefOutput.parse({
       ...toBriefResult(
         tree,
-        await withDigests(connection.db, await projectProfiles(connection.db, tree)),
+        await withDigests(
+          connection.db,
+          (await projectProfiles(connection.db, tree)).filter(
+            (row) => project === null || row.project === project,
+          ),
+        ),
         await pendingRequests(connection.db),
         drift,
         await runUsages(connection.db, tree),
-        await readUsageDay(connection.db, zone.zone, todayView(zone.zone), null),
+        await readUsageDay(
+          connection.db,
+          zone.zone,
+          todayView(zone.zone),
+          null,
+        ),
       ),
       ...(nextSteps.length === 0 ? {} : { nextSteps }),
     });

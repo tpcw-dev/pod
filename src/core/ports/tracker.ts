@@ -3,6 +3,7 @@ import type { ProcessRef } from "../process/select.ts";
 
 export interface TrackerPort {
   readStory(ref: StoryRef): Promise<TrackerReceipt<TrackerStory>>;
+  listStories(query: StoryQuery): Promise<TrackerReceipt<ListedStory[]>>;
   readComment(ref: CommentRef): Promise<TrackerReceipt<TrackerComment>>;
   postComment(req: PostCommentRequest): Promise<TrackerReceipt<CommentRef>>;
   setStatus(req: SetStatusRequest): Promise<TrackerReceipt<StatusResult>>;
@@ -11,6 +12,7 @@ export interface TrackerPort {
 
 export const trackerMethods = [
   "readStory",
+  "listStories",
   "readComment",
   "postComment",
   "setStatus",
@@ -48,6 +50,26 @@ export interface TrackerStory {
   kickoffText: string | null;
   status: string;
   statusType: string;
+}
+
+export interface StoryQuery {
+  project: string;
+  status: string;
+}
+
+export interface ListedStory {
+  ref: StoryRef;
+  title: string;
+  size: Size | null;
+  points: number | null;
+  stageLabel: string | null;
+  driverLabel: string | null;
+  labels: string[];
+  priority: number | null;
+  milestone: string | null;
+  blockers: string[];
+  kickoffLine: ProcessRef | null;
+  createdAt: string;
 }
 
 export interface TrackerComment {

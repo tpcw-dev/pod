@@ -4,6 +4,7 @@ import {
   statusUnknown,
   isCommentRef,
   type CommentRef,
+  type ListedStory,
   type Readback,
   type StatusResult,
   type StoryRef,
@@ -13,14 +14,21 @@ import {
   type TrackerReceipt,
 } from "../../core/ports/tracker.ts";
 import { decode, type GraphqlRequest, type HttpReply } from "./client.ts";
-import { commentOf, LinearComment, LinearIssue, storyOf } from "./map.ts";
+import {
+  commentOf,
+  LinearComment,
+  LinearIssue,
+  LinearListed,
+  listedOf,
+  storyOf,
+} from "./map.ts";
 
 export type Send = (
   verb: TrackerMethod,
   request: GraphqlRequest,
 ) => Promise<HttpReply>;
 
-export const maxCommentPages = 40;
+export const maxPages = 40;
 
 const Page = z.looseObject({
   comments: z.looseObject({
@@ -29,6 +37,14 @@ const Page = z.looseObject({
       hasNextPage: z.boolean(),
       endCursor: z.string().nullish(),
     }),
+  }),
+});
+
+const StoryPage = z.looseObject({
+  nodes: z.array(LinearListed),
+  pageInfo: z.looseObject({
+    hasNextPage: z.boolean(),
+    endCursor: z.string().nullish(),
   }),
 });
 
@@ -71,7 +87,7 @@ export function trackerMethods(send: Send, scale: string): TrackerPort {
     const all: TrackerComment[] = [];
     const raws: unknown[] = [];
     let after: string | null = null;
-    for (let page = 0; page < maxCommentPages; page += 1) {
+    for (let page = 0; page < maxPages; page += 1) {
       const reply = await send(verb, {
         operation: "StoryComments",
         variables: { id: ref.external_id, after },
@@ -108,6 +124,45 @@ export function trackerMethods(send: Send, scale: string): TrackerPort {
   }
 
   return {
+    async listStories(query) {
+      const stories: ListedStory[] = [];
+      const raws: unknown[] = [];
+      let after: string | null = null;
+      let requestId: string | null = null;
+      for (let page = 0; page < maxPages; page += 1) {
+        const reply = await send("listStories", {
+          operation: "Stories",
+          variables: { project: query.project, status: query.status, after },
+        });
+        requestId = reply.requestId;
+        const decoded = decode(reply, (data) => data["issues"], StoryPage);
+        raws.push(decoded.raw);
+        if (!decoded.ok || decoded.result === null)
+          return receipt<ListedStory[]>(
+            "listStories",
+            false,
+            null,
+            raws,
+            "list_incomplete",
+            requestId,
+          );
+        const { nodes, pageInfo } = decoded.result;
+        stories.push(...nodes.map((node) => listedOf("linear", node, scale)));
+        if (!pageInfo.hasNextPage)
+          return receipt("listStories", true, stories, raws, null, requestId);
+        if (pageInfo.endCursor == null) break;
+        after = pageInfo.endCursor;
+      }
+      return receipt<ListedStory[]>(
+        "listStories",
+        false,
+        null,
+        raws,
+        "list_incomplete",
+        requestId,
+      );
+    },
+
     async readStory(ref) {
       const { reply, decoded } = await story("readStory", ref);
       return receipt(

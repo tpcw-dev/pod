@@ -32,14 +32,27 @@ const Expiring = {
   expires_at: Instant,
 };
 
+export const Place = z.enum(["current", "milestone", "unlisted"]);
+export type Place = z.infer<typeof Place>;
+
 export const Ranked = z.strictObject({
   key: Name,
+  project: Name,
+  title: z.string(),
+  points: z.int().nullable(),
+  place: Place,
+  priority: z.int().nullable(),
+  driver: Name.nullable(),
   seats: z.array(Name),
   reasons: z.array(z.string()),
 });
 export type Ranked = z.infer<typeof Ranked>;
 
-export const Held = z.strictObject({ key: Name, reason: z.string() });
+export const Held = z.strictObject({
+  key: Name,
+  reason: z.string(),
+  project: Name.optional(),
+});
 export type Held = z.infer<typeof Held>;
 
 export const PlanInputs = z.strictObject({
@@ -65,6 +78,7 @@ export const HoldPayload = z.strictObject({
   ...Expiring,
   key: Name,
   reason: Name,
+  project: Name.optional(),
 });
 
 export const ReleasePayload = z.strictObject({
@@ -101,7 +115,13 @@ export type PriorityPayload = z.infer<typeof PriorityPayload>;
 export type OrderPayload = z.infer<typeof OrderPayload>;
 
 export type OverrideRequest =
-  | { kind: "hold"; key: string; reason: string; until: string | null }
+  | {
+      kind: "hold";
+      key: string;
+      reason: string;
+      until: string | null;
+      project?: string;
+    }
   | { kind: "release"; key: string }
   | { kind: "priority"; projects: string[]; until: string | null }
   | { kind: "order"; keys: string[]; until: string | null };

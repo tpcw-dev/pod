@@ -12,7 +12,11 @@ const ProjectValue = z.strictObject({
   staging: z.boolean(),
   tracker: z.strictObject({ project_name: Name, project_id: Name }),
 });
-type ProjectValue = z.infer<typeof ProjectValue>;
+export type ProjectValue = z.infer<typeof ProjectValue>;
+
+export function projectValue(value: unknown): ProjectValue | null {
+  return ProjectValue.safeParse(value).data ?? null;
+}
 
 function invalid(message: string, path: string): Refusal {
   return { code: "schema_invalid", message, nextSteps: [path] };

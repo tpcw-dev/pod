@@ -16,11 +16,11 @@ import { failure, launchOutcome, stopOnOpen } from "../ledger/launch.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import { recordRunManifest } from "../manifest/run-manifest.ts";
-import type { Db, Repo } from "../ports/db.ts";
+import type { Db } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { projectSteps } from "../process/project.ts";
 import type { TrackerPort } from "../ports/tracker.ts";
-import { Selector } from "../process/schema.ts";
+import { activeOf, activeProcesses } from "../process/active.ts";
 import {
   fits,
   selectProcess,
@@ -80,34 +80,6 @@ const FailedRef = z.looseObject({ outcome: z.literal("failed") });
 
 function refOf(revision: Pick<Revision, "name" | "rev">): string {
   return `process.${revision.name}@${revision.rev}`;
-}
-
-function activeOf(revision: Revision): ActiveProcess | null {
-  const value = revision.value;
-  const selector = Selector.safeParse(
-    value !== null && typeof value === "object" && "selector" in value
-      ? value.selector
-      : undefined,
-  );
-  return selector.success
-    ? {
-        revisionId: revision.id,
-        name: revision.name,
-        rev: revision.rev,
-        selector: selector.data,
-      }
-    : null;
-}
-
-async function activeProcesses(db: Repo): Promise<ActiveProcess[]> {
-  const rows = await db.listActivations("process", "global", "");
-  const active: ActiveProcess[] = [];
-  for (const row of rows) {
-    const revision = await db.getRevision(row.revision_id);
-    const process = revision === null ? null : activeOf(revision);
-    if (process !== null) active.push(process);
-  }
-  return active;
 }
 
 function notSelected(

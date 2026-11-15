@@ -175,6 +175,7 @@ function overridePayload(
       ...expires,
       key: request.key,
       reason: request.reason,
+      ...(request.project === undefined ? {} : { project: request.project }),
     };
   }
   const list = request.kind === "priority" ? request.projects : request.keys;
@@ -205,7 +206,12 @@ function familyOf(payload: PlanPayload): (each: PlanEvent) => boolean {
 function targetOf(request: OverrideRequest): unknown {
   switch (request.kind) {
     case "hold":
-      return { key: request.key, reason: request.reason, until: request.until };
+      return {
+        key: request.key,
+        reason: request.reason,
+        until: request.until,
+        ...(request.project === undefined ? {} : { project: request.project }),
+      };
     case "release":
       return { key: request.key };
     case "priority":

@@ -99,6 +99,7 @@ export function inForce(events: readonly PlanEvent[], now: Date): InForce {
         ...stamped(each, payload),
         key: payload.key,
         reason: payload.reason,
+        ...(payload.project === undefined ? {} : { project: payload.project }),
       });
     if (payload.kind === "release") holds.set(payload.key, null);
     if (payload.kind === "priority")

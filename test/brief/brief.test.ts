@@ -650,7 +650,9 @@ describeDb("pod brief", () => {
     const parsed = JSON.parse(result.stdout) as {
       result: { projects: { project: string; digest: Json }[] };
     };
-    const global = parsed.result.projects.find((row) => row.project === "global");
+    const global = parsed.result.projects.find(
+      (row) => row.project === "global",
+    );
     expect(global?.digest).toEqual({
       cap: 3,
       shown: 3,
@@ -669,6 +671,113 @@ describeDb("pod brief", () => {
     expect(file).toContain('<p id="digest-global">Digest 3/3, 1 queued</p>');
     expect(file).toContain('<table id="digest-proposals-global">');
     expect(file).toContain("<td>a&lt;b 1</td>");
+  });
+
+  test("--project keeps only that project's runs and project row", async () => {
+    await conn.db.upsertStory({
+      provider: "tracker",
+      external_id: "S-app",
+      size: "s",
+      stage: "impl",
+      run_id: "run-app",
+      dependencies: [],
+      synced_at: at,
+      status: null,
+      title: null,
+      kickoff_line: null,
+    });
+    await conn.db.insertRun({
+      run_id: "run-app",
+      story_provider: "tracker",
+      story_external_id: "S-app",
+      host: "local",
+      coordinator: "session-app",
+      owner_generation: 1,
+      snapshot_hash: "pending",
+      state: "active",
+      created_at: at,
+      coordinator_dispatch_id: null,
+    });
+    const [base] = await conn.sql<
+      {
+        crew_revision_id: string;
+        process_revision_id: string;
+        policy_revision_id: string;
+      }[]
+    >`select crew_revision_id, process_revision_id, policy_revision_id
+      from config.snapshot where run_id = 'run-1'`;
+    if (base === undefined) throw new Error("no run-1 snapshot");
+    await conn.db.insertSnapshot({
+      run_id: "run-app",
+      crew_revision_id: base.crew_revision_id,
+      process_revision_id: base.process_revision_id,
+      policy_revision_id: base.policy_revision_id,
+      rate_revision_id: null,
+      effective_gate_map: {},
+      hash: "hash-app",
+      pinned_at: at,
+      project: "app",
+      profile: null,
+    });
+    const all = JSON.parse(runBrief(cwd, ["brief"]).stdout) as {
+      result: { stories: { external_id: string }[] };
+    };
+    expect(all.result.stories.map((row) => row.external_id).sort()).toEqual([
+      "S-1",
+      "S-app",
+    ]);
+    const result = runBrief(cwd, ["brief", "--project", "app"]);
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      result: {
+        stories: { external_id: string; runs: { run_id: string }[] }[];
+        projects: { project: string }[];
+      };
+    };
+    expect(parsed.result.stories).toMatchObject([
+      { external_id: "S-app", runs: [{ run_id: "run-app" }] },
+    ]);
+    expect(parsed.result.projects.map((row) => row.project)).toEqual(["app"]);
+
+    await conn.db.insertRun({
+      run_id: "run-1-app",
+      story_provider: "tracker",
+      story_external_id: "S-1",
+      host: "local",
+      coordinator: "session-1-app",
+      owner_generation: 1,
+      snapshot_hash: "pending",
+      state: "active",
+      created_at: at,
+      coordinator_dispatch_id: null,
+    });
+    await conn.db.insertSnapshot({
+      run_id: "run-1-app",
+      crew_revision_id: base.crew_revision_id,
+      process_revision_id: base.process_revision_id,
+      policy_revision_id: base.policy_revision_id,
+      rate_revision_id: null,
+      effective_gate_map: {},
+      hash: "hash-1-app",
+      pinned_at: at,
+      project: "app",
+      profile: null,
+    });
+    const split = JSON.parse(
+      runBrief(cwd, ["brief", "story:S-1", "--project", "app"]).stdout,
+    ) as {
+      result: {
+        stories: {
+          run_id: string | null;
+          counters: unknown;
+          runs: { run_id: string; counters: unknown }[];
+        }[];
+      };
+    };
+    const [kept] = split.result.stories;
+    expect(kept?.runs.map((run) => run.run_id)).toEqual(["run-1-app"]);
+    expect(kept?.run_id).toBeNull();
+    expect(kept?.counters).toEqual(kept?.runs[0]?.counters);
   });
 });
 

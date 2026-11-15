@@ -1,4 +1,5 @@
 import { activeHostRevision, capacityMissing } from "../config/host.ts";
+import { projectValue, type ProjectValue } from "../config/project.ts";
 import { refuse, type Refused } from "../domain/outcome.ts";
 import type { Repo } from "../ports/db.ts";
 import { hostDay, isTimezone } from "./clock.ts";
@@ -48,4 +49,45 @@ export async function planHost(
     projects,
     events: planEvents(await repo.eventsWith("plan", { host })),
   };
+}
+
+export interface SeatedProject {
+  name: string;
+  revision_id: string;
+  value: ProjectValue | null;
+}
+
+async function seatedElsewhere(repo: Repo, host: string): Promise<Set<string>> {
+  const seated = new Set<string>();
+  for (const ref of await repo.activeScopeRefs("host", "host")) {
+    if (ref === host) continue;
+    for (const name of (await activeHostRevision(repo, ref))?.value.projects ??
+      [])
+      seated.add(name);
+  }
+  return seated;
+}
+
+export async function seatedProjects(
+  repo: Repo,
+  context: PlanHost,
+): Promise<SeatedProject[]> {
+  const anyProject = context.projects.includes("*");
+  const elsewhere = anyProject
+    ? await seatedElsewhere(repo, context.host)
+    : new Set<string>();
+  const seated: SeatedProject[] = [];
+  for (const each of await repo.listActivations("project", "global", "")) {
+    const named = anyProject
+      ? !elsewhere.has(each.name)
+      : context.projects.includes(each.name);
+    if (!named) continue;
+    const revision = await repo.getRevision(each.revision_id);
+    seated.push({
+      name: each.name,
+      revision_id: each.revision_id,
+      value: projectValue(revision?.value),
+    });
+  }
+  return seated.sort((a, b) => a.name.localeCompare(b.name));
 }

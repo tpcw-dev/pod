@@ -46,6 +46,7 @@ export type ErrorCode =
   | "retro_not_due"
   | "ruling_exists"
   | "not_held"
+  | "tracker_partial"
   | "config_missing"
   | "failed";
 
@@ -54,6 +55,7 @@ const exits: Partial<Record<ErrorCode, number>> = {
   schema_invalid: 2,
   launch_unknown: 4,
   tracker_unconfirmed: 4,
+  tracker_partial: 4,
   drained: 5,
   failed: 1,
 };
