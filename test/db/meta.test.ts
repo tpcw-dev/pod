@@ -10,6 +10,7 @@ import {
   type MetaStep,
 } from "../../src/core/operate/meta.ts";
 import { runTick } from "../../src/core/operate/tick.ts";
+import { idleSteps } from "./operate-ports.ts";
 import {
   metaStepOpKey,
   writeVerifiedOutput,
@@ -193,7 +194,11 @@ describeDb("pod tick --agenda meta", () => {
       await held`select pg_advisory_xact_lock(hashtext(${`tick:${host}`}))`;
       return {
         meta: await runMeta(conn.db, metaInput(after)),
-        operate: await runTick(conn.db, { ...metaInput(after), triggers: [] }),
+        operate: await runTick(
+          conn.db,
+          { ...metaInput(after), triggers: [] },
+          idleSteps(conn.db),
+        ),
       };
     });
     expect(operateHeld.meta).toMatchObject({ outcome: "ran" });
@@ -202,7 +207,11 @@ describeDb("pod tick --agenda meta", () => {
       await held`select pg_advisory_xact_lock(hashtext(${`tick:${host}:meta`}))`;
       return {
         meta: await runMeta(conn.db, metaInput(nextDay)),
-        operate: await runTick(conn.db, { ...metaInput(after), triggers: [] }),
+        operate: await runTick(
+          conn.db,
+          { ...metaInput(after), triggers: [] },
+          idleSteps(conn.db),
+        ),
       };
     });
     expect(metaHeld.meta).toMatchObject({ outcome: "coalesced", slots: [] });
@@ -213,7 +222,11 @@ describeDb("pod tick --agenda meta", () => {
     await seedMeta(conn);
     ran(await runMeta(conn.db, metaInput(after)));
     expect(
-      await runTick(conn.db, { ...metaInput(after), triggers: [] }),
+      await runTick(
+        conn.db,
+        { ...metaInput(after), triggers: [] },
+        idleSteps(conn.db),
+      ),
     ).toMatchObject({ outcome: "ran" });
   });
 
