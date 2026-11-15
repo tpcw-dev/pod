@@ -1872,6 +1872,15 @@ function makeRepo(x: Executor): Repo {
       return rows.map(toEvent);
     },
 
+    async eventsBetween(since, until) {
+      const rows = await x
+        .select()
+        .from(event)
+        .where(and(gte(event.ts, since), lt(event.ts, until)))
+        .orderBy(asc(event.ts), asc(event.id));
+      return rows.map(toEvent);
+    },
+
     async insertOperation(row: NewOperation) {
       const inserted = await x
         .insert(operation)

@@ -79,6 +79,7 @@ function parse() {
         generation: { type: "string" },
         run: { type: "string" },
         day: { type: "string" },
+        date: { type: "string" },
         wait: { type: "boolean" },
         interval: { type: "string" },
         timeout: { type: "string" },

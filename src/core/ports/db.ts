@@ -232,6 +232,7 @@ export interface Repo {
     options?: { taskId?: string; dispatchId?: string },
   ): Promise<Event | null>;
   listEvents(runId: string, type: EventType): Promise<Event[]>;
+  eventsBetween(since: Date, until: Date): Promise<Event[]>;
   insertOperation(
     row: NewOperation,
   ): Promise<{ operation: Operation; created: boolean }>;
