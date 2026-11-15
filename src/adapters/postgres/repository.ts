@@ -990,6 +990,13 @@ function makeRepo(x: Executor): Repo {
       );
     },
 
+    async tryLockTick(host) {
+      const [row] = await x.execute<{ locked: boolean }>(
+        sql`select pg_try_advisory_xact_lock(hashtext(${`tick:${host}`})) as locked`,
+      );
+      return row?.locked === true;
+    },
+
     async lockQuota(host) {
       await x.execute(
         sql`select pg_advisory_xact_lock(hashtext(${`quota:${host}`}))`,
@@ -1760,6 +1767,40 @@ function makeRepo(x: Executor): Repo {
         )
         .orderBy(asc(event.id));
       return rows.map(toEvent);
+    },
+
+    async recordTrigger(row) {
+      const [inserted] = await x
+        .insert(event)
+        .values({
+          type: row.type,
+          ts: row.ts,
+          host: row.host,
+          runId: row.run_id,
+          taskId: row.task_id,
+          dispatchId: row.dispatch_id,
+          opKey: row.op_key,
+          payload: row.payload,
+          source: row.source,
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (inserted !== undefined)
+        return { event: toEvent(inserted), created: true };
+      const payload = row.payload as Record<string, Json>;
+      const [stored] = await x
+        .select()
+        .from(event)
+        .where(
+          and(
+            eq(event.type, "trigger"),
+            sql`${event.payload}->>'source' = ${payload["source"]}`,
+            sql`${event.payload}->>'trigger_id' = ${payload["trigger_id"]}`,
+          ),
+        );
+      if (stored === undefined)
+        throw new Error("trigger insert conflicted and no trigger is stored");
+      return { event: toEvent(stored), created: false };
     },
 
     async latestEventWith(type, payload) {

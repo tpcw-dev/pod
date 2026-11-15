@@ -10,6 +10,7 @@ export const kinds = [
   "host",
   "project",
   "rate",
+  "schedule",
 ] as const;
 export const scopes = ["global", "project", "host", "run"] as const;
 

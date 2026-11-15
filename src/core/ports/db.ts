@@ -220,6 +220,8 @@ export interface Repo {
     type: EventType,
     payload: Record<string, Json>,
   ): Promise<Event[]>;
+  recordTrigger(row: NewEvent): Promise<{ event: Event; created: boolean }>;
+  tryLockTick(host: string): Promise<boolean>;
   latestEventWith(
     type: EventType,
     payload: Record<string, Json>,

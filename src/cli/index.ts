@@ -108,6 +108,8 @@ function parse() {
         host: { type: "string" },
         publish: { type: "boolean" },
         until: { type: "string" },
+        trigger: { type: "string", multiple: true },
+        "dry-run": { type: "boolean" },
       },
       strict: true,
       allowPositionals: true,

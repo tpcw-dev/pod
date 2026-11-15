@@ -16,6 +16,7 @@ import { noSingleActive, singleActive } from "./active.ts";
 import { hostRefusal } from "./host.ts";
 import { projectRefusal } from "./project.ts";
 import { rateRefusal } from "./rate.ts";
+import { scheduleRefusal } from "./schedule.ts";
 import {
   activeProfile,
   droppedMember,
@@ -192,6 +193,7 @@ async function processRefusal(
   if (envelope.kind === "host") return hostRefusal(tx, envelope);
   if (envelope.kind === "project") return projectRefusal(envelope);
   if (envelope.kind === "rate") return rateRefusal(envelope);
+  if (envelope.kind === "schedule") return scheduleRefusal(envelope);
   if (envelope.kind !== "process") return null;
   const { scope, scope_ref } = envelope;
   const crew = await singleActive(tx, "crew", scope, scope_ref);
