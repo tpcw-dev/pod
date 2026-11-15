@@ -282,7 +282,14 @@ export async function runTick(
   const recorded = await recordTriggers(db, input);
   return db.transaction(async (lockTx): Promise<TickOutcome | Refused> => {
     if (!(await lockTx.tryLockTick(input.host)))
-      return empty(input.host, "coalesced", recorded);
+      return {
+        ...empty(input.host, "coalesced", recorded),
+        pending: await pendingTriggers(
+          lockTx,
+          input.host,
+          await tickEvents(lockTx, input.host),
+        ),
+      };
     const schedule = await activeSchedule(lockTx, input.host);
     if (schedule === null)
       return { ok: false, refusal: scheduleMissing(input.host) };
@@ -332,6 +339,16 @@ export async function runTick(
   });
 }
 
+async function anyUnrecorded(
+  repo: Repo,
+  triggers: readonly TriggerInput[],
+): Promise<boolean> {
+  for (const each of triggers)
+    if ((await repo.eventsWith("trigger", { ...each })).length === 0)
+      return true;
+  return false;
+}
+
 export async function dryRunTick(
   repo: Repo,
   input: Pick<TickInput, "host" | "now" | "triggers">,
@@ -344,7 +361,7 @@ export async function dryRunTick(
   const newest = newestTick(ticks);
   const pending = await pendingTriggers(repo, input.host, ticks);
   const due =
-    input.triggers.length > 0 ||
+    (await anyUnrecorded(repo, input.triggers)) ||
     isDue(pending, newest, schedule.value.tick_minutes, input.now);
   const read = await readPlanStep(repo, input.host, input.now);
   const plan = read.plan ?? null;

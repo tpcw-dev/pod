@@ -251,6 +251,8 @@ describeDb("pod tick", () => {
       event_id: null,
       recorded: [{ source: "operator", trigger_id: "op-1", created: true }],
     });
+    const waiting = (coalesced as TickOutcome | null)?.recorded[0]?.event_id;
+    expect((coalesced as TickOutcome | null)?.pending).toEqual([waiting]);
     expect(await count("trigger")).toBe(1);
     expect(await count("tick")).toBe(0);
     const next = ran(await runTick(conn.db, input(minutes(1))));
@@ -372,6 +374,22 @@ describeDb("pod tick", () => {
     expect(real.steps[0]?.op_key).toBe(stepOpKey("local", "read_plan", null));
   });
 
+  test("a dry run counts only a trigger not yet recorded", async () => {
+    await seed();
+    ran(await runTick(conn.db, input(t0, [operator("op-1")])));
+    const repeat = { host: "local", now: minutes(1) };
+    expect(
+      ran(
+        await dryRunTick(conn.db, { ...repeat, triggers: [operator("op-1")] }),
+      ),
+    ).toMatchObject({ outcome: "dry run", due: false });
+    expect(
+      ran(
+        await dryRunTick(conn.db, { ...repeat, triggers: [operator("op-2")] }),
+      ),
+    ).toMatchObject({ due: true });
+  });
+
   test("pod tick runs from the CLI and refuses a malformed trigger", async () => {
     await seed();
     expect(runCli(["tick", "--trigger", "bogus:1"])).toMatchObject({
@@ -395,6 +413,18 @@ describeDb("pod tick", () => {
       status: 0,
       json: { ok: true, result: { outcome: "not due" } },
     });
+    expect(
+      runCli(["tick", "--trigger", "orchestration:c"], {
+        POD_SEAT: "developer",
+      }),
+    ).toMatchObject({
+      status: 0,
+      json: { ok: true, result: { outcome: "ran" } },
+    });
+    const [seatTick] = await conn.sql<{ actor: string }[]>`
+      select payload->>'actor' as actor from ledger.event
+      where type = 'tick' order by id desc limit 1`;
+    expect(seatTick?.actor).toBe("seat:developer");
     expect(runCli(["tick", "--dry-run"])).toMatchObject({
       status: 0,
       json: { ok: true, result: { outcome: "dry run", due: false } },
