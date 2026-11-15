@@ -43,7 +43,7 @@ const satisfied = new Set(["passed", "done"]);
 const listed = new Set(["active", "hold"]);
 const Escalation = z.looseObject({ kind: z.string(), text: z.string() });
 
-function observed(ctx: StateContext): string {
+function observed(ctx: Pick<StateContext, "now">): string {
   return ctx.now().toISOString();
 }
 
@@ -88,7 +88,7 @@ export function roadmapPage(policy: Revision | null): string | null {
 }
 
 export async function roadmapSection(
-  ctx: StateContext,
+  ctx: Omit<StateContext, "host">,
   policy: Revision | null,
   scope: StateScope,
 ): Promise<WithRouting<RoadmapSection>> {
