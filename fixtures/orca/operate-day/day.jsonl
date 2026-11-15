@@ -1,0 +1,11 @@
+{"at": "2026-11-15T17:00:00Z", "note": "first poll of the day", "triggers": [], "expect": {"outcome": "ran", "consumed": []}}
+{"at": "2026-11-15T17:05:00Z", "note": "poll inside tick_minutes", "triggers": [], "expect": {"outcome": "not due", "consumed": []}}
+{"at": "2026-11-15T17:07:00Z", "note": "operator trigger", "triggers": ["operator:op-1"], "expect": {"outcome": "ran", "consumed": ["operator:op-1"]}}
+{"at": "2026-11-15T17:10:00Z", "note": "coalesced pair: another tick holds the lock", "lock": "held", "triggers": ["orchestration:run-1"], "expect": {"outcome": "coalesced", "consumed": []}}
+{"at": "2026-11-15T17:10:30Z", "note": "coalesced pair: the next tick consumes the held-over trigger", "triggers": [], "expect": {"outcome": "ran", "consumed": ["orchestration:run-1"]}}
+{"at": "2026-11-15T17:12:00Z", "note": "the same operator trigger again", "triggers": ["operator:op-1"], "expect": {"outcome": "not due", "consumed": []}}
+{"at": "2026-11-15T17:30:00Z", "note": "crash after the steps, before the tick event", "crash": true, "triggers": ["tracker:trk-9"], "expect": {"outcome": "crashed", "consumed": []}}
+{"at": "2026-11-15T17:31:00Z", "note": "re-run after the crash", "triggers": [], "expect": {"outcome": "ran", "consumed": ["tracker:trk-9"]}}
+{"at": "2026-11-15T17:46:00Z", "note": "timer trigger", "triggers": ["timer:t-1"], "expect": {"outcome": "ran", "consumed": ["timer:t-1"]}}
+{"at": "2026-11-15T18:00:00Z", "note": "poll inside tick_minutes", "triggers": [], "expect": {"outcome": "not due", "consumed": []}}
+{"at": "2026-11-15T18:01:00Z", "note": "poll at tick_minutes", "triggers": [], "expect": {"outcome": "ran", "consumed": []}}

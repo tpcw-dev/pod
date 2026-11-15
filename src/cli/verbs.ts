@@ -32,6 +32,7 @@ import {
   planPriority,
   planRelease,
 } from "./plan-verbs.ts";
+import { TickInput, TickOutput, tick, tickOpKeyMeta } from "./tick-verbs.ts";
 import {
   digestAssign,
   DigestAssignInput,
@@ -570,6 +571,18 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
       "one or more distinct KEYs, an `--until` no earlier than the host's day, and an active host Revision with a timezone",
     ],
     meta: planOpKeyMeta,
+  }),
+  row({
+    name: "tick",
+    input: TickInput,
+    output: TickOutput,
+    handler: tick,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "an active schedule Revision for the host; each `--trigger` is SOURCE:ID with SOURCE orchestration, tracker, timer, or operator; `--dry-run` writes nothing",
+    ],
+    meta: tickOpKeyMeta,
   }),
   row({
     name: "learning query",

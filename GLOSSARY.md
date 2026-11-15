@@ -24,6 +24,9 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Gate receipt**: the recorded verdict on a gate, bound to its source, the candidate revision, and the time it was read back.
 - **Plan review**: the review of a plan before implementation starts. In impl-medium and impl-large it is an automated gate kept by the decision pair. In impl-xlarge it is a decision round of the pair.
 - **Launch plan**: the ordered launch request for one host and one day, published as a `plan` event. A later plan for the same host and day replaces it. The claim authority reads it; it is not a schedule, and Pod never launches from it. Not the plan that plan review reviews.
+- **Tick**: one run of a host's operate agenda by `pod tick`, recorded as one `tick` event that lists each step's result and the triggers it consumed. A tick runs once and exits; its caller or podd decides when the next one runs.
+- **Trigger**: a recorded reason for a host to tick now, written as a `trigger` event with its source and id. It stays pending until a tick event lists it.
+- **Schedule**: a host's tick cadence, a `schedule` Revision with `tick_minutes` and `hold_minutes`. It says how often a tick is due, not what launches or in what order; that is the launch plan.
 - **Plan override**: a hold, release, project priority, or explicit order an operator or an agent records against a launch plan. Each is one `plan` event that names its actor and expires at the end of the host's day unless `--until` names a later day.
 - **Integration review**: the review of the integrated candidate SHA after each task's review passes.
 - **Candidate SHA**: the commit a gate verdict binds to, the head of the run's newest recorded push.

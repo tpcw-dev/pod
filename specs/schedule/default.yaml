@@ -1,0 +1,8 @@
+kind: schedule
+name: default
+schema_version: 1
+scope: host
+scope_ref: host-a
+value:
+  tick_minutes: 15
+  hold_minutes: 60

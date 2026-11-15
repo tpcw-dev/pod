@@ -1,0 +1,7 @@
+ALTER TABLE "config"."revision" DROP CONSTRAINT "revision_kind_check";--> statement-breakpoint
+ALTER TABLE "ledger"."event" DROP CONSTRAINT "event_type_check";--> statement-breakpoint
+ALTER TABLE "ledger"."operation" DROP CONSTRAINT "operation_intent_check";--> statement-breakpoint
+CREATE UNIQUE INDEX "event_trigger_source_id" ON "ledger"."event" USING btree (("payload"->>'source'),("payload"->>'trigger_id')) WHERE "ledger"."event"."type" = 'trigger';--> statement-breakpoint
+ALTER TABLE "config"."revision" ADD CONSTRAINT "revision_kind_check" CHECK ("config"."revision"."kind" in ('crew', 'process', 'policy', 'task', 'decision', 'host', 'project', 'rate', 'schedule'));--> statement-breakpoint
+ALTER TABLE "ledger"."event" ADD CONSTRAINT "event_type_check" CHECK ("ledger"."event"."type" in ('start', 'delivery', 'receipt', 'activation', 'activation_requested', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'retry', 'ignored', 'unknown_launch', 'learning', 'outcome', 'close', 'retro', 'digest', 'ruling', 'plan', 'trigger', 'tick'));--> statement-breakpoint
+ALTER TABLE "ledger"."operation" ADD CONSTRAINT "operation_intent_check" CHECK ("ledger"."operation"."intent" in ('run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide', 'config_apply', 'config_activate', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning', 'close', 'retro', 'digest', 'ruling', 'usage', 'plan', 'tick'));
