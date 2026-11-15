@@ -404,3 +404,37 @@ test("a page that says more follow but names no cursor is list_incomplete", asyn
     error: "list_incomplete",
   });
 });
+
+test("a recorded listing of one project's Todo Stories maps blockers, priority, and labels", async () => {
+  // Recorded live on 2026-11-15; each description is cut to its Kickoff line, the only part listStories reads.
+  const port = makeReplayTracker({
+    dir: "fixtures/tracker/plan-stories",
+    sink: () => Promise.resolve(),
+    estimateScale: "fibonacci",
+  });
+  const read = await port.listStories({
+    project: "00000000-0000-4000-8000-000000000001",
+    status: "Todo",
+  });
+  port.assertDone();
+  expect(read.ok).toBe(true);
+  expect(read.result).toHaveLength(18);
+  const byKey = new Map(
+    (read.result ?? []).map((story) => [story.ref.external_id, story]),
+  );
+  expect(byKey.get("TRK-1")).toMatchObject({
+    blockers: [],
+    priority: null,
+    points: 2,
+    size: "s",
+    stageLabel: "impl",
+    driverLabel: "keeper",
+    milestone: null,
+  });
+  expect(byKey.get("TRK-7")?.blockers).toEqual(["TRK-8"]);
+  expect(byKey.get("TRK-23")?.blockers).toEqual(["TRK-18"]);
+  expect(byKey.get("TRK-28")).toMatchObject({
+    priority: 3,
+    blockers: ["TRK-34"],
+  });
+});
