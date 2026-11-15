@@ -1,4 +1,5 @@
 import type {
+  ListedStory,
   StoryRef,
   TrackerComment,
   TrackerMethod,
@@ -15,6 +16,26 @@ export interface FakeTracker extends TrackerPort {
   dropPost: boolean;
   postLands: boolean;
   failRead: boolean;
+  listings: Record<string, ListedStory[]>;
+  failList: string[];
+}
+
+export function listedStory(over: Partial<ListedStory> = {}): ListedStory {
+  return {
+    ref: { provider: "linear", external_id: "S-1" },
+    title: "Story S-1",
+    size: "s",
+    points: 2,
+    stageLabel: "impl",
+    driverLabel: "jako",
+    labels: ["stage:impl", "driver:jako"],
+    priority: 3,
+    milestone: null,
+    blockers: [],
+    kickoffLine: null,
+    createdAt: "2026-11-01T00:00:00.000Z",
+    ...over,
+  };
 }
 
 export function trackerStory(over: Partial<TrackerStory> = {}): TrackerStory {
@@ -56,6 +77,18 @@ export function fakeTracker(story: TrackerStory = trackerStory()): FakeTracker {
     dropPost: false,
     postLands: true,
     failRead: false,
+    listings: {},
+    failList: [],
+    listStories(query) {
+      fake.calls.push(`listStories:${query.project}`);
+      if (fake.failList.includes(query.project))
+        return Promise.resolve(
+          receipt<ListedStory[]>("listStories", null, "list_incomplete"),
+        );
+      return Promise.resolve(
+        receipt("listStories", [...(fake.listings[query.project] ?? [])]),
+      );
+    },
     readStory(ref: StoryRef) {
       fake.calls.push("readStory");
       if (fake.failRead)

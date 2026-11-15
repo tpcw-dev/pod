@@ -3,6 +3,7 @@ import type { Size } from "../../core/domain/ledger.ts";
 import { estimateScales, sizes } from "../../core/domain/points.ts";
 import type {
   CommentRef,
+  ListedStory,
   StoryRef,
   TrackerComment,
   TrackerStory,
@@ -19,6 +20,14 @@ export function stageOf(labels: readonly string[]): string | null {
   if (stages.length !== 1 || only === undefined) return null;
   const stage = only.slice("stage:".length).trim();
   return stage === "" ? null : stage;
+}
+
+export function driverOf(labels: readonly string[]): string | null {
+  const drivers = labels.filter((name) => name.startsWith("driver:"));
+  const [only] = drivers;
+  if (drivers.length !== 1 || only === undefined) return null;
+  const driver = only.slice("driver:".length).trim();
+  return driver === "" ? null : driver;
 }
 
 export function kickoffLineOf(description: string | null): string | null {
@@ -61,6 +70,71 @@ export const LinearIssue = z.looseObject({
   }),
 });
 export type LinearIssue = z.infer<typeof LinearIssue>;
+
+const closedStates = new Set([
+  "Done",
+  "Story-verified",
+  "Canceled",
+  "Duplicate",
+]);
+const closedTypes = new Set(["completed", "canceled"]);
+
+export const LinearListed = z.looseObject({
+  identifier: z.string().min(1),
+  title: z.string(),
+  description: z.string().nullish(),
+  estimate: z.number().nullish(),
+  priority: z.number(),
+  createdAt: z.string().min(1),
+  state: z.looseObject({ name: z.string(), type: z.string() }),
+  labels: z.looseObject({
+    nodes: z.array(z.looseObject({ name: z.string() })),
+  }),
+  projectMilestone: z.looseObject({ name: z.string() }).nullish(),
+  inverseRelations: z.looseObject({
+    nodes: z.array(
+      z.looseObject({
+        type: z.string(),
+        issue: z.looseObject({
+          identifier: z.string().min(1),
+          state: z.looseObject({ name: z.string(), type: z.string() }),
+        }),
+      }),
+    ),
+  }),
+});
+export type LinearListed = z.infer<typeof LinearListed>;
+
+export function listedOf(
+  provider: string,
+  issue: LinearListed,
+  scale: string,
+): ListedStory {
+  const labels = issue.labels.nodes.map((label) => label.name);
+  const estimate = issue.estimate ?? null;
+  return {
+    ref: { provider, external_id: issue.identifier },
+    title: issue.title,
+    size: sizeOf(estimate, scale),
+    points: estimate,
+    stageLabel: stageOf(labels),
+    driverLabel: driverOf(labels),
+    labels,
+    priority:
+      issue.priority >= 1 && issue.priority <= 4 ? issue.priority : null,
+    milestone: issue.projectMilestone?.name ?? null,
+    blockers: issue.inverseRelations.nodes
+      .filter(
+        (relation) =>
+          relation.type === "blocks" &&
+          !closedStates.has(relation.issue.state.name) &&
+          !closedTypes.has(relation.issue.state.type),
+      )
+      .map((relation) => relation.issue.identifier),
+    kickoffLine: kickoffOf(issue.description ?? null),
+    createdAt: issue.createdAt,
+  };
+}
 
 export const LinearComment = z.looseObject({
   id: z.string().min(1),

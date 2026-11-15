@@ -77,6 +77,14 @@ async function readHeading(
   }
 }
 
+export function roadmapPage(policy: Revision | null): string | null {
+  const roadmap = Fields.safeParse(
+    Fields.safeParse(policy?.value).data?.["roadmap"],
+  );
+  const page = roadmap.data?.["page"];
+  return typeof page === "string" && page.trim() !== "" ? page : null;
+}
+
 export async function roadmapSection(
   ctx: StateContext,
   policy: Revision | null,
@@ -108,11 +116,8 @@ export async function roadmapSection(
       refused.refusal.nextSteps[0] ?? "pod config apply",
     );
   }
-  const roadmap = Fields.safeParse(
-    Fields.safeParse(policy.value).data?.["roadmap"],
-  );
-  const page = roadmap.data?.["page"];
-  if (typeof page !== "string" || page.trim() === "")
+  const page = roadmapPage(policy);
+  if (page === null)
     return notOk(
       "no_roadmap",
       `policy ${policy.name}@${policy.rev} has no roadmap`,

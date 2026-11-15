@@ -12,6 +12,7 @@ const nov14 = new Date("2026-11-14T18:00:00.000Z");
 const nov15 = new Date("2026-11-15T18:00:00.000Z");
 const nov14End = "2026-11-15T08:00:00.000Z";
 const actor = "person:human";
+const sources = { tracker: null, docs: null };
 
 describeDb("pod plan events", () => {
   let conn: Connection;
@@ -69,7 +70,7 @@ describeDb("pod plan events", () => {
   }
 
   async function planAt(now: Date) {
-    const plan = await readPlan(conn.db, { host: "local", now });
+    const plan = await readPlan(conn.db, { host: "local", now, sources });
     if (!plan.ok) throw new Error(plan.refusal.message);
     return plan;
   }
@@ -250,12 +251,14 @@ describeDb("pod plan events", () => {
       writer: "local",
       actor,
       now: nov14,
+      sources,
     });
     const retried = await publishPlan(conn.db, {
       host: "local",
       writer: "local",
       actor,
       now: nov14,
+      sources,
     });
     expect(first).toMatchObject({ ok: true, published: { replayed: false } });
     expect(retried).toMatchObject({ ok: true, published: { replayed: true } });

@@ -40,6 +40,8 @@ export const RefusalCode = z.enum([
   "retro_not_due",
   "ruling_exists",
   "not_held",
+  "tracker_partial",
+  "revision_conflict",
   "config_missing",
   "usage",
   "failed",

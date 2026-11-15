@@ -254,3 +254,153 @@ test("setStatus moves an open Story to the named state", async () => {
   });
   port.assertDone();
 });
+
+function listed(identifier: string, over: Record<string, unknown> = {}) {
+  return {
+    identifier,
+    title: `Story ${identifier}`,
+    description: "Kickoff: impl@2",
+    estimate: 2,
+    priority: 0,
+    createdAt: "2026-11-09T23:48:14.460Z",
+    state: { id: "st-todo", name: "Todo", type: "unstarted" },
+    labels: {
+      nodes: [
+        { name: "stage:impl" },
+        { name: "driver:jako" },
+        { name: "meta" },
+      ],
+    },
+    projectMilestone: null,
+    inverseRelations: { nodes: [] },
+    ...over,
+  };
+}
+
+function storyPage(nodes: unknown[], next: string | null) {
+  return {
+    data: {
+      issues: {
+        nodes,
+        pageInfo: { hasNextPage: next !== null, endCursor: next },
+      },
+    },
+  };
+}
+
+const query = { project: "p-1", status: "Todo" };
+
+test("listStories pages through the project's Stories and maps each field", async () => {
+  const blocker = (identifier: string, name: string, type: string) => ({
+    type: "blocks",
+    issue: { identifier, state: { name, type } },
+  });
+  const { port } = replay([
+    {
+      method: "listStories",
+      operation: "Stories",
+      variables: { ...query, after: null },
+      body: storyPage(
+        [
+          listed("TRK-1", {
+            priority: 2,
+            projectMilestone: { name: "M2 Operate" },
+            inverseRelations: {
+              nodes: [
+                blocker("TRK-7", "Todo", "unstarted"),
+                blocker("TRK-8", "Done", "completed"),
+                blocker("TRK-9", "Story-verified", "started"),
+                blocker("TRK-10", "Duplicate", "canceled"),
+                {
+                  type: "related",
+                  issue: {
+                    identifier: "TRK-11",
+                    state: { name: "Todo", type: "unstarted" },
+                  },
+                },
+              ],
+            },
+          }),
+        ],
+        "c-1",
+      ),
+    },
+    {
+      method: "listStories",
+      operation: "Stories",
+      variables: { ...query, after: "c-1" },
+      body: storyPage([listed("TRK-2", { estimate: null })], null),
+    },
+  ]);
+  const read = await port.listStories(query);
+  expect(read).toMatchObject({ ok: true, error: null });
+  expect(read.result).toEqual([
+    {
+      ref: { provider: "linear", external_id: "TRK-1" },
+      title: "Story TRK-1",
+      size: "s",
+      points: 2,
+      stageLabel: "impl",
+      driverLabel: "jako",
+      labels: ["stage:impl", "driver:jako", "meta"],
+      priority: 2,
+      milestone: "M2 Operate",
+      blockers: ["TRK-7"],
+      kickoffLine: { name: "impl", rev: 2 },
+      createdAt: "2026-11-09T23:48:14.460Z",
+    },
+    expect.objectContaining({
+      ref: { provider: "linear", external_id: "TRK-2" },
+      size: null,
+      points: null,
+      priority: null,
+      milestone: null,
+      blockers: [],
+    }),
+  ]);
+  port.assertDone();
+});
+
+test("a failed page makes listStories incomplete with no result", async () => {
+  const { port } = replay([
+    {
+      method: "listStories",
+      operation: "Stories",
+      variables: { ...query, after: null },
+      body: storyPage([listed("TRK-1")], "c-1"),
+    },
+    {
+      method: "listStories",
+      operation: "Stories",
+      variables: { ...query, after: "c-1" },
+      error: "timeout",
+    },
+  ]);
+  expect(await port.listStories(query)).toMatchObject({
+    ok: false,
+    result: null,
+    error: "timeout",
+  });
+});
+
+test("a page that says more follow but names no cursor is list_incomplete", async () => {
+  const { port } = replay([
+    {
+      method: "listStories",
+      operation: "Stories",
+      variables: { ...query, after: null },
+      body: {
+        data: {
+          issues: {
+            nodes: [listed("TRK-1")],
+            pageInfo: { hasNextPage: true, endCursor: null },
+          },
+        },
+      },
+    },
+  ]);
+  expect(await port.listStories(query)).toMatchObject({
+    ok: false,
+    error: "list_incomplete",
+  });
+});

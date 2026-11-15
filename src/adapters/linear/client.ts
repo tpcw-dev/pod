@@ -6,9 +6,12 @@ export const requestTimeoutMs = 10_000;
 const issueFields =
   "id identifier title description estimate state { id name type } labels { nodes { name } } team { id key states { nodes { id name type } } }";
 const commentFields = "id body editedAt user { id }";
+const listedFields =
+  "identifier title description estimate priority createdAt state { id name type } labels { nodes { name } } projectMilestone { name } inverseRelations { nodes { type issue { identifier state { name type } } } }";
 
 export const operations = {
   Story: `query Story($id: String!) { issue(id: $id) { ${issueFields} } }`,
+  Stories: `query Stories($project: ID!, $status: String!, $after: String) { issues(first: 50, after: $after, filter: { project: { id: { eq: $project } }, state: { name: { eq: $status } } }) { nodes { ${listedFields} } pageInfo { hasNextPage endCursor } } }`,
   StoryComments: `query StoryComments($id: String!, $after: String) { issue(id: $id) { comments(first: 50, after: $after, orderBy: createdAt) { nodes { ${commentFields} } pageInfo { hasNextPage endCursor } } } }`,
   Comment: `query Comment($id: String!) { comment(id: $id) { ${commentFields} issue { identifier } } }`,
   PostComment: `mutation PostComment($issueId: String!, $body: String!) { commentCreate(input: { issueId: $issueId, body: $body }) { success comment { ${commentFields} } } }`,
