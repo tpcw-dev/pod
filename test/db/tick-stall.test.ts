@@ -394,6 +394,18 @@ describeDb("pod tick attention: stalls and the one automatic retry", () => {
     expect(await opRow(attentionOpKey("local", "ctx_1", "S-1"))).toBeNull();
   });
 
+  test("a Dispatch Pod settled as superseded is neither a line nor retried", async () => {
+    await dispatchedAt("ctx_1", minutes(-45));
+    await conn.sql`
+      update ledger.dispatch set activity = 'settled', settlement = 'superseded', settled_at = now()
+      where dispatch_id = 'ctx_1'`;
+    const stopped = [{ dispatchId: "ctx_1", workerState: "stopped" }];
+    const attention = port(stopped);
+    const found = await lines(now, stopped, attention);
+    expect(attention.started).toEqual([]);
+    expect(found.filter((line) => line.dispatch_id === "ctx_1")).toEqual([]);
+  });
+
   test("lines come out in the replay order", async () => {
     await decision("dec_b", "needs_human", "disagreement", now);
     await decision("dec_a", "needs_human", "disagreement", now);
