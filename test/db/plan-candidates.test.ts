@@ -215,7 +215,9 @@ describeDb("pod plan candidates across projects", () => {
       ok: false,
       refusal: {
         code: "tracker_partial",
-        message: expect.stringContaining("pod (list_incomplete)"),
+        message: expect.stringContaining(
+          "Project pod read failed: list_incomplete.",
+        ),
       },
     });
     const [row] = await conn.sql<{ n: number }[]>`

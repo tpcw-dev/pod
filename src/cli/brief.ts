@@ -10,7 +10,11 @@ import { pendingActivations, revisionRef } from "../core/config/apply.ts";
 import { revisionId } from "../core/config/canonical-json.ts";
 import { mirrorPath, mirrorSet, scopeText } from "../core/config/mirror.ts";
 import { digestBrief } from "../core/digest/brief.ts";
-import type { BriefTree, DigestBrief } from "../core/domain/brief.ts";
+import {
+  sumBriefCounters,
+  type BriefTree,
+  type DigestBrief,
+} from "../core/domain/brief.ts";
 import type { Repo } from "../core/ports/db.ts";
 import { RevisionEnvelope, type Revision } from "../core/domain/config.ts";
 import { Json } from "../core/domain/json.ts";
@@ -212,7 +216,15 @@ function forProject(tree: BriefTree, project: string | null): BriefTree {
     ...tree,
     stories: tree.stories.flatMap((item) => {
       const runs = item.runs.filter((run) => run.snapshot?.project === project);
-      return runs.length === 0 ? [] : [{ ...item, runs }];
+      if (runs.length === 0) return [];
+      const kept = runs.some((run) => run.run.run_id === item.story.run_id);
+      return [
+        {
+          story: { ...item.story, run_id: kept ? item.story.run_id : null },
+          runs,
+          counters: sumBriefCounters(runs.map((run) => run.counters)),
+        },
+      ];
     }),
   };
 }

@@ -143,7 +143,7 @@ export function trackerMethods(send: Send, scale: string): TrackerPort {
             false,
             null,
             raws,
-            decoded.error ?? "list_incomplete",
+            "list_incomplete",
             requestId,
           );
         const { nodes, pageInfo } = decoded.result;

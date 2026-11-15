@@ -738,6 +738,46 @@ describeDb("pod brief", () => {
       { external_id: "S-app", runs: [{ run_id: "run-app" }] },
     ]);
     expect(parsed.result.projects.map((row) => row.project)).toEqual(["app"]);
+
+    await conn.db.insertRun({
+      run_id: "run-1-app",
+      story_provider: "tracker",
+      story_external_id: "S-1",
+      host: "local",
+      coordinator: "session-1-app",
+      owner_generation: 1,
+      snapshot_hash: "pending",
+      state: "active",
+      created_at: at,
+      coordinator_dispatch_id: null,
+    });
+    await conn.db.insertSnapshot({
+      run_id: "run-1-app",
+      crew_revision_id: base.crew_revision_id,
+      process_revision_id: base.process_revision_id,
+      policy_revision_id: base.policy_revision_id,
+      rate_revision_id: null,
+      effective_gate_map: {},
+      hash: "hash-1-app",
+      pinned_at: at,
+      project: "app",
+      profile: null,
+    });
+    const split = JSON.parse(
+      runBrief(cwd, ["brief", "story:S-1", "--project", "app"]).stdout,
+    ) as {
+      result: {
+        stories: {
+          run_id: string | null;
+          counters: unknown;
+          runs: { run_id: string; counters: unknown }[];
+        }[];
+      };
+    };
+    const [kept] = split.result.stories;
+    expect(kept?.runs.map((run) => run.run_id)).toEqual(["run-1-app"]);
+    expect(kept?.run_id).toBeNull();
+    expect(kept?.counters).toEqual(kept?.runs[0]?.counters);
   });
 });
 

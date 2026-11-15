@@ -105,10 +105,10 @@ function trackerPartial(
 ): Refused {
   return refuse(
     "tracker_partial",
-    `the tracker read for host ${host} is incomplete: ${partial
-      .map((each) => `${each.project} (${each.error})`)
-      .join(", ")}`,
-    [`pod plan --host ${host} prints the partial read`],
+    partial
+      .map((each) => `Project ${each.project} read failed: ${each.error}.`)
+      .join(" "),
+    [`Run pod plan --host ${host} to see each partial read.`],
   );
 }
 

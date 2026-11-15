@@ -379,7 +379,7 @@ test("a failed page makes listStories incomplete with no result", async () => {
   expect(await port.listStories(query)).toMatchObject({
     ok: false,
     result: null,
-    error: "timeout",
+    error: "list_incomplete",
   });
 });
 
