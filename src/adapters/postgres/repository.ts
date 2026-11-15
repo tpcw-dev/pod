@@ -774,6 +774,25 @@ function makeRepo(x: Executor): Repo {
       return row === undefined ? null : toRun(row);
     },
 
+    async listHostRuns(host, states) {
+      const rows = await x
+        .select()
+        .from(run)
+        .where(and(eq(run.host, host), inArray(run.state, [...states])))
+        .orderBy(asc(run.createdAt), asc(run.runId));
+      return rows.map(toRun);
+    },
+
+    async newestRunEventId(runId) {
+      const [row] = await x
+        .select({ id: event.id })
+        .from(event)
+        .where(and(eq(event.runId, runId), ne(event.type, "receipt")))
+        .orderBy(desc(event.id))
+        .limit(1);
+      return row?.id ?? null;
+    },
+
     async lockRun(runId) {
       const [row] = await x
         .select()
@@ -1056,7 +1075,10 @@ function makeRepo(x: Executor): Repo {
           createdAt: row.created_at,
         })
         .onConflictDoNothing({
-          target: [learningOccurrence.learningId, learningOccurrence.evidenceId],
+          target: [
+            learningOccurrence.learningId,
+            learningOccurrence.evidenceId,
+          ],
         })
         .returning({ id: learningOccurrence.id });
       if (inserted !== undefined) return { id: inserted.id, created: true };

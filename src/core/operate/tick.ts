@@ -9,6 +9,9 @@ import type {
 } from "../domain/tick.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import { planHost } from "../plan/host.ts";
+import { closeStep } from "./close.ts";
+import { observeStep } from "./observe.ts";
+import type { OperatePorts } from "./ports.ts";
 import { inForce, newestPublished, overrideIds } from "../plan/overrides.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import {
@@ -105,22 +108,24 @@ function slot(name: StepName): TickStep {
   };
 }
 
-export const tickSteps: readonly TickStep[] = [
-  {
-    name: "read_plan",
-    built: true,
-    run: (ctx) => readPlanStep(ctx.db, ctx.host, ctx.now),
-  },
-  slot("observe"),
-  slot("close"),
-  slot("launch"),
-  slot("attention"),
-  {
-    name: "write_tick",
-    built: true,
-    run: () => Promise.resolve({ result: "ok", detail: null }),
-  },
-];
+export function operateSteps(ports: OperatePorts): readonly TickStep[] {
+  return [
+    {
+      name: "read_plan",
+      built: true,
+      run: (ctx) => readPlanStep(ctx.db, ctx.host, ctx.now),
+    },
+    { name: "observe", built: true, run: (ctx) => observeStep(ports, ctx) },
+    { name: "close", built: true, run: (ctx) => closeStep(ports, ctx) },
+    slot("launch"),
+    slot("attention"),
+    {
+      name: "write_tick",
+      built: true,
+      run: () => Promise.resolve({ result: "ok", detail: null }),
+    },
+  ];
+}
 
 const reads: readonly StepName[] = ["read_plan", "observe"];
 
@@ -169,7 +174,7 @@ export interface StepsRun {
 export async function runSteps(
   db: Db,
   input: Omit<TickInput, "triggers">,
-  steps: readonly TickStep[] = tickSteps,
+  steps: readonly TickStep[],
 ): Promise<StepsRun> {
   let plan: PlanRead | null = null;
   const results: StepRecord[] = [];
@@ -277,7 +282,7 @@ async function writeTick(
 export async function runTick(
   db: Db,
   input: TickInput,
-  steps: readonly TickStep[] = tickSteps,
+  steps: readonly TickStep[],
 ): Promise<TickOutcome | Refused> {
   const recorded = await recordTriggers(db, input);
   return db.transaction(async (lockTx): Promise<TickOutcome | Refused> => {
@@ -352,7 +357,7 @@ async function anyUnrecorded(
 export async function dryRunTick(
   repo: Repo,
   input: Pick<TickInput, "host" | "now" | "triggers">,
-  steps: readonly TickStep[] = tickSteps,
+  steps: readonly TickStep[],
 ): Promise<TickOutcome | Refused> {
   const schedule = await activeSchedule(repo, input.host);
   if (schedule === null)

@@ -1,12 +1,13 @@
 import { z } from "zod";
-import { connect } from "../adapters/postgres/connection.ts";
 import { Json } from "../core/domain/json.ts";
 import { StepRecord, TriggerSource } from "../core/domain/tick.ts";
-import { dryRunTick, runTick } from "../core/operate/tick.ts";
+import { dryRunTick, operateSteps, runTick } from "../core/operate/tick.ts";
 import type { TriggerInput } from "../core/operate/triggers.ts";
-import { PodError, exitFor, usageError } from "./errors.ts";
-import { databaseUrl, readHostProfile } from "./host-profile.ts";
+import { codeHostFor } from "./code-host.ts";
+import { usageError } from "./errors.ts";
+import { realGit, worktreeStatus } from "./git.ts";
 import { actorOf, writerOf } from "./identity.ts";
+import { launchLease, withOrca } from "./run-verbs.ts";
 
 export const TickInput = z.strictObject({
   args: z.tuple([]),
@@ -59,33 +60,32 @@ export function tickOpKeyMeta(output: TickOutput) {
 
 export async function tick(input: TickInput): Promise<TickOutput> {
   const triggers = (input.trigger ?? []).map(parseTrigger);
-  const profile = readHostProfile();
-  const host = input.host ?? profile.hostId;
-  const connection = connect(databaseUrl(profile));
-  try {
-    const db = connection.db;
+  const leaseSeconds = launchLease();
+  return withOrca(async ({ db, orca, tracker, log, host: profile, kinds }) => {
+    const host = input.host ?? profile.hostId;
     const now = new Date();
-    const outcome =
-      input["dry-run"] === true
-        ? await dryRunTick(db, { host, now, triggers })
-        : await runTick(db, {
-            host,
-            writer: profile.hostId,
-            actor: actorOf(await writerOf(db, profile, process.env, null)),
-            now,
-            triggers,
-          });
-    if (!outcome.ok) {
-      const { refusal } = outcome;
-      throw new PodError(
-        refusal.code,
-        exitFor(refusal.code),
-        refusal.message,
-        refusal.nextSteps,
-      );
-    }
-    return outcome;
-  } finally {
-    await connection.close();
-  }
+    const steps = operateSteps({
+      orca,
+      tracker,
+      log,
+      codeHost: codeHostFor(),
+      git: realGit,
+      worktreeStatus,
+      provider: kinds.trackerKind,
+      leaseSeconds,
+    });
+    if (input["dry-run"] === true)
+      return dryRunTick(db, { host, now, triggers }, steps);
+    return runTick(
+      db,
+      {
+        host,
+        writer: profile.hostId,
+        actor: actorOf(await writerOf(db, profile, process.env, null)),
+        now,
+        triggers,
+      },
+      steps,
+    );
+  });
 }
