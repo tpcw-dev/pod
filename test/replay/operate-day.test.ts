@@ -29,7 +29,16 @@ import { envelope, storeRevision } from "../db/fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb } from "../db/helpers.ts";
 import { fakeGit } from "../db/close-ports.ts";
 import { fakeTracker, trackerStory } from "../db/fake-tracker.ts";
-import { createRun, replay, workers } from "../db/run-fixture.ts";
+import {
+  createRun,
+  dispatchInput,
+  replay,
+  started as startedWorker,
+  workers,
+  worktreeId,
+} from "../db/run-fixture.ts";
+import { dispatch } from "../../src/core/dispatch/dispatch.ts";
+import { runCreate } from "../../src/core/run/create.ts";
 import {
   activeRevision,
   crewValue,
@@ -47,11 +56,14 @@ interface Call {
   triggers: string[];
   lock?: "held";
   crash?: boolean;
-  seed?: "finished_run";
+  seed?: "finished_run" | "stopped_worker";
+  workers?: { dispatchId: string; workerState: string }[];
   expect: {
     outcome: TickOutcome["outcome"] | "crashed";
     consumed: string[];
     closed?: string[];
+    retried?: string[];
+    worker_start?: boolean;
   };
 }
 
@@ -112,14 +124,69 @@ describeDb("operate-day", () => {
     });
   }
 
-  async function steps(): Promise<readonly TickStep[]> {
-    const live = await conn.db.listHostRuns(host, observedStates);
-    const { orca, log } = replay(
-      conn,
-      live.map((each) =>
-        ok("worker-list", workers([]), ["--run", each.run_id]),
-      ),
+  async function seedStoppedWorker(): Promise<void> {
+    const created = replay(conn, [
+      ok("run-create", { run: { id: "run_2" } }),
+      ok("task-create", { task: { id: "task_c", status: "ready" } }),
+      ok("task-create", { task: { id: "task_s", status: "pending" } }),
+    ]);
+    const run = await runCreate(conn.db, created.orca, null, created.log, {
+      story: "S-2",
+      process: { name: "impl", rev: 1 },
+      size: "s",
+      stage: "impl",
+      coordinator: "session-2",
+      host,
+      provider: "linear",
+      command: "pod run create story:S-2",
+      project: null,
+      now: () => new Date(),
+    });
+    if (!run.ok) throw new Error(run.refusal.message);
+    const started = replay(conn, [
+      ok("worker-start", startedWorker("ctx_9", "task_c")),
+    ]);
+    const launched = await dispatch(
+      conn.db,
+      started.orca,
+      started.log,
+      dispatchInput({ task: "task_c" }),
     );
+    if (!launched.ok) throw new Error(launched.refusal.message);
+  }
+
+  const retryArgv = [
+    "--task",
+    "task_c",
+    "--run",
+    "run_2",
+    "--agent",
+    "claude",
+    "--model",
+    "m-1",
+    "--effort",
+    "low",
+    "--worktree",
+    `id:${worktreeId}`,
+    "--retry-of",
+    "ctx_9",
+  ];
+
+  async function steps(call?: Call): Promise<readonly TickStep[]> {
+    const live = await conn.db.listHostRuns(host, observedStates);
+    const rows = call?.workers ?? [];
+    const listed = rows.length === 0 ? [] : live;
+    const { orca, log } = replay(conn, [
+      ...live.map((each) =>
+        ok("worker-list", workers(rows), ["--run", each.run_id]),
+      ),
+      ...listed.map((each) =>
+        ok("worker-list", workers(rows), ["--run", each.run_id]),
+      ),
+      ...(call?.expect.worker_start === true
+        ? [ok("worker-start", startedWorker("ctx_10", "task_c"), retryArgv)]
+        : []),
+    ]);
     return operateSteps({
       orca,
       tracker: fakeTracker(
@@ -129,6 +196,7 @@ describeDb("operate-day", () => {
       codeHost: makeFixtureCodeHost(),
       git: fakeGit(),
       worktreeStatus: () => null,
+      gitStatus: () => "## main",
       provider: "linear",
       leaseSeconds: launchLeaseSeconds,
     });
@@ -165,7 +233,7 @@ describeDb("operate-day", () => {
   }
 
   async function tick(call: Call): Promise<TickOutcome> {
-    const planned = await steps();
+    const planned = await steps(call);
     const outcome =
       call.lock === "held"
         ? await conn.sql.begin(async (held) => {
@@ -188,7 +256,7 @@ describeDb("operate-day", () => {
         if (!planned.ok) throw new Error(planned.refusal.message);
         for (const each of await recordTriggers(conn.db, input(call)))
           triggerIds.set(`${each.source}:${each.trigger_id}`, each.event_id);
-        const partial = await runSteps(conn.db, input(call), await steps());
+        const partial = await runSteps(conn.db, input(call), await steps(call));
         crashed = {
           tick_id: planned.tick_id,
           op_keys: partial.steps.map((each) => each.op_key),
@@ -198,6 +266,7 @@ describeDb("operate-day", () => {
       }
       if (call.seed === "finished_run")
         await seedFinishedRun(new Date(call.at));
+      if (call.seed === "stopped_worker") await seedStoppedWorker();
       const outcome = await tick(call);
       if (call.expect.closed !== undefined) {
         const close = outcome.steps.find((each) => each.step === "close");
@@ -213,6 +282,16 @@ describeDb("operate-day", () => {
         call.expect.consumed.map((text) => triggerIds.get(text)),
       );
       if (outcome.tick_id !== null) ticks.push(outcome.tick_id);
+      if (call.expect.retried !== undefined)
+        expect(
+          outcome.steps.find((each) => each.step === "attention")?.detail,
+          call.note,
+        ).toMatchObject({
+          retried: call.expect.retried.map((id) => ({
+            dispatch_id: id,
+            ok: true,
+          })),
+        });
       if (crashed !== null && outcome.outcome === "ran") {
         expect(outcome.tick_id, call.note).toBe(crashed.tick_id);
         expect(
@@ -230,8 +309,11 @@ describeDb("operate-day", () => {
       from ledger.event`;
     expect(row).toEqual({
       ticks: day.filter((call) => call.expect.outcome === "ran").length,
-      triggers: 4,
+      triggers: 5,
     });
+    const [retries] = await conn.sql<{ n: number }[]>`
+      select count(*)::int as n from ledger.dispatch where retry_of = 'ctx_9'`;
+    expect(retries).toEqual({ n: 1 });
     expect((await conn.db.getRun("run_1"))?.state).toBe("done");
     const [closes] = await conn.sql<{ events: number; ops: number }[]>`
       select (select count(*)::int from ledger.event where type = 'close') as events,

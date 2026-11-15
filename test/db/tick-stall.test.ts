@@ -12,14 +12,11 @@ import {
   attentionOpKey,
   type AttentionPort,
 } from "../../src/core/operate/attention.ts";
-import {
-  operateSteps,
-  runTick,
-  type TickOutcome,
-} from "../../src/core/operate/tick.ts";
+import { runTick, type TickOutcome } from "../../src/core/operate/tick.ts";
 import { WorkerListResult, type OrcaPort } from "../../src/core/ports/orca.ts";
 import { noCalls, ok } from "../orca/temp-fixtures.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
+import { idleSteps, withAttention } from "./operate-ports.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
 import {
   dispatched,
@@ -128,7 +125,11 @@ describeDb("pod tick attention: stalls and the one automatic retry", () => {
     rows: Row[] | null = [],
     attention: AttentionPort = port(rows),
   ): Promise<NeedsHumanLine[]> {
-    const result = await attend(conn.db, attention, { host: "local", now: at });
+    const result = await attend(conn.db, attention, {
+      host: "local",
+      writer: "local",
+      now: at,
+    });
     return result.needs_human ?? [];
   }
 
@@ -240,7 +241,11 @@ describeDb("pod tick attention: stalls and the one automatic retry", () => {
       [{ dispatchId: "ctx_1", workerState: "stopped" }],
       orca,
     );
-    const result = await attend(conn.db, attention, { host: "local", now });
+    const result = await attend(conn.db, attention, {
+      host: "local",
+      writer: "local",
+      now,
+    });
     orca.assertDone();
     expect(result.detail).toMatchObject({
       retried: [
@@ -274,7 +279,11 @@ describeDb("pod tick attention: stalls and the one automatic retry", () => {
       ok("worker-start", started("ctx_2"), retryArgv),
     ]);
     const stopped = [{ dispatchId: "ctx_1", workerState: "stopped" }];
-    await attend(conn.db, port(stopped, orca), { host: "local", now });
+    await attend(conn.db, port(stopped, orca), {
+      host: "local",
+      writer: "local",
+      now,
+    });
     orca.assertDone();
     const rows = [...stopped, { dispatchId: "ctx_2", workerState: "ready" }];
     const tick = ran(
@@ -287,7 +296,7 @@ describeDb("pod tick attention: stalls and the one automatic retry", () => {
           now,
           triggers: [],
         },
-        operateSteps(port(rows)),
+        withAttention(idleSteps(conn.db), port(rows)),
       ),
     );
     const attention = tick.steps.find((each) => each.step === "attention");
@@ -305,7 +314,7 @@ describeDb("pod tick attention: stalls and the one automatic retry", () => {
           now: minutes(16),
           triggers: [],
         },
-        operateSteps(port(rows)),
+        withAttention(idleSteps(conn.db), port(rows)),
       ),
     );
     expect(again.outcome).toBe("ran");
@@ -324,7 +333,7 @@ describeDb("pod tick attention: stalls and the one automatic retry", () => {
     await attend(
       conn.db,
       port([{ dispatchId: "ctx_1", workerState: "stopped" }], orca),
-      { host: "local", now },
+      { host: "local", writer: "local", now },
     );
     const both = [
       { dispatchId: "ctx_1", workerState: "stopped" },
@@ -359,7 +368,11 @@ describeDb("pod tick attention: stalls and the one automatic retry", () => {
   test("an unread worker list keeps the ledger lines and retries nothing", async () => {
     await dispatchedAt("ctx_1", minutes(-45));
     const attention = port(null);
-    const result = await attend(conn.db, attention, { host: "local", now });
+    const result = await attend(conn.db, attention, {
+      host: "local",
+      writer: "local",
+      now,
+    });
     expect(attention.started).toEqual([]);
     expect(result.detail).toMatchObject({ unread: ["run_1"] });
     expect(kinds(result.needs_human ?? [])).toContain("dispatch_silent ctx_1");

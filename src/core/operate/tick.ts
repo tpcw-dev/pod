@@ -15,7 +15,7 @@ import { observeStep } from "./observe.ts";
 import type { OperatePorts } from "./ports.ts";
 import { inForce, newestPublished, overrideIds } from "../plan/overrides.ts";
 import type { Db, Repo } from "../ports/db.ts";
-import { attentionStep, type AttentionPort } from "./attention.ts";
+import { attentionStep } from "./attention.ts";
 import {
   newestTick,
   pendingTriggers,
@@ -122,19 +122,13 @@ export function operateSteps(ports: OperatePorts): readonly TickStep[] {
     { name: "observe", built: true, run: (ctx) => observeStep(ports, ctx) },
     { name: "close", built: true, run: (ctx) => closeStep(ports, ctx) },
     slot("launch"),
-    slot("attention"),
+    { name: "attention", built: true, run: (ctx) => attentionStep(ports, ctx) },
     {
       name: "write_tick",
       built: true,
       run: () => Promise.resolve({ result: "ok", detail: null }),
     },
   ];
-}
-
-export function operateSteps(port: AttentionPort): TickStep[] {
-  return tickSteps.map((step) =>
-    step.name === "attention" ? attentionStep(port) : step,
-  );
 }
 
 const reads: readonly StepName[] = ["read_plan", "observe"];

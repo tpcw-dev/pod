@@ -1,3 +1,4 @@
+import { attend, type AttentionPort } from "../../src/core/operate/attention.ts";
 import { makeFixtureCodeHost } from "../../src/adapters/code-host/fixture.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
@@ -14,7 +15,19 @@ export function idleSteps(db: Db): readonly TickStep[] {
     codeHost: makeFixtureCodeHost(),
     git: fakeGit(),
     worktreeStatus: () => null,
+    gitStatus: () => "## main",
     provider: "linear",
     leaseSeconds: launchLeaseSeconds,
   });
+}
+
+export function withAttention(
+  steps: readonly TickStep[],
+  port: AttentionPort,
+): readonly TickStep[] {
+  return steps.map((step) =>
+    step.name === "attention"
+      ? { ...step, run: (ctx) => attend(ctx.db, port, ctx) }
+      : step,
+  );
 }

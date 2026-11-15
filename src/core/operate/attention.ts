@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { recordStops } from "../check/check.ts";
-import { retryPlan, retryReady } from "../dispatch/retry.ts";
+import { listWorkers } from "../check/workers.ts";
+import { hostSlots } from "../config/host.ts";
+import { retry, retryPlan, retryReady } from "../dispatch/retry.ts";
 import { Json } from "../domain/json.ts";
 import type { Dispatch } from "../domain/ledger.ts";
-import type { Outcome } from "../domain/outcome.ts";
+import { refuse, type Outcome } from "../domain/outcome.ts";
 import type { NeedsHumanLine } from "../domain/tick.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { Db } from "../ports/db.ts";
@@ -14,7 +16,8 @@ import {
   sortLines,
   type HostRun,
 } from "./stall.ts";
-import type { StepContext, StepResult, TickStep } from "./tick.ts";
+import type { OperatePorts } from "./ports.ts";
+import type { StepContext, StepResult } from "./tick.ts";
 
 export interface AttentionPort {
   workers(runId: string): Promise<WorkerRow[] | null>;
@@ -57,7 +60,7 @@ export function attentionOpKey(
 async function retryStopped(
   db: Db,
   port: AttentionPort,
-  ctx: Pick<StepContext, "host">,
+  ctx: Pick<StepContext, "host" | "writer">,
   run: HostRun,
   dispatch: Dispatch,
 ): Promise<{ retried: Retried | null; line: NeedsHumanLine | null }> {
@@ -101,8 +104,8 @@ async function retryStopped(
   }
   const ready =
     stored === null
-      ? await retryReady(db, dispatch.dispatch_id, ctx.host, port.capacity)
-      : await retryPlan(db, dispatch.dispatch_id, ctx.host);
+      ? await retryReady(db, dispatch.dispatch_id, ctx.writer, port.capacity)
+      : await retryPlan(db, dispatch.dispatch_id, ctx.writer);
   if ("ok" in ready)
     return {
       retried: null,
@@ -134,7 +137,7 @@ async function retryStopped(
 export async function attend(
   db: Db,
   port: AttentionPort,
-  ctx: Pick<StepContext, "host" | "now">,
+  ctx: Pick<StepContext, "host" | "writer" | "now">,
 ): Promise<StepResult> {
   const stalls = await findStalls(db, ctx.host, ctx.now);
   let lines = stalls.lines;
@@ -182,7 +185,7 @@ export async function attend(
       const locked = await tx.lockRun(run.run.run_id);
       if (locked !== null)
         await recordStops(tx, locked, rows, {
-          host: ctx.host,
+          host: ctx.writer,
           now: () => ctx.now,
         });
     });
@@ -200,10 +203,37 @@ export async function attend(
   };
 }
 
-export function attentionStep(port: AttentionPort): TickStep {
-  return {
-    name: "attention",
-    built: true,
-    run: (ctx) => attend(ctx.db, port, ctx),
-  };
+export async function attentionStep(
+  ports: OperatePorts,
+  ctx: Pick<StepContext, "db" | "host" | "writer" | "now">,
+): Promise<StepResult> {
+  const { db } = ctx;
+  const capacity = await hostSlots(db, ctx.writer);
+  return attend(
+    db,
+    {
+      workers: (runId) => listWorkers(ports.orca, runId),
+      capacity,
+      async retry(dispatch, opKey, worktreePath) {
+        const run = await db.getRun(dispatch.run_id);
+        if (run === null)
+          return refuse("task_not_ready", `Run ${dispatch.run_id} vanished`, [
+            "pod brief",
+          ]);
+        const generation = run.owner_generation;
+        return retry(db, ports.orca, ports.log, {
+          dispatch: dispatch.dispatch_id,
+          generation,
+          opKey,
+          host: ctx.writer,
+          capacity,
+          gitStatus: ports.gitStatus(worktreePath),
+          command: (key) =>
+            `pod retry --dispatch ${dispatch.dispatch_id} --generation ${generation} --op-key ${key}`,
+          now: () => ctx.now,
+        });
+      },
+    },
+    ctx,
+  );
 }

@@ -123,7 +123,7 @@ describeDb("pod tick", () => {
       "ok",
       "ok",
       "not_built",
-      "not_built",
+      "ok",
       "ok",
     ]);
     for (const each of tick.steps)
@@ -407,7 +407,7 @@ describeDb("pod tick", () => {
       "planned",
       "planned",
       "not_built",
-      "not_built",
+      "planned",
       "planned",
     ]);
     expect(await count("trigger")).toBe(0);

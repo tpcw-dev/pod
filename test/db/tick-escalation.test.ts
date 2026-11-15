@@ -12,11 +12,7 @@ import type { Json } from "../../src/core/domain/json.ts";
 import type { Refused } from "../../src/core/domain/outcome.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import type { AttentionPort } from "../../src/core/operate/attention.ts";
-import {
-  operateSteps,
-  runTick,
-  type TickOutcome,
-} from "../../src/core/operate/tick.ts";
+import { runTick, type TickOutcome } from "../../src/core/operate/tick.ts";
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import { closeRun, type CloseInput } from "../../src/core/run/close.ts";
 import { renderState } from "../../src/core/state/render.ts";
@@ -25,6 +21,7 @@ import { noCalls } from "../orca/temp-fixtures.ts";
 import { fakeGit } from "./close-ports.ts";
 import { fakeTracker } from "./fake-tracker.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
+import { idleSteps, withAttention } from "./operate-ports.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { createRun, events } from "./run-fixture.ts";
 import { activeRevision, crewValue, hostValue, processValue } from "./seed.ts";
@@ -108,7 +105,7 @@ describeDb("pod tick escalations and needs_human lines", () => {
         now,
         triggers: [],
       },
-      operateSteps(noWorkers),
+      withAttention(idleSteps(conn.db), noWorkers),
     );
   }
 
