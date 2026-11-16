@@ -123,6 +123,12 @@ test("worktree create without a base branch leaves the flag out", () => {
 
 test("worktree show reads one worktree by selector", () => {
   const argv = argvFor.worktreeShow({ worktree: "name:s-1" });
-  expect(argv).toEqual(["worktree", "show", "--worktree", "name:s-1", "--json"]);
+  expect(argv).toEqual([
+    "worktree",
+    "show",
+    "--worktree",
+    "name:s-1",
+    "--json",
+  ]);
   expect(verbOf(argv)).toBe("worktree-show");
 });

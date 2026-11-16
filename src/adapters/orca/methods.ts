@@ -43,8 +43,7 @@ export function methods(call: Call): Omit<OrcaPort, "version"> {
     terminalRead: (req) => call(argvFor.terminalRead(req), TerminalReadResult),
     worktreeRemove: (req) =>
       call(argvFor.worktreeRemove(req), WorktreeRemoveResult),
-    worktreeCreate: (req) =>
-      call(argvFor.worktreeCreate(req), WorktreeResult),
+    worktreeCreate: (req) => call(argvFor.worktreeCreate(req), WorktreeResult),
     worktreeShow: (req) => call(argvFor.worktreeShow(req), WorktreeResult),
   };
 }

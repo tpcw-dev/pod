@@ -172,7 +172,9 @@ test("the default policy seeds attention 22:00 and 12 hours and validates", () =
 });
 
 test("a policy with no attention key has no pause", () => {
-  const { attention: _dropped, ...without } = defaultValue;
+  const without = Object.fromEntries(
+    Object.entries(defaultValue).filter(([key]) => key !== "attention"),
+  );
   expect(validatePolicy(without, null)).toBeNull();
   expect(attentionOf(without)).toBeNull();
 });

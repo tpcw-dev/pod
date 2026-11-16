@@ -944,7 +944,10 @@ function makeRepo(x: Executor): Repo {
 
     async hostRunningByProject(host) {
       const rows = await x
-        .select({ project: snapshot.project, count: sql<number>`count(*)::int` })
+        .select({
+          project: snapshot.project,
+          count: sql<number>`count(*)::int`,
+        })
         .from(dispatch)
         .innerJoin(run, eq(run.runId, dispatch.runId))
         .innerJoin(snapshot, eq(snapshot.runId, dispatch.runId))

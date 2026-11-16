@@ -11,7 +11,11 @@ import type { StepContext, StepResult } from "./tick.ts";
 import { tickEvents } from "./triggers.ts";
 
 /** Host-wide refusals: the loop stops, and the next tick tries again with no hold. */
-const stopCodes = new Set(["attention_paused", "quota_exhausted", "config_missing"]);
+const stopCodes = new Set([
+  "attention_paused",
+  "quota_exhausted",
+  "config_missing",
+]);
 
 const Refused = z.looseObject({ story: z.string(), code: z.string() });
 
@@ -20,7 +24,8 @@ async function heldByRefusal(
   host: string,
   now: Date,
 ): Promise<Set<string>> {
-  const holdMinutes = (await activeSchedule(repo, host))?.value.hold_minutes ?? 0;
+  const holdMinutes =
+    (await activeSchedule(repo, host))?.value.hold_minutes ?? 0;
   const since = now.getTime() - holdMinutes * 60_000;
   const held = new Set<string>();
   for (const tick of await tickEvents(repo, host)) {

@@ -256,7 +256,8 @@ export async function runLaunchVerb(
           story: story.slice("story:".length),
           host: host.hostId,
           provider: kinds.trackerKind,
-          seats: role === undefined || model === undefined ? {} : { [role]: model },
+          seats:
+            role === undefined || model === undefined ? {} : { [role]: model },
           subject: "manual",
           coordinator,
           command,

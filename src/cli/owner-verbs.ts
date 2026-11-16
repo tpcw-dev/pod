@@ -48,12 +48,7 @@ export async function drainVerb(input: DrainInput): Promise<DrainOutput> {
     const host = readHostProfile();
     const connection = connect(databaseUrl(host));
     try {
-      const identity = await writerOf(
-        connection.db,
-        host,
-        process.env,
-        hostGo,
-      );
+      const identity = await writerOf(connection.db, host, process.env, hostGo);
       needsPerson(identity, hostGo);
       const { result, opKey } = await endHostDrain(connection.db, {
         host: host.hostId,

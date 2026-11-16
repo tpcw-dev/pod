@@ -177,7 +177,9 @@ async function readLead(
   const chosen = await selectRun(db, ports.tracker, ports.log, create);
   if (!chosen.ok) return chosen;
   const { process, crew } = chosen.selected;
-  const first = readSteps(process.value).find((step) => step.needs.length === 0);
+  const first = readSteps(process.value).find(
+    (step) => step.needs.length === 0,
+  );
   if (first === undefined)
     throw new Error(`process.${process.name}@${process.rev} has no first step`);
   const role = first.role ?? first.type;
@@ -473,7 +475,8 @@ export async function runLaunch(
     await record(db, opKey, "pending", recorded, input.now());
   }
   const worktree = recorded.worktree;
-  if (worktree === undefined) throw new Error(`launch ${opKey} lost its worktree`);
+  if (worktree === undefined)
+    throw new Error(`launch ${opKey} lost its worktree`);
 
   if (recorded.run_id === undefined) {
     const created = await runCreate(
@@ -583,4 +586,3 @@ function priorOf(
     );
   return { status: existing.status, recorded: recorded.data };
 }
-
