@@ -125,6 +125,7 @@ export interface Repo {
   insertDispatch(row: Dispatch): Promise<void>;
   getDispatch(dispatchId: string): Promise<Dispatch | null>;
   listDispatches(runId: string): Promise<Dispatch[]>;
+  openRunlessDispatches(host: string): Promise<Dispatch[]>;
   settleDispatch(
     dispatchId: string,
     change: {

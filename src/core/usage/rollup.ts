@@ -98,7 +98,7 @@ export interface UsageDay {
   seats: ({
     dispatch_id: string;
     seat: string;
-    run_id: string;
+    run_id: string | null;
     settled_at: string | null;
   } & Totals)[];
   runs: ({ run_id: string; project: string | null; seats: number } & Totals)[];
@@ -448,8 +448,10 @@ export function usageDay(
   const runs = new Map(facts.runs.map((run) => [run.run_id, run]));
   const runView = facts.view.kind === "run";
   const narrowed = runView || filter.project !== null;
-  const kept = (runId: string) =>
-    filter.project === null || runs.get(runId)?.project === filter.project;
+  const kept = (runId: string | null) =>
+    runId === null
+      ? !narrowed
+      : filter.project === null || runs.get(runId)?.project === filter.project;
   const seats = facts.seats
     .filter((seat) => kept(seat.dispatch.run_id))
     .sort((a, b) => byName(a.dispatch.dispatch_id, b.dispatch.dispatch_id));
@@ -465,7 +467,9 @@ export function usageDay(
   const done = facts.done.filter((item) => kept(item.run_id));
   const runIds = [
     ...new Set([
-      ...seats.map((seat) => seat.dispatch.run_id),
+      ...seats.flatMap((seat) =>
+        seat.dispatch.run_id === null ? [] : [seat.dispatch.run_id],
+      ),
       ...records.flatMap(({ record }) =>
         record.attribution === "path" && record.run_id !== null
           ? [record.run_id]
@@ -507,7 +511,12 @@ export function usageDay(
       ...seatTotals(seat, records),
     })),
     runs: runRows,
-    total: aggregate(runRows),
+    total: aggregate([
+      ...runRows,
+      ...seats
+        .filter((seat) => seat.dispatch.run_id === null)
+        .map((seat) => seatTotals(seat, records)),
+    ]),
     points: pointRollup(done, runs),
     projects: projectNames.map((project) => ({
       project,

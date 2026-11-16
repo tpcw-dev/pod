@@ -198,6 +198,7 @@ describeDb("usage rollup", () => {
       task_id: null,
       decision_id: null,
       run_id: runId,
+      owner_host: "local",
       seat,
       role: "decider",
       requested_launch: {},

@@ -209,7 +209,8 @@ export interface Dispatch {
   dispatch_id: string;
   task_id: string | null;
   decision_id: string | null;
-  run_id: string;
+  run_id: string | null;
+  owner_host: string;
   seat: string;
   role: string;
   requested_launch: Json;

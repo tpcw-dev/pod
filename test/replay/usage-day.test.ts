@@ -72,6 +72,7 @@ describeDb("usage-day", () => {
       task_id: null,
       decision_id: null,
       run_id: "run_a",
+      owner_host: host,
       seat: "example-seat",
       role: "decider",
       requested_launch: { worktree: "id:example-repo::/work/run-a" },

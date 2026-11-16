@@ -1,0 +1,5 @@
+ALTER TABLE "ledger"."dispatch" DROP CONSTRAINT "dispatch_owner_check";--> statement-breakpoint
+ALTER TABLE "ledger"."dispatch" ALTER COLUMN "run_id" DROP NOT NULL;--> statement-breakpoint
+UPDATE "ledger"."dispatch" SET "owner_host" = "ledger"."run"."host" FROM "ledger"."run" WHERE "ledger"."run"."run_id" = "ledger"."dispatch"."run_id";--> statement-breakpoint
+ALTER TABLE "ledger"."dispatch" ALTER COLUMN "owner_host" SET NOT NULL;--> statement-breakpoint
+ALTER TABLE "ledger"."dispatch" ADD CONSTRAINT "dispatch_owner_check" CHECK (("ledger"."dispatch"."run_id" is null and "ledger"."dispatch"."task_id" is null and "ledger"."dispatch"."decision_id" is null) or ("ledger"."dispatch"."run_id" is not null and ("ledger"."dispatch"."task_id" is null or "ledger"."dispatch"."decision_id" is null) and ("ledger"."dispatch"."task_id" is not null or "ledger"."dispatch"."role" in ('decider', 'auditor'))));

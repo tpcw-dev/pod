@@ -186,6 +186,7 @@ describeDb("usage cost", () => {
       task_id: null,
       decision_id: null,
       run_id: "run_1",
+      owner_host: "local",
       seat: "example-seat",
       role: "decider",
       requested_launch: {},

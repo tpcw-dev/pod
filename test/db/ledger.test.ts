@@ -112,6 +112,7 @@ describeDb("ledger repositories", () => {
       task_id: "task-1",
       decision_id: null,
       run_id: "run-1",
+      owner_host: "local",
       seat: "seat-a",
       role: "developer",
       requested_launch: { model: "m" },
@@ -134,7 +135,7 @@ describeDb("ledger repositories", () => {
       from ledger.dispatch where dispatch_id = 'ctx-1'`;
     expect(reserved).toEqual({
       execution_backend: null,
-      owner_host: null,
+      owner_host: "local",
       external_execution_id: null,
       auth_ref: null,
       output_ref: null,

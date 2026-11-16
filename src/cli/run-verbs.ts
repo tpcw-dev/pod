@@ -9,6 +9,7 @@ import {
   resume,
 } from "../core/check/check.ts";
 import { launchLeaseSeconds } from "../core/check/reconcile.ts";
+import { observeRunless } from "../core/check/runless.ts";
 import { singleActive } from "../core/config/active.ts";
 import { hostCapacity } from "../core/plan/capacity.ts";
 import {
@@ -416,8 +417,7 @@ export const CheckInput = z
   })
   .refine((input) =>
     input.observe === true
-      ? input.run !== undefined &&
-        input.generation === undefined &&
+      ? input.generation === undefined &&
         input.task === undefined &&
         input.wait === undefined &&
         input.interval === undefined &&
@@ -465,6 +465,15 @@ const PassOutput = z.object({
   orca: z.string().nullable(),
 });
 
+const RunlessObserveOutput = z.object({
+  run_id: z.null(),
+  stopped: z.array(z.string()),
+  unknown_workers: z.array(z.string()),
+  free_slots: z.int(),
+  nextSteps: z.array(z.string()),
+  orca: z.string().nullable(),
+});
+
 const ResumeOutput = z.object({
   run_id: z.string(),
   resumed: z.array(
@@ -474,7 +483,11 @@ const ResumeOutput = z.object({
   orca: z.string().nullable(),
 });
 
-export const CheckOutput = z.union([PassOutput, ResumeOutput]);
+export const CheckOutput = z.union([
+  PassOutput,
+  ResumeOutput,
+  RunlessObserveOutput,
+]);
 type CheckOutput = z.infer<typeof CheckOutput>;
 
 export function launchLease(): number {
@@ -493,7 +506,10 @@ export function launchLease(): number {
 export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
   const lease = launchLease();
   const now = () => new Date();
-  if (input.observe === true) return observeVerb(input.run ?? "", lease, now);
+  if (input.observe === true)
+    return input.run === undefined
+      ? observeRunlessVerb(now)
+      : observeVerb(input.run, lease, now);
   const generation = Number(input.generation);
   if (input.resume === true) {
     const { result } = await withOrca(({ db, host }) =>
@@ -567,12 +583,33 @@ async function observeVerb(
   };
 }
 
+async function observeRunlessVerb(now: () => Date): Promise<CheckOutput> {
+  let warnings: string[] = [];
+  const { result, orca } = await withOrca(
+    async ({ db, orca: port, log, host }) => {
+      warnings = readCredentials(host).warnings();
+      return observeRunless(db, port, log, {
+        host: host.hostId,
+        capacity: await hostCapacity(db, host.hostId, new Date()),
+        now,
+      });
+    },
+  );
+  return {
+    ...result,
+    nextSteps: [...result.nextSteps, ...warnings],
+    orca,
+  };
+}
+
 export function checkMeta(output: {
-  owner_generation: number;
+  owner_generation?: number;
   orca: string | null;
 }) {
   return {
-    ownerGeneration: output.owner_generation,
+    ...(output.owner_generation === undefined
+      ? {}
+      : { ownerGeneration: output.owner_generation }),
     ...(output.orca === null ? {} : { orca: output.orca }),
   };
 }

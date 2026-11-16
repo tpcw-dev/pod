@@ -3,7 +3,7 @@ import { parseDecisionState, type DecisionRow } from "../domain/decision.ts";
 import { Json } from "../domain/json.ts";
 import type { Run, Task } from "../domain/ledger.ts";
 import type { ReceiptLog } from "../dispatch/decision-seats.ts";
-import { stopForSupersede } from "../dispatch/stop.ts";
+import { stopDispatch } from "../dispatch/stop.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort, WorkerRow } from "../ports/orca.ts";
 import {
@@ -69,9 +69,9 @@ async function followOne(
     (row) => row.task_id === task.task_id && row.settlement === "open",
   );
   if (open !== undefined) {
-    const stopped = await stopForSupersede(db, orca, log, {
+    const stopped = await stopDispatch(db, orca, log, {
       dispatch: open,
-      decisionId: decision.id,
+      cause: { decision_id: decision.id },
       requestId: ref.stop_request_id,
       unknown: ref.stop_unknown,
       workers: context.workers,

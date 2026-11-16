@@ -41,7 +41,7 @@ type Key =
 async function releaseKey(
   db: Repo,
   scope: {
-    run_id: string;
+    run_id: string | null;
     dispatch_id: string;
     host: string;
     generation: number;
@@ -50,7 +50,7 @@ async function releaseKey(
 ): Promise<Key> {
   for (let attempt = 1; ; attempt += 1) {
     const opKey = derivedOpKey("release", {
-      run_id: scope.run_id,
+      ...(scope.run_id === null ? {} : { run_id: scope.run_id }),
       dispatch_id: scope.dispatch_id,
       attempt: String(attempt),
     });
@@ -86,9 +86,11 @@ export async function release(
   const dispatch = await db.getDispatch(input.dispatch);
   if (dispatch === null)
     return refused(`no Dispatch ${input.dispatch}`, ["pod brief"]);
-  const run = await db.getRun(dispatch.run_id);
-  if (run === null) throw new Error(`Run ${dispatch.run_id} vanished`);
-  if (run.owner_generation !== input.generation)
+  const runId = dispatch.run_id;
+  const run = runId === null ? null : await db.getRun(runId);
+  if (runId !== null && run === null)
+    throw new Error(`Run ${runId} vanished`);
+  if (run !== null && run.owner_generation !== input.generation)
     return refuse(
       "owner_generation_stale",
       `--generation ${input.generation} differs from the Run's owner generation ${run.owner_generation}`,
@@ -118,7 +120,7 @@ export async function release(
   const key = await db.transaction(async (tx) => {
     await tx.lockQuota(input.host);
     return releaseKey(tx, {
-      run_id: run.run_id,
+      run_id: runId,
       dispatch_id: dispatch.dispatch_id,
       host: input.host,
       generation: input.generation,
@@ -134,7 +136,7 @@ export async function release(
     };
   const { opKey, operation } = key;
 
-  log.at({ run_id: run.run_id, task_id: dispatch.task_id, op_key: opKey });
+  log.at({ run_id: runId, task_id: dispatch.task_id, op_key: opKey });
   const receipt = await orca.workerRelease({ dispatch: dispatch.dispatch_id });
   const state = receipt.result?.state;
   const at = input.now();
@@ -162,7 +164,7 @@ export async function release(
         type: "release",
         ts: at,
         host: input.host,
-        run_id: run.run_id,
+        run_id: runId,
         task_id: dispatch.task_id,
         dispatch_id: dispatch.dispatch_id,
         op_key: opKey,

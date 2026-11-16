@@ -170,7 +170,7 @@ const seatRoles: readonly string[] = ["decider", "auditor"];
 
 export interface StartRow {
   owner: DispatchOwner;
-  run_id: string;
+  run_id: string | null;
   role: string;
   seat: string;
   host: string;
@@ -187,9 +187,22 @@ export interface StartRow {
   at: Date;
 }
 
+async function ownerHost(tx: Repo, start: StartRow): Promise<string> {
+  if (start.run_id === null) return start.host;
+  const run = await tx.getRun(start.run_id);
+  if (run === null) throw new Error(`Run ${start.run_id} vanished`);
+  return run.host;
+}
+
 export async function insertStart(tx: Repo, start: StartRow): Promise<void> {
   const { launched, owner } = start;
   if (
+    start.run_id === null &&
+    (owner.task_id !== null || owner.decision_id !== null)
+  )
+    throw new Error("a Dispatch with no Run has no Task or Decision");
+  if (
+    start.run_id !== null &&
     owner.task_id === null &&
     owner.decision_id === null &&
     !seatRoles.includes(start.role)
@@ -200,6 +213,7 @@ export async function insertStart(tx: Repo, start: StartRow): Promise<void> {
     task_id: owner.task_id,
     decision_id: owner.decision_id,
     run_id: start.run_id,
+    owner_host: await ownerHost(tx, start),
     seat: start.seat,
     role: start.role,
     requested_launch: start.requested_launch,

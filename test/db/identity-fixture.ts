@@ -62,6 +62,7 @@ export async function seatDispatch(
     task_id: null,
     decision_id: null,
     run_id: input.runId,
+    owner_host: (await db.getRun(input.runId))?.host ?? "local",
     seat: input.seat,
     role: "decider",
     requested_launch: {},

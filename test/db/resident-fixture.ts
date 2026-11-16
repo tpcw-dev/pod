@@ -21,6 +21,7 @@ export async function residentSeat(
     task_id: null,
     decision_id: null,
     run_id: "run_1",
+    owner_host: "local",
     seat: over.seat ?? (role === "decider" ? "dec-1" : "aud-1"),
     role,
     requested_launch: {},

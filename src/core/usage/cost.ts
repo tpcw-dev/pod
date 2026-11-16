@@ -52,7 +52,10 @@ export function listPrice(row: Priced, rate: PinnedRate | null): Cost {
   };
 }
 
-async function recordRun(db: Repo, record: UsageRecord): Promise<string> {
+async function recordRun(
+  db: Repo,
+  record: UsageRecord,
+): Promise<string | null> {
   if (record.run_id !== null) return record.run_id;
   if (record.dispatch_id === null)
     throw new Error(`usage record ${record.id} has no Run`);
@@ -68,11 +71,12 @@ async function rateOf(
   db: Repo,
   record: UsageRecord,
 ): Promise<PinnedRate | null> {
+  const runId =
+    record.attribution === "unattributed" ? null : await recordRun(db, record);
   let id: string | null;
-  if (record.attribution === "unattributed") {
+  if (runId === null) {
     id = (await db.getActivation(activeRate))?.revision_id ?? null;
   } else {
-    const runId = await recordRun(db, record);
     const snapshot = await db.getSnapshot(runId);
     if (snapshot === null)
       throw new Error(

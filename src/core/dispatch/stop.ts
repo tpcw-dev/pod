@@ -5,9 +5,11 @@ import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db } from "../ports/db.ts";
 import type { OrcaPort, WorkerRow } from "../ports/orca.ts";
 
+export type StopCause = { decision_id: string } | { reason: string };
+
 export interface StopInput {
   dispatch: Dispatch;
-  decisionId: string;
+  cause: StopCause;
   requestId: string | null;
   unknown: boolean;
   workers: () => Promise<WorkerRow[] | null>;
@@ -24,7 +26,7 @@ export type StopOutcome =
       unknown: boolean;
     };
 
-export async function stopForSupersede(
+export async function stopDispatch(
   db: Db,
   orca: OrcaPort,
   log: ReceiptLog,
@@ -39,7 +41,7 @@ export async function stopForSupersede(
       const at = input.now();
       const moved = await tx.settleDispatch(id, {
         activity: "settled",
-        settlement: "superseded",
+        settlement: "decision_id" in input.cause ? "superseded" : "stopped",
         settled_at: at,
         at,
       });
@@ -52,7 +54,7 @@ export async function stopForSupersede(
         task_id: dispatch.task_id,
         dispatch_id: id,
         op_key: null,
-        payload: Json.parse({ decision_id: input.decisionId, ...evidence }),
+        payload: Json.parse({ ...input.cause, ...evidence }),
         source: { kind: "command", verb: "check" },
       });
     });

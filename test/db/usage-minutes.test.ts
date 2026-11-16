@@ -98,6 +98,7 @@ describeDb("dispatch activity history", () => {
       task_id: null,
       decision_id: null,
       run_id: "run_a",
+      owner_host: "local",
       seat: "example-seat",
       role: "decider",
       requested_launch: {},

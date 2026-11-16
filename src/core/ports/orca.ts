@@ -257,6 +257,7 @@ export type WorkerRow = z.infer<typeof WorkerRow>;
 export const WorkerListResult = z.looseObject({
   workers: z.array(WorkerRow),
   page: z.looseObject({ nextCursor: z.string().nullish() }),
+  scope: z.looseObject({ source: z.string() }).nullish(),
 });
 export type WorkerListResult = z.infer<typeof WorkerListResult>;
 
