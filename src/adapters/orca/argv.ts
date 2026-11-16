@@ -12,7 +12,9 @@ import type {
   WorkerReleaseRequest,
   WorkerStartRequest,
   WorkerStopRequest,
+  WorktreeCreateRequest,
   WorktreeRemoveRequest,
+  WorktreeShowRequest,
 } from "../../core/ports/orca.ts";
 
 type Flag = readonly [
@@ -134,6 +136,19 @@ export const argvFor = {
       ],
       "worktree",
     ),
+  worktreeCreate: (req: WorktreeCreateRequest) =>
+    flags(
+      "create",
+      [
+        ["--project", req.project],
+        ["--name", req.name],
+        ["--base-branch", req.baseBranch ?? undefined],
+        ["--no-parent", req.noParent],
+      ],
+      "worktree",
+    ),
+  worktreeShow: (req: WorktreeShowRequest) =>
+    flags("show", [["--worktree", req.worktree]], "worktree"),
 };
 
 export function verbOf(argv: readonly string[]): string {

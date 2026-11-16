@@ -56,3 +56,4 @@ value:
     stall_minutes: 30
   learning:
     kinds: [lead, tech]
+  attention: { pause_at: "22:00", max_unattended_hours: 12 }

@@ -11,6 +11,7 @@ import type {
 import { derivedOpKey } from "../ledger/op-key.ts";
 import { planHost } from "../plan/host.ts";
 import { closeStep } from "./close.ts";
+import { launchStep } from "./launch.ts";
 import { observeStep } from "./observe.ts";
 import type { OperatePorts } from "./ports.ts";
 import {
@@ -54,6 +55,8 @@ export interface StepResult {
   detail: Json | null;
   plan?: PlanRead;
   needs_human?: NeedsHumanLine[];
+  launch?: Json[];
+  refuse?: Json[];
 }
 
 export interface TickStep {
@@ -114,14 +117,6 @@ export async function readPlanStep(
   return { result: "ok", detail: Json.parse(plan), plan };
 }
 
-function slot(name: StepName): TickStep {
-  return {
-    name,
-    built: false,
-    run: () => Promise.reject(new Error(`${name} is not built`)),
-  };
-}
-
 export function operateSteps(ports: OperatePorts): readonly TickStep[] {
   return [
     {
@@ -131,7 +126,7 @@ export function operateSteps(ports: OperatePorts): readonly TickStep[] {
     },
     { name: "observe", built: true, run: (ctx) => observeStep(ports, ctx) },
     { name: "close", built: true, run: (ctx) => closeStep(ports, ctx) },
-    slot("launch"),
+    { name: "launch", built: true, run: (ctx) => launchStep(ports, ctx) },
     { name: "attention", built: true, run: (ctx) => attentionStep(ports, ctx) },
     {
       name: "write_tick",
@@ -184,6 +179,8 @@ export interface StepsRun {
   plan: PlanRead | null;
   steps: StepRecord[];
   needs_human: NeedsHumanLine[];
+  launch: Json[];
+  refuse: Json[];
 }
 
 export async function runSteps(
@@ -193,6 +190,8 @@ export async function runSteps(
 ): Promise<StepsRun> {
   let plan: PlanRead | null = null;
   let needsHuman: NeedsHumanLine[] = [];
+  let launch: Json[] = [];
+  let refuse: Json[] = [];
   const results: StepRecord[] = [];
   for (const step of steps) {
     const base = { db, ...input, plan, results };
@@ -216,11 +215,13 @@ export async function runSteps(
     }
     if (outcome.plan !== undefined) plan = outcome.plan;
     if (outcome.needs_human !== undefined) needsHuman = outcome.needs_human;
+    if (outcome.launch !== undefined) launch = outcome.launch;
+    if (outcome.refuse !== undefined) refuse = outcome.refuse;
     results.push(
       record({ ...base, plan }, step.name, outcome.result, outcome.detail),
     );
   }
-  return { plan, steps: results, needs_human: needsHuman };
+  return { plan, steps: results, needs_human: needsHuman, launch, refuse };
 }
 
 function empty(
@@ -337,8 +338,8 @@ export async function runTick(
       overrides: run.plan?.overrides ?? [],
       triggers: consumed,
       steps: run.steps,
-      launch: [],
-      refuse: [],
+      launch: run.launch,
+      refuse: run.refuse,
       needs_human: run.needs_human,
     });
     const listed = new Set(written.payload.triggers);

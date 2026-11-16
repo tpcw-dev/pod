@@ -942,6 +942,24 @@ function makeRepo(x: Executor): Repo {
       }));
     },
 
+    async hostRunningByProject(host) {
+      const rows = await x
+        .select({
+          project: snapshot.project,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(dispatch)
+        .innerJoin(run, eq(run.runId, dispatch.runId))
+        .innerJoin(snapshot, eq(snapshot.runId, dispatch.runId))
+        .where(and(eq(run.host, host), eq(dispatch.activity, "running")))
+        .groupBy(snapshot.project);
+      return Object.fromEntries(
+        rows.flatMap((row) =>
+          row.project === null ? [] : [[row.project, row.count]],
+        ),
+      );
+    },
+
     async hostActivities(host) {
       const rows = await x
         .select({ activity: dispatch.activity })
@@ -1021,6 +1039,12 @@ function makeRepo(x: Executor): Repo {
     async lockQuota(host) {
       await x.execute(
         sql`select pg_advisory_xact_lock(hashtext(${`quota:${host}`}))`,
+      );
+    },
+
+    async lockClaim(story) {
+      await x.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`claim:${story}`}))`,
       );
     },
 
@@ -1861,6 +1885,40 @@ function makeRepo(x: Executor): Repo {
         .orderBy(desc(event.id))
         .limit(1);
       return row === undefined ? null : toEvent(row);
+    },
+
+    async latestHostEvent(host, type, payload) {
+      const [row] = await x
+        .select()
+        .from(event)
+        .where(
+          and(
+            eq(event.host, host),
+            eq(event.type, type),
+            sql`${event.payload} @> ${JSON.stringify(payload)}::jsonb`,
+          ),
+        )
+        .orderBy(desc(event.id))
+        .limit(1);
+      return row === undefined ? null : toEvent(row);
+    },
+
+    async newestPersonEvent(host) {
+      const [row] = await x
+        .select({ id: event.id, ts: event.ts })
+        .from(event)
+        .where(
+          and(
+            eq(event.host, host),
+            or(
+              sql`${event.payload}->>'actor' like 'person:%'`,
+              sql`${event.source}->>'actor' like 'person:%'`,
+            ),
+          ),
+        )
+        .orderBy(desc(event.id))
+        .limit(1);
+      return row ?? null;
     },
 
     async listEvents(runId, type) {

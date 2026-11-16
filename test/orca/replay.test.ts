@@ -136,3 +136,43 @@ test("a recorded worktree rm replays its removal and a selector already gone", a
   });
   orca.assertDone();
 });
+
+test("a recorded worktree create and show replay the worktree and a name not found", async () => {
+  const worktree = {
+    id: "repo-1::/w/s-1",
+    path: "/w/s-1",
+    branch: "refs/heads/s-1",
+  };
+  const orca = makeReplayOrca({
+    dir: fixtures([
+      {
+        verb: "worktree-show",
+        argv: ["--worktree", "name:s-1"],
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          error: { code: "selector_not_found", message: "selector_not_found" },
+        }),
+      },
+      ok("worktree-create", { worktree }, ["--name", "s-1"]),
+      ok("worktree-show", { worktree }, ["--worktree", "name:s-1"]),
+    ]),
+    sink: () => Promise.resolve(),
+  });
+  const missing = await orca.worktreeShow({ worktree: "name:s-1" });
+  expect(missing).toMatchObject({
+    exitCode: 1,
+    result: null,
+    raw: { error: { code: "selector_not_found" } },
+  });
+  const created = await orca.worktreeCreate({
+    project: "github:acme/widgets",
+    name: "s-1",
+    baseBranch: null,
+    noParent: true,
+  });
+  expect(created).toMatchObject({ exitCode: 0, result: { worktree } });
+  const shown = await orca.worktreeShow({ worktree: "name:s-1" });
+  expect(shown).toMatchObject({ exitCode: 0, result: { worktree } });
+  orca.assertDone();
+});

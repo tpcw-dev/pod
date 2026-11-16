@@ -9,7 +9,7 @@ import {
 } from "../domain/policy.ts";
 import { GateEntry } from "../gate/receipt.ts";
 import { LearningKinds } from "./learning-kinds.ts";
-import { StallMinutes, UsageLimitsValue } from "./limits.ts";
+import { AttentionValue, StallMinutes, UsageLimitsValue } from "./limits.ts";
 import {
   packetLimit,
   packetLimitBounds,
@@ -332,6 +332,17 @@ function limitsProblem(limits: unknown): Problem {
   return null;
 }
 
+function attentionProblem(value: unknown): Problem {
+  const given = fields(value);
+  if (!("attention" in given)) return null;
+  if (AttentionValue.safeParse(given["attention"]).success) return null;
+  return {
+    path: "attention",
+    message:
+      'attention: must be { pause_at: "HH:MM", max_unattended_hours: a positive integer }',
+  };
+}
+
 function learningProblem(value: unknown): Problem {
   const learning = fields(value)["learning"];
   if (learning === undefined) return null;
@@ -454,6 +465,7 @@ export function validatePolicy(
     reservedProblem(policy["reserved"]) ??
     escalateProblem(value) ??
     limitsProblem(policy["limits"]) ??
+    attentionProblem(value) ??
     storyStatusProblem(value) ??
     servicesProblem(value) ??
     learningProblem(value) ??

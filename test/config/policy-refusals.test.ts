@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { parse } from "yaml";
 import { droppedMember, validatePolicy } from "../../src/core/config/policy.ts";
-import { stallMinutes } from "../../src/core/config/limits.ts";
+import { attentionOf, stallMinutes } from "../../src/core/config/limits.ts";
 
 const defaultValue = (
   parse(readFileSync("specs/policy/default.yaml", "utf8")) as {
@@ -157,4 +157,41 @@ test.each([
       `limits.${key}: must be an integer from ${range}`,
     );
   }
+});
+
+test("the default policy seeds attention 22:00 and 12 hours and validates", () => {
+  expect(defaultValue["attention"]).toEqual({
+    pause_at: "22:00",
+    max_unattended_hours: 12,
+  });
+  expect(validatePolicy(defaultValue, null)).toBeNull();
+  expect(attentionOf(defaultValue)).toEqual({
+    pause_at: "22:00",
+    max_unattended_hours: 12,
+  });
+});
+
+test("a policy with no attention key has no pause", () => {
+  const without = Object.fromEntries(
+    Object.entries(defaultValue).filter(([key]) => key !== "attention"),
+  );
+  expect(validatePolicy(without, null)).toBeNull();
+  expect(attentionOf(without)).toBeNull();
+});
+
+const withAttention = (attention: unknown) => ({ ...defaultValue, attention });
+
+test.each([
+  [{ pause_at: "25:00", max_unattended_hours: 12 }],
+  [{ pause_at: "9:00", max_unattended_hours: 12 }],
+  [{ pause_at: "22:00", max_unattended_hours: 0 }],
+  [{ pause_at: "22:00", max_unattended_hours: 1.5 }],
+  [{ pause_at: "22:00" }],
+  [{ pause_at: "22:00", max_unattended_hours: 12, extra: 1 }],
+  [null],
+])("attention %j is schema_invalid", (attention) => {
+  expect(refusedAt(withAttention(attention))).toEqual([
+    "schema_invalid",
+    "attention",
+  ]);
 });

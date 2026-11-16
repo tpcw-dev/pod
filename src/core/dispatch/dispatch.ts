@@ -41,6 +41,8 @@ export interface DispatchInput {
   capacity: number | null;
   command: (opKey: string) => string;
   gitStatus?: string;
+  worktree?: string;
+  heldBy?: string;
   now: () => Date;
 }
 
@@ -108,7 +110,13 @@ async function precondition(
         ...(blocked === null ? [] : [`Run blocked by a ${blocked.type} event`]),
       ],
     );
-  const full = await slotRefusal(tx, input.host, input.capacity, launches);
+  const full = await slotRefusal(
+    tx,
+    input.host,
+    input.capacity,
+    launches,
+    input.heldBy,
+  );
   if (full !== null) return { refusal: full };
   if (
     seat === undefined ||
@@ -171,12 +179,12 @@ function refusal(
   return { code, message, nextSteps };
 }
 
-export function seatLaunch(seat: Seat): LaunchArgs {
+export function seatLaunch(seat: Seat, worktree = "current"): LaunchArgs {
   return {
     agent: seat.runtime,
     ...(seat.model === undefined ? {} : { model: seat.model }),
     ...(seat.effort === undefined ? {} : { effort: seat.effort }),
-    worktree: "current",
+    worktree,
   };
 }
 
@@ -269,7 +277,7 @@ export async function dispatch(
       await returnSlot(tx, handoff, now);
       return record(found.refusal);
     }
-    const launch = seatLaunch(found.seat);
+    const launch = seatLaunch(found.seat, input.worktree);
     const story = await tx.getStory(run.story_provider, run.story_external_id);
     const process = await tx.getRevision(snapshot.process_revision_id);
     const policy = await tx.getRevision(snapshot.policy_revision_id);

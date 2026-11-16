@@ -2,7 +2,7 @@ import type { Refusal } from "../domain/outcome.ts";
 import { capacityMissing } from "../config/host.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
 import type { Repo } from "../ports/db.ts";
-import { freeSlots, onHost, type OpenLaunch } from "./quota.ts";
+import { freeSlots, onHost, openLaunches, type OpenLaunch } from "./quota.ts";
 
 export async function drainRefusal(
   tx: Repo,
@@ -25,6 +25,7 @@ export async function slotRefusal(
   host: string,
   capacity: number | null,
   launches: readonly OpenLaunch[],
+  heldBy?: string,
 ): Promise<Refusal | null> {
   if (capacity === null) {
     const missing = capacityMissing(host);
@@ -36,7 +37,9 @@ export async function slotRefusal(
       ],
     };
   }
-  const reservations = onHost(launches, host);
+  const reservations = onHost(launches, host).filter(
+    (row) => row.op_key !== heldBy,
+  );
   const slots = freeSlots(
     capacity,
     await tx.hostActivities(host),
@@ -53,6 +56,51 @@ export async function slotRefusal(
       "running Dispatches on this host hold the rest",
       "pod check --wait",
       "this refusal is recorded under its op key; pass a new --op-key once a slot frees",
+    ],
+  };
+}
+
+function pendingLaunchesOf(
+  launches: readonly OpenLaunch[],
+  project: string,
+): number {
+  return launches.filter(
+    (row) => row.intent === "tick" && row.request?.project === project,
+  ).length;
+}
+
+export async function launchSlotRefusal(
+  tx: Repo,
+  host: string,
+  project: string,
+  capacity: number | null,
+  reserved: Readonly<Record<string, number>>,
+): Promise<Refusal | null> {
+  if (capacity === null) return capacityMissing(host);
+  const launches = onHost(await openLaunches(tx), host);
+  const free = freeSlots(capacity, await tx.hostActivities(host), launches);
+  const running = await tx.hostRunningByProject(host);
+  const unused = Object.entries(reserved)
+    .filter(([name]) => name !== project)
+    .map(([name, slots]) => ({
+      name,
+      unused: Math.max(
+        0,
+        slots - (running[name] ?? 0) - pendingLaunchesOf(launches, name),
+      ),
+    }))
+    .filter((row) => row.unused > 0);
+  const kept = unused.reduce((sum, row) => sum + row.unused, 0);
+  if (free - kept >= 1) return null;
+  return {
+    code: "quota_exhausted",
+    message: `no free slot on host ${host} for project ${project}`,
+    nextSteps: [
+      ...unused.map(
+        (row) => `project ${row.name} keeps ${row.unused} reserved slots`,
+      ),
+      ...launches.map((row) => `reservation ${row.op_key} is ${row.status}`),
+      "pod check --wait",
     ],
   };
 }

@@ -45,7 +45,9 @@ import {
   hostValue,
   processValue,
 } from "../db/seed.ts";
-import { ok } from "../orca/temp-fixtures.ts";
+import type { StoryRef } from "../../src/core/ports/tracker.ts";
+import { publishPlan } from "../db/launch-fixture.ts";
+import { ok, type TempEntry } from "../orca/temp-fixtures.ts";
 
 const dir = process.env["POD_ORCA_FIXTURES"] ?? "fixtures/orca/operate-day";
 const host = "local";
@@ -58,12 +60,19 @@ interface Call {
   crash?: boolean;
   seed?: "finished_run" | "stopped_worker";
   workers?: { dispatchId: string; workerState: string }[];
+  run_workers?: Record<
+    string,
+    { dispatchId: string; taskId: string; workerState: string }[]
+  >;
+  plan?: string[];
+  launches?: { story: string; run: string }[];
   expect: {
     outcome: TickOutcome["outcome"] | "crashed";
     consumed: string[];
     closed?: string[];
     retried?: string[];
     worker_start?: boolean;
+    launched?: string[];
   };
 }
 
@@ -85,7 +94,17 @@ describeDb("operate-day", () => {
     await resetDb();
     conn = openDb();
     await clearDb(conn);
-    await activate("host", host, hostValue(2));
+    await activate("host", host, {
+      ...(hostValue(2) as Record<string, Json>),
+      slots: { default: 4, max: 4 },
+      projects: ["widgets"],
+    });
+    await activeRevision(conn.db, "project", "widgets", {
+      repo: "acme/widgets",
+      category: "Meta",
+      staging: false,
+      tracker: { project_name: "Widgets", project_id: "id-widgets" },
+    });
     await activate("schedule", "default", {
       tick_minutes: 15,
       hold_minutes: 60,
@@ -172,16 +191,48 @@ describeDb("operate-day", () => {
     "ctx_9",
   ];
 
+  function launchEntries(story: string, run: string): TempEntry[] {
+    const name = story.toLowerCase();
+    const worktree = {
+      id: `repo-1::/w/${name}`,
+      path: `/w/${name}`,
+      branch: `refs/heads/${name}`,
+    };
+    return [
+      {
+        verb: "worktree-show",
+        argv: ["--worktree", `name:${name}`],
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          error: { code: "selector_not_found", message: "selector_not_found" },
+        }),
+      },
+      ok("worktree-create", { worktree }, ["--name", name]),
+      ok("run-create", { run: { id: run } }),
+      ok("task-create", { task: { id: `${run}_b`, status: "ready" } }),
+      ok("task-create", { task: { id: `${run}_r`, status: "pending" } }),
+      ok("worker-start", startedWorker(`ctx_${run}`, `${run}_b`), [
+        "--worktree",
+        `id:${worktree.id}`,
+      ]),
+    ];
+  }
+
   async function steps(call?: Call): Promise<readonly TickStep[]> {
     const live = await conn.db.listHostRuns(host, observedStates);
-    const rows = call?.workers ?? [];
-    const listed = rows.length === 0 ? [] : live;
+    const rowsOf = (runId: string) =>
+      call?.run_workers?.[runId] ?? call?.workers ?? [];
+    const listed = live.filter((each) => rowsOf(each.run_id).length > 0);
     const { orca, log } = replay(conn, [
       ...live.map((each) =>
-        ok("worker-list", workers(rows), ["--run", each.run_id]),
+        ok("worker-list", workers(rowsOf(each.run_id)), ["--run", each.run_id]),
+      ),
+      ...(call?.launches ?? []).flatMap((each) =>
+        launchEntries(each.story, each.run),
       ),
       ...listed.map((each) =>
-        ok("worker-list", workers(rows), ["--run", each.run_id]),
+        ok("worker-list", workers(rowsOf(each.run_id)), ["--run", each.run_id]),
       ),
       ...(call?.expect.worker_start === true
         ? [ok("worker-start", startedWorker("ctx_10", "task_c"), retryArgv)]
@@ -189,9 +240,7 @@ describeDb("operate-day", () => {
     ]);
     return operateSteps({
       orca,
-      tracker: fakeTracker(
-        trackerStory({ status: "Done", statusType: "completed" }),
-      ),
+      tracker: anyStory(),
       log,
       codeHost: makeFixtureCodeHost(),
       git: fakeGit(),
@@ -202,6 +251,21 @@ describeDb("operate-day", () => {
     });
   }
   afterAll(() => conn.close());
+
+  function anyStory() {
+    const tracker = fakeTracker();
+    return {
+      ...tracker,
+      readStory: (ref: StoryRef) => {
+        tracker.story = trackerStory({
+          ref,
+          status: "Done",
+          statusType: "completed",
+        });
+        return tracker.readStory(ref);
+      },
+    };
+  }
 
   async function activate(kind: Kind, name: string, value: Json) {
     const revision = await storeRevision(conn.db, {
@@ -251,6 +315,8 @@ describeDb("operate-day", () => {
     let crashed: { tick_id: string | null; op_keys: string[] } | null = null;
     const ticks: string[] = [];
     for (const call of day) {
+      if (call.plan !== undefined)
+        await publishPlan(conn, new Date(call.at), "person:human", call.plan);
       if (call.crash === true) {
         const planned = await dryRunTick(conn.db, input(call), await steps());
         if (!planned.ok) throw new Error(planned.refusal.message);
@@ -282,6 +348,11 @@ describeDb("operate-day", () => {
         call.expect.consumed.map((text) => triggerIds.get(text)),
       );
       if (outcome.tick_id !== null) ticks.push(outcome.tick_id);
+      if (call.expect.launched !== undefined)
+        expect(
+          outcome.launch.map((each) => (each as { story: string }).story),
+          call.note,
+        ).toEqual(call.expect.launched);
       if (call.expect.retried !== undefined)
         expect(
           outcome.steps.find((each) => each.step === "attention")?.detail,
@@ -309,8 +380,16 @@ describeDb("operate-day", () => {
       from ledger.event`;
     expect(row).toEqual({
       ticks: day.filter((call) => call.expect.outcome === "ran").length,
-      triggers: 5,
+      triggers: 7,
     });
+    const launched = await conn.sql<{ story: string; runs: number }[]>`
+      select story_external_id as story, count(*)::int as runs from ledger.run
+      where story_external_id in ('S-3', 'S-4') group by story_external_id
+      order by story_external_id`;
+    expect(launched).toEqual([
+      { story: "S-3", runs: 1 },
+      { story: "S-4", runs: 1 },
+    ]);
     const [retries] = await conn.sql<{ n: number }[]>`
       select count(*)::int as n from ledger.dispatch where retry_of = 'ctx_9'`;
     expect(retries).toEqual({ n: 1 });

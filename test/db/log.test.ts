@@ -228,6 +228,26 @@ describe("groupLog", () => {
     ]);
   });
 
+  test("a host attention drain is a Held line with no Run phrase", () => {
+    const drain: Event = {
+      ...events[0]!,
+      ...row("drain", "2026-11-15T12:00:00.000Z", {
+        ended: false,
+        op_key: "drain:host",
+        scope: "host",
+        host: "local",
+        cause: "pause_at",
+      }),
+      id: 99,
+    };
+    const groups = groupLog([drain], "local");
+    expect(
+      groups.flatMap((group) =>
+        group.lines.map((line) => `${group.heading}: ${line.text}`),
+      ),
+    ).toEqual(["Held: drain"]);
+  });
+
   test("a long text is cut to 160 characters", () => {
     const [line] = groupLog(
       [{ ...events[6]!, payload: { text: "x".repeat(400) } }],

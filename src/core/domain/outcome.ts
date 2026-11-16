@@ -44,6 +44,8 @@ export const RefusalCode = z.enum([
   "tracker_partial",
   "revision_conflict",
   "config_missing",
+  "usage_hold",
+  "attention_paused",
   "usage",
   "failed",
 ]);

@@ -122,7 +122,7 @@ describeDb("pod tick", () => {
       "ok",
       "ok",
       "ok",
-      "not_built",
+      "ok",
       "ok",
       "ok",
     ]);
@@ -406,7 +406,7 @@ describeDb("pod tick", () => {
       "planned",
       "planned",
       "planned",
-      "not_built",
+      "planned",
       "planned",
       "planned",
     ]);
