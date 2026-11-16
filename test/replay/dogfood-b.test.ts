@@ -390,5 +390,5 @@ describeDb("dogfood-b", () => {
 
     orca.assertDone();
     replayTracker.assertDone();
-  }, 300_000);
+  });
 });

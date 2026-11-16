@@ -136,7 +136,7 @@ describeDb("mixed auditor set", () => {
       const found = await drive(item, `TRK-${101 + i}`);
       expect(found.classification).toBe(item.expected);
       recorded.set(item.id, found);
-    }, 60_000);
+    });
 
   test("the set exercises both failure classes", () => {
     expect(cases.map((item) => item.expected).sort()).toEqual([
