@@ -46,7 +46,7 @@ function areaFlag(value: string): z.infer<typeof Area> {
 function reporterFlag(value: string | undefined): z.infer<typeof Reporter> {
   if (value === undefined) return "lead";
   const parsed = Reporter.safeParse(value);
-  if (!parsed.success) oneOf("reporter", "lead, retro, or healthcheck", value);
+  if (!parsed.success) oneOf("reporter", "lead, retro, healthcheck, or digest", value);
   return parsed.data;
 }
 

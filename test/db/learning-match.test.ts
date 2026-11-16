@@ -322,5 +322,11 @@ describeDb("learning add matching", () => {
     expect(bad.status).toBe(2);
     const reporter = runCli(["learning", "add", path, "--area", "impl", "--kind", "lead", "--reporter", "bot"]);
     expect(reporter.status).toBe(2);
+    expect(reporter.json.error?.message).toContain("lead, retro, healthcheck, or digest");
+    const digest = runCli(["learning", "add", path, "--area", "impl", "--kind", "lead", "--reporter", "digest"]);
+    expect(digest.status).toBe(0);
+    const [occurrence2] = await conn.sql<{ reporter: string }[]>`
+      select reporter from ledger.learning_occurrence order by id desc limit 1`;
+    expect(occurrence2?.reporter).toBe("digest");
   });
 });

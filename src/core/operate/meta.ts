@@ -17,6 +17,8 @@ import { derivedOpKey } from "../ledger/op-key.ts";
 import { hostDay, hostTime } from "../plan/clock.ts";
 import { planHost } from "../plan/host.ts";
 import type { Db, Repo } from "../ports/db.ts";
+import { digestMetaStep, type DigestDeps } from "./meta-digest.ts";
+import { retroMetaStep, type RetroDeps } from "./meta-retro.ts";
 import { buildPacket, type Packet, type PacketInput } from "./packet.ts";
 import { metaStepOpKey, readWatermark } from "./watermark.ts";
 
@@ -61,18 +63,11 @@ export const realClock: MetaClock = {
     }),
 };
 
-function slot(name: MetaStepName): MetaStep {
-  return {
-    name,
-    built: false,
-    output: name,
-    scope: (host) => `host:${host}`,
-    input: () => Promise.resolve([]),
-    run: () => Promise.reject(new Error(`${name} is not built`)),
-  };
-}
+export type MetaDeps = RetroDeps & DigestDeps;
 
-export const metaSteps: readonly MetaStep[] = [slot("retro"), slot("digest")];
+export function metaStepsWith(deps: MetaDeps): readonly MetaStep[] {
+  return [retroMetaStep(deps), digestMetaStep(deps)];
+}
 
 export interface MetaInput {
   host: string;
@@ -280,7 +275,7 @@ export async function runMetaSteps(
   db: Db,
   input: Omit<MetaInput, "slot">,
   names: readonly MetaStepName[],
-  steps: readonly MetaStep[] = metaSteps,
+  steps: readonly MetaStep[],
   clock: MetaClock = realClock,
 ): Promise<MetaStepRecord[]> {
   const records: MetaStepRecord[] = [];
@@ -354,7 +349,7 @@ function outcomeOf(
 export async function runMeta(
   db: Db,
   input: MetaInput,
-  steps: readonly MetaStep[] = metaSteps,
+  steps: readonly MetaStep[],
   clock: MetaClock = realClock,
 ): Promise<MetaOutcome | Refused> {
   return db.transaction(async (lockTx): Promise<MetaOutcome | Refused> => {
@@ -397,7 +392,7 @@ export async function runMeta(
 export async function dryRunMeta(
   repo: Repo,
   input: Pick<MetaInput, "host" | "now" | "slot">,
-  steps: readonly MetaStep[] = metaSteps,
+  steps: readonly MetaStep[],
 ): Promise<MetaOutcome | Refused> {
   const planned = await plan(repo, input);
   if ("ok" in planned) return planned;

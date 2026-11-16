@@ -5,3 +5,5 @@
 {"at": "2026-11-16T10:05:00Z", "note": "the next morning's slot is killed before its tick event", "crash": true, "expect": {"outcome": "crashed", "slots": []}}
 {"at": "2026-11-16T10:20:00Z", "note": "the killed slot reruns with the same op-keys", "expect": {"outcome": "ran", "slots": ["morning"]}}
 {"at": "2026-11-16T11:00:00Z", "note": "the operator forces the slot once more", "slot": "morning", "expect": {"outcome": "ran", "slots": ["morning"]}}
+{"at": "2026-11-17T10:30:00Z", "note": "a morning with a retro_due Run, four learnings over the cap of 3, one ruled escalation, and a digest readback that fails", "seed": {"retro_due": true, "learnings": 4, "escalation": "ruled"}, "readback": "fail", "expect": {"outcome": "ran", "slots": ["morning"], "steps": [["retro", "ok"], ["digest", "failed"]]}}
+{"at": "2026-11-17T11:00:00Z", "note": "the operator reruns the slot: the retro Dispatch replays and the digest posts once under the same op-key", "slot": "morning", "expect": {"outcome": "ran", "slots": ["morning"], "steps": [["retro", "ok"], ["digest", "ok"]]}}

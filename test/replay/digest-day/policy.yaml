@@ -5,5 +5,8 @@ value:
   gates: []
   limits:
     digest_per_day: 2
+    packet_items: 20
+    packet_words: 2000
+    packet_minutes: 30
   learning:
     kinds: [lead]

@@ -7,6 +7,14 @@ export interface PacketItem {
   ts: Date;
   kind: "evidence" | "ruling" | "exception";
   text: string;
+  subject?: PacketSubject;
+}
+
+export type PacketSubject =
+  `${"run" | "learning" | "receipt" | "decision"}:${string}`;
+
+export function subjectId(subject: PacketSubject, kind: string): string | null {
+  return subject.startsWith(`${kind}:`) ? subject.slice(kind.length + 1) : null;
 }
 
 export interface PacketContext {

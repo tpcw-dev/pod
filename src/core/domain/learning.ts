@@ -12,7 +12,7 @@ export const Adoption = z.enum([
 ]);
 export type Adoption = z.infer<typeof Adoption>;
 
-export const Reporter = z.enum(["lead", "retro", "healthcheck"]);
+export const Reporter = z.enum(["lead", "retro", "healthcheck", "digest"]);
 export type Reporter = z.infer<typeof Reporter>;
 
 const nonEmpty = z.string().min(1);
