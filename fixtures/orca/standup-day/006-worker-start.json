@@ -1,0 +1,17 @@
+{
+  "verb": "worker-start",
+  "match": {
+    "argv": [
+      "--task",
+      "task_b",
+      "--worktree",
+      "id:repo-1::/w/s-1"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\"ok\":true,\"result\":{\"dispatchId\":\"ctx_1\",\"state\":\"ready\",\"taskId\":\"task_b\",\"terminalHandle\":\"term_ctx_1\",\"launch\":{\"requested\":{\"agent\":\"claude\",\"model\":\"m-1\",\"effort\":\"low\"},\"effective\":{\"agent\":\"claude\",\"model\":\"m-1\",\"effort\":\"low\"}},\"effects\":[{\"kind\":\"worktree\",\"action\":\"reused\",\"id\":\"repo-1::/w/one\"}]}}",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-11-16T00:00:00.000Z"
+}

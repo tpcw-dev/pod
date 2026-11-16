@@ -41,6 +41,17 @@ import {
 } from "./plan-verbs.ts";
 import { TickInput, TickOutput, tick, tickOpKeyMeta } from "./tick-verbs.ts";
 import {
+  standup,
+  standupDone,
+  StandupDoneInput,
+  StandupInput,
+  standupMeta,
+  StandupOutput,
+  standupSkip,
+  StandupSkipInput,
+} from "./standup-verbs.ts";
+import { StandupResult } from "../core/standup/record.ts";
+import {
   digestAssign,
   DigestAssignInput,
   DigestAssignOutput,
@@ -558,6 +569,39 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     evidenceRequired: [
       "an active host Revision with a timezone for the host; `--publish` writes the plan",
     ],
+  }),
+  row({
+    name: "standup",
+    input: StandupInput,
+    output: StandupOutput,
+    handler: standup,
+    sideEffect: "none",
+    cancelBy: ["nobody"],
+    evidenceRequired: ["an active host Revision with a timezone for the host"],
+  }),
+  row({
+    name: "standup done",
+    input: StandupDoneInput,
+    output: StandupResult,
+    handler: standupDone,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "a `person:` actor and an active host Revision with a timezone for the host",
+    ],
+    meta: standupMeta,
+  }),
+  row({
+    name: "standup skip",
+    input: StandupSkipInput,
+    output: StandupResult,
+    handler: standupSkip,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "a `person:` actor, a `--reason`, and an active host Revision with a timezone for the host",
+    ],
+    meta: standupMeta,
   }),
   row({
     name: "plan hold",

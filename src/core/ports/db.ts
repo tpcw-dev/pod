@@ -224,6 +224,7 @@ export interface Repo {
   ): Promise<Event | null>;
   eventsWith(type: EventType, payload: Record<string, Json>): Promise<Event[]>;
   recordTrigger(row: NewEvent): Promise<{ event: Event; created: boolean }>;
+  claimStandupDay(row: NewEvent): Promise<{ event: Event; created: boolean }>;
   tryLockTick(host: string, agenda?: "meta"): Promise<boolean>;
   latestEventWith(
     type: EventType,
@@ -241,6 +242,7 @@ export interface Repo {
     payload: Record<string, Json>,
   ): Promise<Event | null>;
   newestPersonEvent(host: string): Promise<{ id: number; ts: Date } | null>;
+  hostsWithHostDrain(): Promise<string[]>;
   eventsBetween(since: Date, until: Date): Promise<Event[]>;
   insertOperation(
     row: NewOperation,

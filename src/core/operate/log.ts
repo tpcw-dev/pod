@@ -170,6 +170,7 @@ const placement: Record<EventType, Place> = {
   retro: quiet,
   digest: quiet,
   trigger: quiet,
+  standup: quiet,
 };
 
 function hostOf(event: Event): string {

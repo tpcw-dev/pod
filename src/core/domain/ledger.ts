@@ -33,6 +33,7 @@ export const eventTypes = [
   "plan",
   "trigger",
   "tick",
+  "standup",
 ] as const;
 export const EventType = z.enum(eventTypes);
 export type EventType = z.infer<typeof EventType>;
@@ -59,6 +60,7 @@ export const intents = [
   "usage",
   "plan",
   "tick",
+  "standup",
 ] as const;
 export const Intent = z.enum(intents);
 export type Intent = z.infer<typeof Intent>;

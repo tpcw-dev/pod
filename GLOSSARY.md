@@ -55,3 +55,4 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Drill**: one replayed Run that walks several recorded failures and shows recovery on a single ledger.
 - **Hand-filled entry**: an event whose content a person typed.
 - **Recovery step**: an event that retries, resumes, takes over, or releases work on a Run.
+- **Standup**: the operator's daily sitting. `pod standup` prints its agenda, and `pod standup done` or `pod standup skip` records the one `standup` event of the day, which also ends the attention pause on every host.
