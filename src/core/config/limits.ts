@@ -53,3 +53,16 @@ export function stallMinutes(policyValue: unknown): number {
   const stall = Limits.safeParse(policyValue).data?.limits?.stall_minutes;
   return StallMinutes.safeParse(stall).data ?? 30;
 }
+
+export const AttentionValue = z.strictObject({
+  pause_at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  max_unattended_hours: z.int().positive(),
+});
+export type Attention = z.infer<typeof AttentionValue>;
+
+export function attentionOf(policyValue: unknown): Attention | null {
+  const attention = z
+    .looseObject({ attention: z.unknown().optional() })
+    .safeParse(policyValue).data?.attention;
+  return AttentionValue.safeParse(attention).data ?? null;
+}
