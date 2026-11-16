@@ -14,7 +14,7 @@ export interface DueCause {
   op_key: string;
 }
 
-/** Event types that end a host pause; S25a adds `standup`. */
+/** Event types whose newest event after an open host drain ends the pause. */
 export const goEventTypes: readonly EventType[] = ["drain"];
 
 const HostDrain = z.looseObject({ ended: z.boolean() });
