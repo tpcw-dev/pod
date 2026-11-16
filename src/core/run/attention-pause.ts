@@ -37,10 +37,14 @@ export async function dueCauses(
   const attention = attentionOf(policy?.value);
   if (attention === null) return [];
   const due: DueCause[] = [];
-  if (hostTime(now, timezone) >= attention.pause_at)
+  const day = hostDay(now, timezone);
+  if (
+    hostTime(now, timezone) >= attention.pause_at &&
+    (await repo.eventWith("standup", { day })) === null
+  )
     due.push({
       cause: "pause_at",
-      op_key: hostDrainKey(host, "pause_at", { day: hostDay(now, timezone) }),
+      op_key: hostDrainKey(host, "pause_at", { day }),
     });
   const person = await repo.newestPersonEvent(host);
   const limit = attention.max_unattended_hours * 3_600_000;
@@ -138,6 +142,50 @@ export const HostDrainResult = z.object({
 });
 export type HostDrainResult = z.infer<typeof HostDrainResult>;
 
+export async function endHostPause(
+  tx: Repo,
+  input: {
+    host: string;
+    actor: string;
+    verb: string;
+    opKey: string;
+    now: Date;
+  },
+): Promise<void> {
+  const request = { scope: "host", host: input.host, ended: true };
+  await tx.insertOperation({
+    op_key: input.opKey,
+    intent: "drain",
+    owner_generation: 0,
+    at: input.now,
+    result_ref: { request },
+  });
+  await tx.moveOperation(input.opKey, "done", { request }, input.now);
+  await tx.appendEvent({
+    type: "drain",
+    ts: input.now,
+    host: input.host,
+    run_id: null,
+    task_id: null,
+    dispatch_id: null,
+    op_key: input.opKey,
+    payload: {
+      ended: true,
+      op_key: input.opKey,
+      scope: "host",
+      host: input.host,
+    },
+    source: { kind: "command", verb: input.verb, actor: input.actor },
+  });
+}
+
+export async function hostsInForce(repo: Repo): Promise<string[]> {
+  const hosts: string[] = [];
+  for (const host of await repo.hostsWithHostDrain())
+    if (await inForce(repo, host)) hosts.push(host);
+  return hosts;
+}
+
 export async function endHostDrain(
   db: Db,
   input: { host: string; actor: string; now: Date },
@@ -148,28 +196,9 @@ export async function endHostDrain(
     ended: "true",
     at: input.now.toISOString(),
   });
-  const request = { scope: "host", host: input.host, ended: true };
   return db.transaction(async (tx) => {
     const wasInForce = await inForce(tx, input.host);
-    await tx.insertOperation({
-      op_key: opKey,
-      intent: "drain",
-      owner_generation: 0,
-      at: input.now,
-      result_ref: { request },
-    });
-    await tx.moveOperation(opKey, "done", { request }, input.now);
-    await tx.appendEvent({
-      type: "drain",
-      ts: input.now,
-      host: input.host,
-      run_id: null,
-      task_id: null,
-      dispatch_id: null,
-      op_key: opKey,
-      payload: { ended: true, op_key: opKey, scope: "host", host: input.host },
-      source: { kind: "command", verb: "drain", actor: input.actor },
-    });
+    await endHostPause(tx, { ...input, verb: "drain", opKey });
     return {
       opKey,
       result: {

@@ -1870,6 +1870,39 @@ function makeRepo(x: Executor): Repo {
       return { event: toEvent(stored), created: false };
     },
 
+    async claimStandupDay(row) {
+      const [inserted] = await x
+        .insert(event)
+        .values({
+          type: row.type,
+          ts: row.ts,
+          host: row.host,
+          runId: row.run_id,
+          taskId: row.task_id,
+          dispatchId: row.dispatch_id,
+          opKey: row.op_key,
+          payload: row.payload,
+          source: row.source,
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (inserted !== undefined)
+        return { event: toEvent(inserted), created: true };
+      const payload = row.payload as Record<string, Json>;
+      const [stored] = await x
+        .select()
+        .from(event)
+        .where(
+          and(
+            eq(event.type, "standup"),
+            sql`${event.payload}->>'day' = ${payload["day"]}`,
+          ),
+        );
+      if (stored === undefined)
+        throw new Error("standup insert conflicted and no standup is stored");
+      return { event: toEvent(stored), created: false };
+    },
+
     async latestEventWith(type, payload) {
       const [row] = await x
         .select()
@@ -1927,10 +1960,16 @@ function makeRepo(x: Executor): Repo {
         .select({ id: event.id, ts: event.ts })
         .from(event)
         .where(
-          and(
-            eq(event.host, host),
-            or(
-              sql`${event.payload}->>'actor' like 'person:%'`,
+          or(
+            and(
+              eq(event.host, host),
+              or(
+                sql`${event.payload}->>'actor' like 'person:%'`,
+                sql`${event.source}->>'actor' like 'person:%'`,
+              ),
+            ),
+            and(
+              eq(event.type, "standup"),
               sql`${event.source}->>'actor' like 'person:%'`,
             ),
           ),
@@ -1938,6 +1977,20 @@ function makeRepo(x: Executor): Repo {
         .orderBy(desc(event.id))
         .limit(1);
       return row ?? null;
+    },
+
+    async hostsWithHostDrain() {
+      const rows = await x
+        .selectDistinctOn([event.host], { host: event.host })
+        .from(event)
+        .where(
+          and(
+            eq(event.type, "drain"),
+            sql`${event.payload} @> '{"scope":"host"}'::jsonb`,
+          ),
+        )
+        .orderBy(asc(event.host));
+      return rows.map((row) => row.host);
     },
 
     async listEvents(runId, type) {

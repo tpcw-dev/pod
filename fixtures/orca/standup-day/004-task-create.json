@@ -1,0 +1,12 @@
+{
+  "verb": "task-create",
+  "match": {
+    "argv": []
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\"ok\":true,\"result\":{\"task\":{\"id\":\"task_b\",\"status\":\"ready\"}}}",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-11-16T00:00:00.000Z"
+}

@@ -1,0 +1,15 @@
+{
+  "verb": "worktree-create",
+  "match": {
+    "argv": [
+      "--project",
+      "github:acme/widgets"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\"ok\":true,\"result\":{\"worktree\":{\"id\":\"repo-1::/w/s-1\",\"path\":\"/w/s-1\",\"branch\":\"refs/heads/s-1\"}}}",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-11-16T00:00:00.000Z"
+}

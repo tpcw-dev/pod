@@ -1,0 +1,15 @@
+{
+  "verb": "worktree-show",
+  "match": {
+    "argv": [
+      "--worktree",
+      "name:s-1"
+    ]
+  },
+  "exitCode": 1,
+  "signal": null,
+  "stdout": "{\"ok\":false,\"error\":{\"code\":\"selector_not_found\",\"message\":\"selector_not_found\"}}",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "2026-11-16T00:00:00.000Z"
+}
