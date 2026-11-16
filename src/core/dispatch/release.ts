@@ -88,8 +88,7 @@ export async function release(
     return refused(`no Dispatch ${input.dispatch}`, ["pod brief"]);
   const runId = dispatch.run_id;
   const run = runId === null ? null : await db.getRun(runId);
-  if (runId !== null && run === null)
-    throw new Error(`Run ${runId} vanished`);
+  if (runId !== null && run === null) throw new Error(`Run ${runId} vanished`);
   if (run !== null && run.owner_generation !== input.generation)
     return refuse(
       "owner_generation_stale",

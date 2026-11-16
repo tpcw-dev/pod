@@ -52,7 +52,8 @@ export async function observeRunless(
         const row = listed.rows.find(
           (item) => item.dispatchId === dispatch.dispatch_id,
         );
-        if (row === undefined) result.unknown_workers.push(dispatch.dispatch_id);
+        if (row === undefined)
+          result.unknown_workers.push(dispatch.dispatch_id);
         else if (row.workerState === "stopped") {
           await stopDispatch(db, orca, log, {
             dispatch,

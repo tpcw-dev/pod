@@ -30,9 +30,7 @@ export async function listAllWorkers(
   const rows: WorkerRow[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const page = await orca.workerList(
-      cursor === undefined ? {} : { cursor },
-    );
+    const page = await orca.workerList(cursor === undefined ? {} : { cursor });
     if (page.exitCode !== 0 || page.result === null)
       return { scope: "unreadable" };
     const source = page.result.scope?.source ?? "missing";

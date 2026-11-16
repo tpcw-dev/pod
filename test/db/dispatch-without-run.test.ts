@@ -6,6 +6,7 @@ import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { migrate } from "../../src/adapters/postgres/migrate.ts";
 import { CheckInput } from "../../src/cli/run-verbs.ts";
 import { observeRunless } from "../../src/core/check/runless.ts";
+import { launchSlotRefusal } from "../../src/core/dispatch/launch-gate.ts";
 import { insertStart } from "../../src/core/dispatch/launch-record.ts";
 import { release } from "../../src/core/dispatch/release.ts";
 import { stopDispatch } from "../../src/core/dispatch/stop.ts";
@@ -146,15 +147,27 @@ describeDb("a Dispatch with no Run", () => {
     expect(await conn.db.hostActivities("elsewhere")).toEqual([]);
   });
 
+  test("it takes an ordinary slot, counts under no project, and leaves a reserved project's share alone", async () => {
+    await runless(conn, "ctx_meta");
+    expect(await conn.db.hostRunningByProject("local")).toEqual({});
+    expect(
+      await launchSlotRefusal(conn.db, "local", "beta", 2, { alpha: 1 }),
+    ).toMatchObject({ code: "quota_exhausted" });
+    expect(
+      await launchSlotRefusal(conn.db, "local", "beta", 3, { alpha: 1 }),
+    ).toBeNull();
+    expect(
+      await launchSlotRefusal(conn.db, "local", "alpha", 2, { alpha: 1 }),
+    ).toBeNull();
+  });
+
   test("its terminal resolves as its Seat on its owner host", async () => {
     await runless(conn, "ctx_meta");
     await runless(conn, "ctx_bare", { terminal: null });
     expect(await conn.db.terminalSeat("local", "term_ctx_meta")).toBe(
       "meta-digest",
     );
-    expect(await conn.db.terminalSeat("elsewhere", "term_ctx_meta")).toBe(
-      null,
-    );
+    expect(await conn.db.terminalSeat("elsewhere", "term_ctx_meta")).toBe(null);
     expect(await conn.db.unresolvedWorkers("local")).toContain("ctx_bare");
     expect(await conn.db.unresolvedWorkers("elsewhere")).not.toContain(
       "ctx_bare",
@@ -182,11 +195,10 @@ describeDb("a Dispatch with no Run", () => {
       refusal: { code: "release_refused" },
     });
     const { orca, log } = replay(conn, [
-      ok(
-        "worker-release",
-        { dispatchId: "ctx_meta", state: "released" },
-        ["--dispatch", "ctx_meta"],
-      ),
+      ok("worker-release", { dispatchId: "ctx_meta", state: "released" }, [
+        "--dispatch",
+        "ctx_meta",
+      ]),
     ]);
     const outcome = await release(conn.db, orca, log, input);
     orca.assertDone();
@@ -332,7 +344,10 @@ describeDb("a Dispatch with no Run", () => {
   test("the Run-less observe settles nothing when the worker list covers only a bound Run", async () => {
     await runless(conn, "ctx_stopped");
     const { orca, log } = replay(conn, [
-      allWorkers([{ dispatchId: "ctx_stopped", workerState: "stopped" }], "bound"),
+      allWorkers(
+        [{ dispatchId: "ctx_stopped", workerState: "stopped" }],
+        "bound",
+      ),
     ]);
     const outcome = await observeRunless(conn.db, orca, log, {
       host: "local",
@@ -353,11 +368,10 @@ describeDb("a Dispatch with no Run", () => {
   test("the stop path stops and settles a Run-less Dispatch with its reason in the stop event", async () => {
     await runless(conn, "ctx_meta");
     const { orca, log } = replay(conn, [
-      ok(
-        "worker-stop",
-        { dispatchId: "ctx_meta", state: "stopped" },
-        ["--dispatch", "ctx_meta"],
-      ),
+      ok("worker-stop", { dispatchId: "ctx_meta", state: "stopped" }, [
+        "--dispatch",
+        "ctx_meta",
+      ]),
     ]);
     const dispatch = await conn.db.getDispatch("ctx_meta");
     if (dispatch === null) throw new Error("no Dispatch");
