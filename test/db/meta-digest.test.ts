@@ -6,6 +6,7 @@ import type { MetaStepRecord } from "../../src/core/domain/tick.ts";
 import {
   runMeta,
   runMetaSteps,
+  type MetaClock,
   type MetaDeps,
 } from "../../src/core/operate/meta.ts";
 import type {
@@ -274,6 +275,68 @@ describeDb("meta retro and digest steps", () => {
     });
     expect(await proposals()).toBe(0);
     expect(await digestEvents()).toEqual([]);
+  });
+
+  test("an empty packet still needs exactly one meta process before it posts", async () => {
+    await seedMorning(conn);
+    await activeRevision(conn.db, "process", "meta-2", metaProcess);
+    expect(await digestOnly({ seat: fileSeat([]) })).toMatchObject({
+      result: "failed",
+      detail: { code: "selector_many" },
+    });
+    await clearDb(conn);
+    await seedMeta(conn, undefined, morningPolicy);
+    expect(await digestOnly({ seat: fileSeat([]) })).toMatchObject({
+      result: "failed",
+      detail: { code: "config_missing" },
+    });
+    expect(await digestEvents()).toEqual([]);
+  });
+
+  test("a digest Seat that returns after packet_minutes posts nothing and moves no watermark", async () => {
+    await seedMorning(conn);
+    await learn(conn, "one", t0);
+    const requests: MetaSeatRequest[] = [];
+    const files = fileSeat(requests);
+    let started: () => void = () => undefined;
+    const launched = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let returned: Promise<unknown> = Promise.resolve();
+    const late: MetaSeat = {
+      built: true,
+      run: (request) => {
+        const result = new Promise<Awaited<ReturnType<MetaSeat["run"]>>>(
+          (resolve) =>
+            request.signal.addEventListener("abort", () => {
+              resolve(files.run(request));
+            }),
+        );
+        returned = result;
+        started();
+        return result;
+      },
+    };
+    const expired: MetaClock = { deadline: () => launched };
+    const outcome = ran(
+      await runMeta(
+        conn.db,
+        metaInput(after),
+        metaTable(conn, { seat: late }),
+        expired,
+      ),
+    );
+    expect(stepOf(outcome.slots[0]?.steps, "digest")).toMatchObject({
+      result: "timed_out",
+    });
+    await returned;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(requests).toHaveLength(1);
+    expect(await proposals()).toBe(0);
+    expect(await digestEvents()).toEqual([]);
+    expect(
+      await readWatermark(conn.db, "digest", "digest", "global"),
+    ).toBeNull();
   });
 
   test("two meta processes are selector_many, and none is config_missing", async () => {

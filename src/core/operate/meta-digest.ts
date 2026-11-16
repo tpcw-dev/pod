@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { parseDocument } from "yaml";
 import { z } from "zod";
+import { digestCap } from "../config/digest-cap.ts";
 import { postDigest } from "../digest/post.ts";
 import { acceptProposalFile, dayOf } from "../domain/digest.ts";
 import { Json } from "../domain/json.ts";
@@ -199,9 +200,15 @@ export const digestInput: PacketInput = async (repo, ctx: PacketContext) => {
   ];
 };
 
-export function renderPacket(packet: Packet, scope: string): string {
+export function renderPacket(
+  packet: Packet,
+  scope: string,
+  cap: number,
+  queued: readonly number[],
+): string {
   return [
     `digest packet for ${scope}: ${packet.items.length} items, ${packet.words} words`,
+    `cap ${cap} shown a day; queued proposals shown first: ${queued.length === 0 ? "none" : queued.map((n) => `#${n}`).join(", ")}`,
     ...packet.items.map(
       (item) => `- [${item.kind}] event ${item.event_id}: ${item.text}`,
     ),
@@ -212,6 +219,11 @@ export function renderPacket(packet: Packet, scope: string): string {
 function failed(code: string, message: string): MetaStepResult {
   return { result: "failed", detail: { code, message } };
 }
+
+const aborted = failed(
+  "timed_out",
+  "the step passed limits.packet_minutes; no output was written",
+);
 
 async function digestProcess(
   db: Db,
@@ -250,16 +262,23 @@ function readProposals(path: string): unknown {
   return doc.toJS();
 }
 
-async function seatProposals(deps: DigestDeps, ctx: MetaStepContext) {
-  const process = await digestProcess(ctx.db);
-  if ("result" in process) return process;
+async function seatProposals(
+  deps: DigestDeps,
+  ctx: MetaStepContext,
+  process: { role: string; method: string | null },
+) {
+  const queued = (await ctx.db.listOpenProposals(ctx.scope))
+    .filter((row) => row.shown_on === null)
+    .map((row) => row.id);
+  const cap = await digestCap(ctx.db, projectOf(ctx.scope));
+  if (ctx.signal.aborted) return aborted;
   const launched = await deps.seat.run({
     step: digestStep,
     role: process.role,
     method: process.method,
     scope: ctx.scope,
     opKey: ctx.opKey,
-    packet: renderPacket(ctx.packet, ctx.scope),
+    packet: renderPacket(ctx.packet, ctx.scope, cap, queued),
     signal: ctx.signal,
   });
   if (!launched.ok) return failed("seat_failed", launched.message);
@@ -294,9 +313,14 @@ async function runDigest(
   deps: DigestDeps,
   ctx: MetaStepContext,
 ): Promise<MetaStepResult> {
+  const process = await digestProcess(ctx.db);
+  if ("result" in process) return process;
   const proposals =
-    ctx.packet.items.length === 0 ? [] : await seatProposals(deps, ctx);
+    ctx.packet.items.length === 0
+      ? []
+      : await seatProposals(deps, ctx, process);
   if (!Array.isArray(proposals)) return proposals;
+  if (ctx.signal.aborted) return aborted;
   const outcome = await postDigest(ctx.db, {
     project: projectOf(ctx.scope),
     proposals,
@@ -322,6 +346,7 @@ async function runDigest(
     "readback_failed",
     `digest ${posted.opKey} did not read back`,
   );
+  if (ctx.signal.aborted) return aborted;
   if (ctx.packet.bound === null)
     return (await readback())
       ? { result: "ok", detail: Json.parse({ ...summary, output_event: null }) }
