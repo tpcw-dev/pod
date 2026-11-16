@@ -3,7 +3,6 @@ import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import {
   dryRunMeta,
-  metaSteps,
   runMeta,
   runMetaSteps,
   writeMetaTick,
@@ -16,22 +15,29 @@ import {
   writeVerifiedOutput,
 } from "../../src/core/operate/watermark.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
-import { host, metaInput, morning, ran, seedMeta } from "./meta-seed.ts";
+import {
+  host,
+  metaInput,
+  metaTable,
+  morning,
+  ran,
+  seedMeta,
+} from "./meta-seed.ts";
 
 const before = new Date("2026-11-15T09:30:00.000Z");
 const after = new Date("2026-11-15T10:30:00.000Z");
 const later = new Date("2026-11-15T20:00:00.000Z");
 const nextDay = new Date("2026-11-16T10:30:00.000Z");
 
+let conn: Connection;
+
 function built(name: "retro" | "digest", step: Partial<MetaStep>): MetaStep[] {
-  return metaSteps.map((each) =>
+  return metaTable(conn).map((each) =>
     each.name === name ? { ...each, built: true, ...step } : each,
   );
 }
 
 describeDb("pod tick --agenda meta", () => {
-  let conn: Connection;
-
   beforeAll(async () => {
     await resetDb();
     conn = openDb();
@@ -48,7 +54,9 @@ describeDb("pod tick --agenda meta", () => {
 
   test("a slot past its time runs once, writing one meta tick event with each step's op-key", async () => {
     const schedule = await seedMeta(conn);
-    const outcome = ran(await runMeta(conn.db, metaInput(after)));
+    const outcome = ran(
+      await runMeta(conn.db, metaInput(after), metaTable(conn)),
+    );
     expect(outcome).toMatchObject({
       agenda: "meta",
       outcome: "ran",
@@ -61,12 +69,12 @@ describeDb("pod tick --agenda meta", () => {
       {
         step: "retro",
         op_key: metaStepOpKey("retro", `host:${host}`, null),
-        result: "not_built",
-        detail: null,
+        result: "ok",
+        detail: { runs: [], held: 0 },
       },
       {
         step: "digest",
-        op_key: metaStepOpKey("digest", `host:${host}`, null),
+        op_key: metaStepOpKey("digest", "global", null),
         result: "not_built",
         detail: null,
       },
@@ -86,16 +94,22 @@ describeDb("pod tick --agenda meta", () => {
 
   test("a slot is not due before its time or after it ran that local day, and is due the next day", async () => {
     await seedMeta(conn);
-    expect(ran(await runMeta(conn.db, metaInput(before)))).toMatchObject({
+    expect(
+      ran(await runMeta(conn.db, metaInput(before), metaTable(conn))),
+    ).toMatchObject({
       outcome: "not due",
       slots: [],
     });
     expect(await metaTicks()).toHaveLength(0);
-    ran(await runMeta(conn.db, metaInput(after)));
-    expect(ran(await runMeta(conn.db, metaInput(later)))).toMatchObject({
+    ran(await runMeta(conn.db, metaInput(after), metaTable(conn)));
+    expect(
+      ran(await runMeta(conn.db, metaInput(later), metaTable(conn))),
+    ).toMatchObject({
       outcome: "not due",
     });
-    expect(ran(await runMeta(conn.db, metaInput(nextDay)))).toMatchObject({
+    expect(
+      ran(await runMeta(conn.db, metaInput(nextDay), metaTable(conn))),
+    ).toMatchObject({
       outcome: "ran",
     });
     expect(await metaTicks()).toHaveLength(2);
@@ -103,7 +117,9 @@ describeDb("pod tick --agenda meta", () => {
 
   test("a host with no meta slot is not due, and the operate schedule still parses", async () => {
     await seedMeta(conn, []);
-    expect(ran(await runMeta(conn.db, metaInput(after)))).toMatchObject({
+    expect(
+      ran(await runMeta(conn.db, metaInput(after), metaTable(conn))),
+    ).toMatchObject({
       outcome: "not due",
     });
   });
@@ -114,9 +130,12 @@ describeDb("pod tick --agenda meta", () => {
       conn.db,
       metaInput(after),
       morning.steps as ["retro", "digest"],
+      metaTable(conn),
     );
     expect(await metaTicks()).toHaveLength(0);
-    const rerun = ran(await runMeta(conn.db, metaInput(later)));
+    const rerun = ran(
+      await runMeta(conn.db, metaInput(later), metaTable(conn)),
+    );
     expect(rerun.outcome).toBe("ran");
     expect(rerun.slots[0]?.steps.map((each) => each.op_key)).toEqual(
       killed.map((each) => each.op_key),
@@ -174,15 +193,21 @@ describeDb("pod tick --agenda meta", () => {
 
   test("--slot runs a slot that is not due, and an unknown slot is usage", async () => {
     await seedMeta(conn);
-    const forced = ran(await runMeta(conn.db, metaInput(before, "morning")));
+    const forced = ran(
+      await runMeta(conn.db, metaInput(before, "morning"), metaTable(conn)),
+    );
     expect(forced).toMatchObject({
       outcome: "ran",
       slots: [{ slot: "morning", due: false }],
     });
-    const again = ran(await runMeta(conn.db, metaInput(before, "morning")));
+    const again = ran(
+      await runMeta(conn.db, metaInput(before, "morning"), metaTable(conn)),
+    );
     expect(again.slots[0]?.tick_id).not.toBe(forced.slots[0]?.tick_id);
     expect(await metaTicks()).toHaveLength(2);
-    expect(await runMeta(conn.db, metaInput(after, "evening"))).toMatchObject({
+    expect(
+      await runMeta(conn.db, metaInput(after, "evening"), metaTable(conn)),
+    ).toMatchObject({
       ok: false,
       refusal: { code: "usage" },
     });
@@ -193,7 +218,7 @@ describeDb("pod tick --agenda meta", () => {
     const operateHeld = await conn.sql.begin(async (held) => {
       await held`select pg_advisory_xact_lock(hashtext(${`tick:${host}`}))`;
       return {
-        meta: await runMeta(conn.db, metaInput(after)),
+        meta: await runMeta(conn.db, metaInput(after), metaTable(conn)),
         operate: await runTick(
           conn.db,
           { ...metaInput(after), triggers: [] },
@@ -206,7 +231,7 @@ describeDb("pod tick --agenda meta", () => {
     const metaHeld = await conn.sql.begin(async (held) => {
       await held`select pg_advisory_xact_lock(hashtext(${`tick:${host}:meta`}))`;
       return {
-        meta: await runMeta(conn.db, metaInput(nextDay)),
+        meta: await runMeta(conn.db, metaInput(nextDay), metaTable(conn)),
         operate: await runTick(
           conn.db,
           { ...metaInput(after), triggers: [] },
@@ -220,7 +245,7 @@ describeDb("pod tick --agenda meta", () => {
 
   test("a meta tick does not make the operate tick not due", async () => {
     await seedMeta(conn);
-    ran(await runMeta(conn.db, metaInput(after)));
+    ran(await runMeta(conn.db, metaInput(after), metaTable(conn)));
     expect(
       await runTick(
         conn.db,
@@ -301,7 +326,9 @@ describeDb("pod tick --agenda meta", () => {
 
   test("a dry run writes nothing and lists each due slot's steps", async () => {
     await seedMeta(conn);
-    const dry = ran(await dryRunMeta(conn.db, metaInput(after)));
+    const dry = ran(
+      await dryRunMeta(conn.db, metaInput(after), metaTable(conn)),
+    );
     expect(dry).toMatchObject({
       outcome: "dry run",
       slots: [
@@ -310,7 +337,7 @@ describeDb("pod tick --agenda meta", () => {
           due: true,
           event_id: null,
           steps: [
-            { step: "retro", result: "not_built" },
+            { step: "retro", result: "planned" },
             { step: "digest", result: "not_built" },
           ],
         },

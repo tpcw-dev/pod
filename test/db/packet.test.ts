@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import type { MetaClock, MetaStep } from "../../src/core/operate/meta.ts";
-import { metaSteps, runMeta } from "../../src/core/operate/meta.ts";
+import { runMeta } from "../../src/core/operate/meta.ts";
 import {
   cutPacket,
   type Packet,
@@ -13,7 +13,7 @@ import {
   writeVerifiedOutput,
 } from "../../src/core/operate/watermark.ts";
 import { clearDb, describeDb, openDb, resetDb } from "./helpers.ts";
-import { host, metaInput, ran, seedMeta } from "./meta-seed.ts";
+import { host, metaInput, metaTable, ran, seedMeta } from "./meta-seed.ts";
 
 const t0 = new Date("2026-11-15T10:30:00.000Z");
 const day = (n: number) => new Date(t0.getTime() + n * 86_400_000);
@@ -127,7 +127,7 @@ describeDb("the packet and the verified watermark", () => {
       return { result: written.written ? "ok" : "failed", detail: null };
     },
   ): MetaStep[] {
-    return metaSteps.map((each) =>
+    return metaTable(conn).map((each) =>
       each.name === "retro"
         ? {
             ...each,

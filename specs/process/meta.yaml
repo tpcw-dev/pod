@@ -1,0 +1,17 @@
+kind: process
+name: meta
+schema_version: 1
+value:
+  summary: meta work with no Run, dispatched by the meta agenda's steps
+  selector: { stage: meta }
+  roles: [digest]
+  steps:
+    - id: digest
+      type: worker
+      role: digest
+      method: Theme the packet's learnings into proposals and cite each learning id; write a learning only for an escalation worth one.
+  edges:
+    - { from: digest, on: done, to: done }
+    - { from: digest, on: [timeout, cancel, unknown], to: hold }
+  limits: { attempts_per_task: 1, rework_per_lineage: 1 }
+  escalation: { to: decision-pair }

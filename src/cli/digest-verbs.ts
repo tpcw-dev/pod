@@ -6,6 +6,7 @@ import { prepareDigest } from "../core/digest/prepare.ts";
 import { assignStory, digestQueue } from "../core/digest/queue.ts";
 import { acceptProposalFile, Verdict } from "../core/domain/digest.ts";
 import type { Refusal } from "../core/domain/outcome.ts";
+import { Watermark } from "../core/domain/tick.ts";
 import type { Db } from "../core/ports/db.ts";
 import { PodError, exitFor, schemaError, usageError } from "./errors.ts";
 import { databaseUrl, readHostProfile } from "./host-profile.ts";
@@ -49,7 +50,17 @@ export const DigestPrepareOutput = z.object({
   scope: z.string(),
   day: z.string(),
   cap: z.number(),
-  watermark: z.string().nullable(),
+  watermark: Watermark.nullable(),
+  packet: z.object({
+    items: z.array(
+      z.object({ event_id: z.number(), kind: z.string(), text: z.string() }),
+    ),
+    words: z.number(),
+    truncated: z.boolean(),
+    routing: z.string().nullable(),
+    held: z.number(),
+    bound: Watermark.nullable(),
+  }),
   learnings: z.array(
     z.object({
       id: z.number(),
@@ -74,6 +85,16 @@ export const DigestPrepareOutput = z.object({
       created_at: z.string(),
     }),
   ),
+  escalations: z.array(
+    z.object({
+      decision_id: z.string(),
+      event_id: z.number(),
+      verb: z.string(),
+      author: z.string(),
+      reason: z.string().nullable(),
+      note: z.string().nullable(),
+    }),
+  ),
   queued: z.array(
     z.object({
       number: z.number(),
@@ -90,12 +111,15 @@ type DigestPrepareOutput = z.infer<typeof DigestPrepareOutput>;
 export function digestPrepare(
   input: DigestPrepareInput,
 ): Promise<DigestPrepareOutput> {
-  return withDb((db) =>
-    prepareDigest(db, {
+  return withDb(async (db, hostId) => {
+    const packet = await prepareDigest(db, {
       project: input.project ?? null,
+      host: hostId,
       now: () => new Date(),
-    }),
-  );
+    });
+    if (!packet.ok) failWith(packet.refusal);
+    return packet;
+  });
 }
 
 export const DigestPostInput = z.strictObject({

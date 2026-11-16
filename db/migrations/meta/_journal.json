@@ -183,6 +183,13 @@
       "when": 1794754232185,
       "tag": "0025_tick",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794841173305,
+      "tag": "0026_learning_reporter_digest",
+      "breakpoints": true
     }
   ]
 }

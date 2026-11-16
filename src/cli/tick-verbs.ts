@@ -6,7 +6,8 @@ import {
   StepRecord,
   TriggerSource,
 } from "../core/domain/tick.ts";
-import { dryRunMeta, runMeta } from "../core/operate/meta.ts";
+import { dryRunMeta, metaStepsWith, runMeta } from "../core/operate/meta.ts";
+import { unbuiltSeat } from "../core/operate/meta-digest.ts";
 import { dryRunTick, operateSteps, runTick } from "../core/operate/tick.ts";
 import type { TriggerInput } from "../core/operate/triggers.ts";
 import { codeHostFor } from "./code-host.ts";
@@ -125,9 +126,15 @@ export async function tick(input: TickInput): Promise<TickOutput> {
         provider: kinds.trackerKind,
         leaseSeconds,
       });
+      const meta = metaStepsWith({
+        orca,
+        log,
+        codeHost: codeHostFor(),
+        seat: unbuiltSeat,
+      });
       if (input["dry-run"] === true)
         return input.agenda === "meta"
-          ? dryRunMeta(db, { host, now, ...slot })
+          ? dryRunMeta(db, { host, now, ...slot }, meta)
           : dryRunTick(db, { host, now, triggers }, steps);
       const writer = {
         host,
@@ -135,7 +142,8 @@ export async function tick(input: TickInput): Promise<TickOutput> {
         actor: actorOf(await writerOf(db, profile, process.env, null)),
         now,
       };
-      if (input.agenda === "meta") return runMeta(db, { ...writer, ...slot });
+      if (input.agenda === "meta")
+        return runMeta(db, { ...writer, ...slot }, meta);
       return runTick(db, { ...writer, triggers }, steps);
     },
   );

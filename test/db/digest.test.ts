@@ -22,6 +22,7 @@ import { seatRun } from "./identity-fixture.ts";
 const day1 = new Date("2026-11-10T12:00:00.000Z");
 const day2 = new Date("2026-11-11T12:00:00.000Z");
 const actor = "person:human";
+const packetLimits = { packet_items: 20, packet_words: 2000, packet_minutes: 30 };
 
 function proposal(
   theme: string,
@@ -158,6 +159,19 @@ describeDb("pod digest", () => {
     return posted;
   }
 
+  async function prepare(project: string | null = null) {
+    const [policy] = await conn.db.listActivations("policy", "global", "");
+    if (policy === undefined)
+      await activatePolicy("global", "", { limits: packetLimits } as Json);
+    const packet = await prepareDigest(conn.db, {
+      project,
+      host: "local",
+      now: () => day1,
+    });
+    if (!packet.ok) throw new Error(packet.refusal.message);
+    return packet;
+  }
+
   async function failReceipt(at: Date, project: string | null) {
     const runId = `run-${at.getTime()}`;
     await seatRun(conn.db, runId);
@@ -189,7 +203,7 @@ describeDb("pod digest", () => {
       created_at: at,
       rework_of: null,
     });
-    return conn.db.insertGateReceipt({
+    const receipt = await conn.db.insertGateReceipt({
       gate_id: "pr",
       run_id: runId,
       task_id: `task-${runId}`,
@@ -203,6 +217,18 @@ describeDb("pod digest", () => {
       sync_state: "synced",
       created_at: at,
     });
+    await conn.db.appendEvent({
+      type: "receipt",
+      ts: at,
+      host: "local",
+      run_id: runId,
+      task_id: `task-${runId}`,
+      dispatch_id: null,
+      op_key: null,
+      payload: { receipt_id: receipt.id, gate: "pr", outcome: "FAIL" },
+      source: { kind: "command", verb: "verdict post" },
+    });
+    return receipt;
   }
 
   test("prepare lists new learnings, FAIL receipts of the last 72 hours, and the watermark, and writes nothing", async () => {
@@ -211,7 +237,7 @@ describeDb("pod digest", () => {
     const recent = await failReceipt(new Date(day1.getTime() - 3600_000), null);
     await failReceipt(new Date(day1.getTime() - 73 * 3600_000), null);
     const before = await counts();
-    const packet = await prepareDigest(conn.db, { project: null, now: () => day1 });
+    const packet = await prepare();
     expect(await counts()).toEqual(before);
     expect(packet).toMatchObject({
       scope: "global",
@@ -222,18 +248,18 @@ describeDb("pod digest", () => {
     });
     expect(packet.learnings.map((row) => row.id)).toEqual([a]);
     expect(packet.fail_receipts.map((row) => row.id)).toEqual([recent.id]);
-    const alpha = await prepareDigest(conn.db, { project: "alpha", now: () => day1 });
+    const alpha = await prepare("alpha");
     expect(alpha.scope).toBe("project:alpha");
     expect(alpha.learnings.map((row) => row.id)).toEqual([b]);
     expect(alpha.fail_receipts).toEqual([]);
     await post([proposal("gates", [a])]);
-    const after = await prepareDigest(conn.db, { project: null, now: () => day1 });
-    expect(after.watermark).toBe(day1.toISOString());
+    const after = await prepare();
+    expect(after.watermark).toBeNull();
     expect(after.learnings).toEqual([]);
   });
 
   test("a cap of 3 shows three, queues the fourth, and the next day shows the queued one first", async () => {
-    await activatePolicy("global", "", { limits: { digest_per_day: 3 } } as Json);
+    await activatePolicy("global", "", { limits: { digest_per_day: 3, ...packetLimits } } as Json);
     const ids = [
       await learn("one"),
       await learn("two"),
@@ -247,7 +273,7 @@ describeDb("pod digest", () => {
     expect(first.shown.every((row) => !row.carried)).toBe(true);
     expect(await adoptionOf(ids[0] ?? 0)).toMatchObject({ adoption: "proposed", theme: "t0" });
     expect(await adoptionOf(ids[3] ?? 0)).toMatchObject({ adoption: "new", theme: null });
-    const packet = await prepareDigest(conn.db, { project: null, now: () => day1 });
+    const packet = await prepare();
     expect(packet.queued.map((row) => row.theme)).toEqual(["t3"]);
     expect(packet.learnings.map((row) => row.id)).toEqual([ids[4]]);
 
@@ -357,7 +383,7 @@ describeDb("pod digest", () => {
   });
 
   test("a second ruling on the same proposal is refused ruling_exists, and a queued one schema_invalid", async () => {
-    await activatePolicy("global", "", { limits: { digest_per_day: 1 } } as Json);
+    await activatePolicy("global", "", { limits: { digest_per_day: 1, ...packetLimits } } as Json);
     const a = await learn("a");
     const b = await learn("b");
     await post([proposal("gates", [a]), proposal("tests", [b])]);
@@ -373,7 +399,7 @@ describeDb("pod digest", () => {
     expect(
       await decideDigest(conn.db, { ...input, number: shown?.number ?? 0, verdict: "reject" }),
     ).toMatchObject({ ok: false, refusal: { code: "ruling_exists" } });
-    const queued = await prepareDigest(conn.db, { project: null, now: () => day1 });
+    const queued = await prepare();
     expect(
       await decideDigest(conn.db, { ...input, number: queued.queued[0]?.number ?? 0 }),
     ).toMatchObject({ ok: false, refusal: { code: "schema_invalid" } });
@@ -516,6 +542,8 @@ describeDb("pod digest", () => {
       changed: true,
     });
     expect(runCli(["digest", "queue"]).json.result).toEqual({ scope: "global", themes: [] });
+    expect(runCli(["digest", "prepare"]).json.error?.code).toBe("config_missing");
+    await activatePolicy("global", "", { limits: packetLimits } as Json);
     expect(runCli(["digest", "prepare"]).status).toBe(0);
   });
 });

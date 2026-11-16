@@ -54,7 +54,12 @@ describeDb("digest day", () => {
   afterAll(() => conn.close());
 
   test("two days of digest: a cap of 2 queues the third proposal, the next day shows it, and the rulings land in the ledger", async () => {
-    const packet = await prepareDigest(conn.db, { project: null, now: () => day1 });
+    const packet = await prepareDigest(conn.db, {
+      project: null,
+      host: "local",
+      now: () => day1,
+    });
+    if (!packet.ok) throw new Error(packet.refusal.message);
     expect(packet).toMatchObject({ cap: 2, watermark: null, queued: [] });
     expect(packet.learnings.map((row) => row.id)).toEqual([1, 2, 3, 4]);
 

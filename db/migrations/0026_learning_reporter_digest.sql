@@ -1,0 +1,2 @@
+ALTER TABLE "ledger"."learning_occurrence" DROP CONSTRAINT "learning_occurrence_reporter_check";--> statement-breakpoint
+ALTER TABLE "ledger"."learning_occurrence" ADD CONSTRAINT "learning_occurrence_reporter_check" CHECK ("ledger"."learning_occurrence"."reporter" in ('lead', 'retro', 'healthcheck', 'digest'));

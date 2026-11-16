@@ -163,7 +163,7 @@ export const learningOccurrence = ledger.table(
     ),
     check(
       "learning_occurrence_reporter_check",
-      sql`${t.reporter} in ('lead', 'retro', 'healthcheck')`,
+      sql`${t.reporter} in ('lead', 'retro', 'healthcheck', 'digest')`,
     ),
   ],
 );

@@ -1,7 +1,17 @@
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import type { Kind, Scope } from "../../src/core/domain/config.ts";
 import type { Json } from "../../src/core/domain/json.ts";
-import type { MetaInput, MetaOutcome } from "../../src/core/operate/meta.ts";
+import { makeFixtureCodeHost } from "../../src/adapters/code-host/fixture.ts";
+import { receiptLog } from "../../src/core/ledger/receipts.ts";
+import {
+  metaStepsWith,
+  type MetaDeps,
+  type MetaInput,
+  type MetaOutcome,
+  type MetaStep,
+} from "../../src/core/operate/meta.ts";
+import { unbuiltSeat } from "../../src/core/operate/meta-digest.ts";
+import { noCalls } from "../orca/temp-fixtures.ts";
 import type { Refused } from "../../src/core/domain/outcome.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
 import { hostValue } from "./seed.ts";
@@ -73,4 +83,17 @@ export function metaInput(now: Date, slot?: string): MetaInput {
 export function ran(outcome: MetaOutcome | Refused): MetaOutcome {
   if (!outcome.ok) throw new Error(outcome.refusal.message);
   return outcome;
+}
+
+export function metaTable(
+  conn: Connection,
+  over: Partial<MetaDeps> = {},
+): readonly MetaStep[] {
+  return metaStepsWith({
+    orca: noCalls(),
+    log: receiptLog(conn.db, host),
+    codeHost: makeFixtureCodeHost({ prs: [] }),
+    seat: unbuiltSeat,
+    ...over,
+  });
 }

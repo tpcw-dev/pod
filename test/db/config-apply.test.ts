@@ -727,11 +727,19 @@ describeDb("pod config apply of a process", () => {
         "planner",
         "qa",
         "retro",
+        "digest",
       ].map((role) => ({ id: `${role}-1`, roles: [role], runtime: "claude" })),
     ],
   };
 
-  test.each(["prd", "design", "impl-medium", "impl-large", "impl-xlarge"])(
+  test.each([
+    "prd",
+    "design",
+    "impl-medium",
+    "impl-large",
+    "impl-xlarge",
+    "meta",
+  ])(
     "specs/process/%s.yaml applies against the extended seed crew",
     async (name) => {
       await clearDb(db);
@@ -775,7 +783,7 @@ describe("crew example file", () => {
       text.match(
         /^    # Fill id, runtime, model, and host before this seat is used\.$/gm,
       ),
-    ).toHaveLength(8);
+    ).toHaveLength(9);
     expect(text).toContain("runtime: example");
     expect(text).toContain("model: example");
     expect(text).toContain("host: example-host");
