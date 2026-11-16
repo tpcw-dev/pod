@@ -905,7 +905,7 @@ describeDb("pod config apply of a policy", () => {
         path,
         0,
       ]);
-  }, 120_000);
+  });
 
   test.each([
     [

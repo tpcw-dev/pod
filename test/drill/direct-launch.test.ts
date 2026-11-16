@@ -242,6 +242,6 @@ describeDb("direct-launch", () => {
         tracker.assertDone();
       }
     },
-    recording ? 300_000 : 30_000,
+    recording ? 300_000 : undefined,
   );
 });

@@ -20,6 +20,8 @@ Not an IDE, not a runtime, not a scheduler, not a second ledger for secrets or t
 
 `pnpm test` starts its own Postgres 16 in a temporary directory and removes it when the run ends, so parallel runs never share a database. Set `POD_DB_TEST_URL` to run the suite against a server you provide instead.
 
+Every test runs under one limit of 120 s, set as `testTimeout` in `vitest.config.ts`, because the suite may run on a loaded host. A test that needs longer than that is a defect to fix, not a reason for a per-test limit; only a recording run against live services sets its own.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

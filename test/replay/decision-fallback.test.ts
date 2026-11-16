@@ -232,6 +232,6 @@ describeDb("decision-fallback", () => {
       orcaReplay?.assertDone();
       trackerReplay?.assertDone();
     },
-    recording ? 1_800_000 : 60_000,
+    recording ? 1_800_000 : undefined,
   );
 });
