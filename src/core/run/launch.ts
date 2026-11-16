@@ -158,7 +158,7 @@ async function readLead(
   );
   if (seated?.value == null)
     return refuse(
-      "config_missing",
+      "selector_none",
       `project ${project} has no active project Revision seated on host ${input.host}`,
       [`pod config get project.${project}`],
     );
@@ -445,12 +445,17 @@ export async function runLaunch(
   input: LaunchInput,
 ): Promise<Outcome<LaunchResult>> {
   const opKey = launchOpKey(input.host, input.subject, input.story);
-  const { version } = await ports.orca.version();
   const existing = await db.getOperation(opKey);
   const prior = existing === null ? null : priorOf(existing, opKey);
   if (prior !== null && "refusal" in prior) return prior;
   if (prior?.status === "done")
-    return replayDone(db, input, opKey, prior.recorded, version);
+    return replayDone(
+      db,
+      input,
+      opKey,
+      prior.recorded,
+      (await ports.orca.version()).version,
+    );
   if (prior?.status === "refused")
     return refuse(
       prior.recorded.code ?? "failed",
@@ -467,6 +472,7 @@ export async function runLaunch(
     if ("refusal" in claimed) return ofRefusal(claimed.refusal);
     recorded = claimed.recorded;
   } else recorded = prior.recorded;
+  const { version } = await ports.orca.version();
 
   if (recorded.worktree === undefined) {
     const opened = await openWorktree(ports, input, lead);

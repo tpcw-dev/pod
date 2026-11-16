@@ -110,6 +110,7 @@ export async function publishPlan(
   at: Date,
   actor: string,
   keys: readonly string[] = ["S-1"],
+  projectOf: (key: string) => string = () => "widgets",
 ): Promise<void> {
   const day = hostDay(at, timezone);
   await conn.db.appendEvent({
@@ -127,7 +128,7 @@ export async function publishPlan(
       actor,
       ranked: keys.map((key) => ({
         key,
-        project: "widgets",
+        project: projectOf(key),
         title: `Story ${key}`,
         points: 2,
         place: "current",

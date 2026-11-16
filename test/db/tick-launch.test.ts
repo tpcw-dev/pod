@@ -253,4 +253,20 @@ describeDb("the tick's launch step", () => {
     ]);
     expect(await runs()).toBe(1);
   });
+
+  test("a Story whose project has no seated project Revision is held, and the next Story still launches", async () => {
+    await seed();
+    await publishPlan(
+      conn,
+      minutes(morning, 1),
+      "person:human",
+      ["G-1", "S-1"],
+      (key) => (key === "G-1" ? "gadgets" : "widgets"),
+    );
+    const first = await tick(minutes(morning, 2), fullLaunch);
+    expect(first.refuse).toMatchObject([
+      { story: "G-1", code: "selector_none" },
+    ]);
+    expect(first.launch).toMatchObject([{ story: "S-1" }]);
+  });
 });

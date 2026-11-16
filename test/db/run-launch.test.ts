@@ -607,4 +607,32 @@ describeDb("pod run launch", () => {
       message: "story:S-404 is in no published plan for host local today",
     });
   });
+
+  test("plan, lead, and gate refusals make no Orca call, not even a version read", async () => {
+    await seed({ slots: 1 });
+    const silent = {
+      ...noCalls(),
+      version: () => Promise.reject(new Error("no Orca call expected")),
+    };
+    const log = receiptLog(conn.db, "local");
+    const run = (story: string) =>
+      runLaunch(
+        conn.db,
+        { orca: silent, tracker: fakeTracker(), log },
+        input({ story }),
+      );
+    expect(await run("S-404")).toMatchObject({
+      ok: false,
+      refusal: { code: "selector_none" },
+    });
+    await holdSlot("dispatch:other", {
+      task_id: "t-x",
+      seat: "s",
+      host: "local",
+    });
+    expect(await run("S-1")).toMatchObject({
+      ok: false,
+      refusal: { code: "quota_exhausted" },
+    });
+  });
 });
