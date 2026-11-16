@@ -173,7 +173,7 @@ test("the tick row names --agenda meta and --slot", () => {
 test("the contract copies the bypass paragraphs", () => {
   const spec = readFileSync("docs/tech-spec.md", "utf8").split("\n");
   const contract = readFileSync("docs/contract.md", "utf8").split("\n");
-  for (const lineNumber of [911, 913, 915]) {
+  for (const lineNumber of [913, 915, 917]) {
     const line = spec[lineNumber - 1];
     expect(line?.length).toBeGreaterThan(0);
     expect(contract).toContain(line);
