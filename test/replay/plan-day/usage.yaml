@@ -1,0 +1,2 @@
+- { provider: codex, value: "40", pace: avoid }
+- { provider: grok, value: "100", pace: ok }

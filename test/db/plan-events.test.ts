@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import type { Json } from "../../src/core/domain/json.ts";
+import { hostCapacity } from "../../src/core/plan/capacity.ts";
 import { publishPlan, readPlan } from "../../src/core/plan/plan.ts";
 import { writeOverride } from "../../src/core/plan/write.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
@@ -24,7 +25,11 @@ describeDb("pod plan events", () => {
   beforeEach(() => clearDb(conn));
   afterAll(() => conn.close());
 
-  async function activeHost(value: Json, hostId = "local"): Promise<string> {
+  async function activeHost(
+    value: Json,
+    hostId = "local",
+    expected: string | null = null,
+  ): Promise<string> {
     const revision = await storeRevision(conn.db, {
       ...envelope("host", hostId, value),
       scope: "host",
@@ -35,7 +40,7 @@ describeDb("pod plan events", () => {
       scope_ref: hostId,
       kind: "host",
       name: hostId,
-      expected: null,
+      expected,
       revision_id: revision.id,
       bundle_id: null,
       activated_by: "operator",
@@ -47,6 +52,34 @@ describeDb("pod plan events", () => {
 
   function seedHost(): Promise<string> {
     return activeHost({ ...(hostValue(2) as object), timezone: zone });
+  }
+
+  function seedStretchable(): Promise<string> {
+    return activeHost({
+      ...(hostValue(2) as object),
+      timezone: zone,
+      slots: { default: 2, max: 4 },
+    });
+  }
+
+  function stretch(slots: number, now: Date, reason = "launch day") {
+    return writeOverride(conn.db, {
+      host: "local",
+      writer: "local",
+      actor,
+      now,
+      request: { kind: "stretch", slots, reason },
+    });
+  }
+
+  function resetAvailable(harness: string, until: string, now: Date) {
+    return writeOverride(conn.db, {
+      host: "local",
+      writer: "local",
+      actor,
+      now,
+      request: { kind: "reset_available", harness, until },
+    });
   }
 
   function hold(key: string, now: Date, until: string | null = null) {
@@ -352,6 +385,153 @@ describeDb("pod plan events", () => {
     ).toBe(0);
     expect(runCli(["plan"]).json.result).toMatchObject({
       overrides: { holds: [] },
+    });
+  });
+
+  test("a stretch is refused at or below slots.default, above slots.max, or with no reason", async () => {
+    await seedStretchable();
+    for (const slots of ["2", "1", "5"])
+      expect(
+        runCli(["plan", "stretch", slots, "--reason", "launch day"]),
+      ).toMatchObject({
+        status: 2,
+        json: { ok: false, error: { code: "usage" } },
+      });
+    expect(runCli(["plan", "stretch", "3"])).toMatchObject({
+      status: 2,
+      json: { ok: false, error: { code: "usage" } },
+    });
+    expect(await planEvents()).toBe(0);
+  });
+
+  test("an agent Seat may not stretch the slots", async () => {
+    await seedStretchable();
+    expect(
+      runCli(["plan", "stretch", "3", "--reason", "launch day"], {
+        POD_SEAT: "lead-seat",
+      }),
+    ).toMatchObject({
+      status: 3,
+      json: { ok: false, error: { code: "activation_needs_person" } },
+    });
+    expect(await planEvents()).toBe(0);
+  });
+
+  test("a person's stretch sets the capacity dispatch and the plan read, until the end of the host's day", async () => {
+    await seedStretchable();
+    expect(
+      runCli(["plan", "stretch", "3", "--reason", "launch day"]),
+    ).toMatchObject({
+      status: 0,
+      json: {
+        ok: true,
+        result: { kind: "stretch", slots: 3, reason: "launch day", actor },
+      },
+    });
+    expect(runCli(["plan"]).json.result).toMatchObject({
+      capacity: {
+        slots_default: 2,
+        slots_max: 4,
+        slots: 3,
+        stretch: { slots: 3, reason: "launch day", actor },
+      },
+    });
+    expect(await hostCapacity(conn.db, "local", new Date())).toBe(3);
+  });
+
+  test("a stretch expires at the end of the host's day, and the same stretch replays", async () => {
+    await seedStretchable();
+    const first = await stretch(4, nov14);
+    expect(first).toMatchObject({ ok: true, expires_at: nov14End });
+    expect(await stretch(4, nov14)).toMatchObject({
+      ok: true,
+      replayed: true,
+    });
+    expect(await stretch(3, nov14)).toMatchObject({
+      ok: true,
+      replayed: false,
+    });
+    expect(await planEvents()).toBe(2);
+    expect((await planAt(nov14)).capacity).toMatchObject({ slots: 3 });
+    expect(await hostCapacity(conn.db, "local", nov14)).toBe(3);
+    const after = new Date(nov14End);
+    expect((await planAt(after)).capacity).toMatchObject({
+      slots: 2,
+      stretch: null,
+    });
+    expect(await hostCapacity(conn.db, "local", after)).toBe(2);
+  });
+
+  test("a stretch above a later host Revision's slots.max is capped at slots.max", async () => {
+    const first = await seedStretchable();
+    expect(await stretch(4, nov14)).toMatchObject({ ok: true });
+    await activeHost(
+      {
+        ...(hostValue(2) as object),
+        timezone: zone,
+        slots: { default: 2, max: 3 },
+      },
+      "local",
+      first,
+    );
+    expect(await hostCapacity(conn.db, "local", nov14)).toBe(3);
+  });
+
+  test("a reset mark is in force until --until, a later --until writes again, and reset-used clears it", async () => {
+    await seedHost();
+    const marked = await resetAvailable("claude", "2026-11-15", nov14);
+    expect(marked).toMatchObject({
+      ok: true,
+      kind: "reset_available",
+      harness: "claude",
+      available: true,
+      until: "2026-11-15",
+      expires_at: "2026-11-16T08:00:00.000Z",
+    });
+    expect(await resetAvailable("claude", "2026-11-15", nov14)).toMatchObject({
+      replayed: true,
+    });
+    expect(await resetAvailable("claude", "2026-11-16", nov14)).toMatchObject({
+      replayed: false,
+      until: "2026-11-16",
+    });
+    expect((await planAt(nov15)).resets).toMatchObject([
+      { harness: "claude", until: "2026-11-16", actor },
+    ]);
+    expect((await planAt(new Date("2026-11-17T08:00:00.000Z"))).resets).toEqual(
+      [],
+    );
+    const used = await writeOverride(conn.db, {
+      host: "local",
+      writer: "local",
+      actor,
+      now: nov15,
+      request: { kind: "reset_used", harness: "claude" },
+    });
+    expect(used).toMatchObject({ ok: true, available: false, until: null });
+    expect((await planAt(nov15)).resets).toEqual([]);
+  });
+
+  test("reset-available needs --until, and reset-used with no mark in force is not_marked", async () => {
+    await seedHost();
+    expect(runCli(["plan", "reset-available", "claude"])).toMatchObject({
+      status: 2,
+      json: { ok: false, error: { code: "usage" } },
+    });
+    expect(runCli(["plan", "reset-used", "claude"])).toMatchObject({
+      status: 3,
+      json: { ok: false, error: { code: "not_marked" } },
+    });
+    const until = (runCli(["plan"]).json.result as { day: string }).day;
+    expect(
+      runCli(["plan", "reset-available", "claude", "--until", until]),
+    ).toMatchObject({ status: 0, json: { ok: true } });
+    expect(runCli(["plan"]).json.result).toMatchObject({
+      resets: [{ harness: "claude", until }],
+    });
+    expect(runCli(["plan", "reset-used", "claude"])).toMatchObject({
+      status: 0,
+      json: { ok: true, result: { available: false } },
     });
   });
 });

@@ -32,6 +32,12 @@ import {
   planOrder,
   planPriority,
   planRelease,
+  planResetAvailable,
+  planResetUsed,
+  planStretch,
+  PlanResetAvailableInput,
+  PlanResetUsedInput,
+  PlanStretchInput,
 } from "./plan-verbs.ts";
 import { TickInput, TickOutput, tick, tickOpKeyMeta } from "./tick-verbs.ts";
 import {
@@ -580,6 +586,42 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     cancelBy: ["nobody"],
     evidenceRequired: [
       "one or more distinct KEYs, an `--until` no earlier than the host's day, and an active host Revision with a timezone",
+    ],
+    meta: planOpKeyMeta,
+  }),
+  row({
+    name: "plan stretch",
+    input: PlanStretchInput,
+    output: PlanOverrideOutput,
+    handler: planStretch,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "SLOTS above slots.default and at most slots.max of the active host Revision, a `--reason`, and a person as the actor; it expires at the end of the host's day",
+    ],
+    meta: planOpKeyMeta,
+  }),
+  row({
+    name: "plan reset-available",
+    input: PlanResetAvailableInput,
+    output: PlanOverrideOutput,
+    handler: planResetAvailable,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "a HARNESS, an `--until` no earlier than the host's day, and an active host Revision with a timezone",
+    ],
+    meta: planOpKeyMeta,
+  }),
+  row({
+    name: "plan reset-used",
+    input: PlanResetUsedInput,
+    output: PlanOverrideOutput,
+    handler: planResetUsed,
+    sideEffect: "ledger",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "a reset-available mark on HARNESS in force on the host",
     ],
     meta: planOpKeyMeta,
   }),

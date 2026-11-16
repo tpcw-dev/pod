@@ -1,0 +1,32 @@
+capacity: { slots_default: 2, slots_max: 4, slots: 3 }
+ranked:
+  - {
+      key: TPC-22,
+      reasons:
+        [
+          order 1,
+          project priority 1,
+          tracker priority 4,
+          place unlisted,
+          "usage unknown: claude",
+        ],
+    }
+  - {
+      key: TPC-21,
+      reasons:
+        [
+          project priority 1,
+          tracker priority 2,
+          place unlisted,
+          "usage unknown: claude",
+        ],
+    }
+held:
+  - { key: TPC-11, reason: "usage: codex", project: pod }
+  - { key: TPC-12, reason: "usage: codex", project: pod }
+  - { key: TPC-13, reason: label blocked, project: pod }
+  - { key: TPC-23, reason: waits on a design call, project: process }
+usage:
+  - { provider: claude, state: unknown }
+  - { provider: codex, state: held }
+  - { provider: grok, state: reset }

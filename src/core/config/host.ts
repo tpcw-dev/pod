@@ -181,10 +181,7 @@ export async function activeHostRevision(
     : { revision_id: revision.id, value };
 }
 
-async function activeHost(
-  repo: Repo,
-  host: string,
-): Promise<HostRead | null> {
+async function activeHost(repo: Repo, host: string): Promise<HostRead | null> {
   return (await activeHostRevision(repo, host))?.value ?? null;
 }
 
@@ -193,13 +190,6 @@ export async function hostTranscripts(
   host: string,
 ): Promise<Record<string, string>> {
   return (await activeHost(repo, host))?.transcripts ?? {};
-}
-
-export async function hostSlots(
-  repo: Repo,
-  hostId: string,
-): Promise<number | null> {
-  return (await activeHost(repo, hostId))?.slots.default ?? null;
 }
 
 export function capacityMissing(hostId: string): Refusal {

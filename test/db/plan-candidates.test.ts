@@ -7,7 +7,7 @@ import type { DocsPort, Section } from "../../src/core/ports/docs.ts";
 import { fakeTracker, listedStory, type FakeTracker } from "./fake-tracker.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb } from "./helpers.ts";
-import { activeRevision, hostValue, processValue } from "./seed.ts";
+import { activeRevision, crewValue, hostValue, processValue } from "./seed.ts";
 
 const zone = "America/Los_Angeles";
 const now = new Date("2026-11-15T18:00:00.000Z");
@@ -321,5 +321,82 @@ describeDb("pod plan candidates across projects", () => {
         message: expect.stringContaining(`from ${first} to ${moved.id}`),
       },
     });
+  });
+
+  test("a Story whose crew needs a provider with no headroom is held, and publish names the observation", async () => {
+    await activeHost("local", { projects: ["pod"] });
+    await project("pod");
+    await activeRevision(conn.db, "crew", "default", crewValue as Json);
+    const avoid = await conn.db.insertUsageObservation({
+      provider: "codex",
+      seat: null,
+      window_start: new Date("2026-11-15T13:00:00.000Z"),
+      window_end: new Date("2026-11-15T18:00:00.000Z"),
+      value: "80",
+      coverage: "measured",
+      observed_at: now,
+      source: { kind: "usage record", window: "5h", pace: "avoid" },
+    });
+    tracker.listings = { "id-pod": [story("TPC-1")] };
+    expect(await read()).toMatchObject({
+      ranked: [],
+      held: [{ key: "TPC-1", reason: "usage: codex", project: "pod" }],
+      usage: [
+        { provider: "claude", state: "unknown", observation_id: null },
+        {
+          provider: "codex",
+          state: "held",
+          value: "80",
+          pace: "avoid",
+          observation_id: avoid.id,
+        },
+      ],
+    });
+    expect(await publish()).toMatchObject({
+      published: { inputs: { usage_observation_ids: [avoid.id] } },
+    });
+  });
+
+  test("an unknown reading marks the entry, and a reset mark lifts a usage hold", async () => {
+    await activeHost("local", { projects: ["pod"] });
+    await project("pod");
+    await activeRevision(conn.db, "crew", "default", crewValue as Json);
+    await conn.db.insertUsageObservation({
+      provider: "codex",
+      seat: null,
+      window_start: now,
+      window_end: now,
+      value: "100",
+      coverage: "measured",
+      observed_at: now,
+      source: { kind: "usage record", window: "weekly", pace: "ok" },
+    });
+    tracker.listings = { "id-pod": [story("TPC-1")] };
+    expect(await read()).toMatchObject({
+      held: [{ key: "TPC-1", reason: "usage: codex" }],
+    });
+    const marked = await writeOverride(conn.db, {
+      host: "local",
+      writer: "local",
+      actor,
+      now,
+      request: {
+        kind: "reset_available",
+        harness: "codex",
+        until: "2026-11-15",
+      },
+    });
+    expect(marked).toMatchObject({ ok: true });
+    const plan = await read();
+    expect(plan).toMatchObject({
+      held: [],
+      ranked: [{ key: "TPC-1" }],
+      usage: [
+        { provider: "claude", state: "unknown" },
+        { provider: "codex", state: "reset" },
+      ],
+    });
+    if (!plan.ok) throw new Error("plan refused");
+    expect(plan.ranked[0]?.reasons).toContain("usage unknown: claude");
   });
 });

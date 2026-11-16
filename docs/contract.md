@@ -88,6 +88,9 @@ Cited from "Constraints".
 | `plan release` | ledger | nobody |  | a hold on KEY in force on the host |
 | `plan priority` | ledger | nobody | expires at the end of the host's day or of `--until`; a later priority replaces it, and once that one expires none is in force | one or more distinct PROJECTs, an `--until` no earlier than the host's day, and an active host Revision with a timezone |
 | `plan order` | ledger | nobody | expires at the end of the host's day or of `--until`; a later order replaces it, and once that one expires none is in force | one or more distinct KEYs, an `--until` no earlier than the host's day, and an active host Revision with a timezone |
+| `plan stretch` | ledger | nobody | expires at the end of the host's day; a later stretch replaces it | SLOTS above slots.default and at most slots.max of the active host Revision, a `--reason`, and a person as the actor; it expires at the end of the host's day |
+| `plan reset-available` | ledger | nobody | expires at the end of `--until`; `plan reset-used` ends it | a HARNESS, an `--until` no earlier than the host's day, and an active host Revision with a timezone |
+| `plan reset-used` | ledger | nobody |  | a reset-available mark on HARNESS in force on the host |
 | `tick` | ledger | nobody | a trigger is acknowledged once, by the tick event that lists it; a meta slot runs once per local day, by the meta tick event that names it; `coalesced` and `not due` write no tick event | an active schedule Revision for the host; each `--trigger` is SOURCE:ID with SOURCE orchestration, tracker, timer, or operator; `--agenda meta` runs the host's due `meta_slots` and takes `--slot NAME` and no `--trigger`; `--dry-run` writes nothing |
 
 ## Bypass-test pass condition

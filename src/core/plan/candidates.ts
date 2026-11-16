@@ -3,6 +3,7 @@ import { canonicalJson, sha256Hex } from "../config/canonical-json.ts";
 import type { Repo } from "../ports/db.ts";
 import type { DocsPort } from "../ports/docs.ts";
 import type { TrackerPort } from "../ports/tracker.ts";
+import { seatProviders, SeatsInvalid } from "../dispatch/seats.ts";
 import { activeProcesses } from "../process/active.ts";
 import type { ActiveProcess } from "../process/select.ts";
 import { roadmapPage, roadmapSection } from "../state/sections.ts";
@@ -22,6 +23,7 @@ export interface Candidates {
   stories: PlanStory[];
   partial: PartialRead[];
   activations: ActiveProcess[];
+  providers: Record<string, string[]>;
   tracker: { hash: string; observed_at: string } | null;
 }
 
@@ -75,6 +77,27 @@ async function projectStories(
   };
 }
 
+function providersOf(crew: unknown): string[] {
+  try {
+    return seatProviders(crew);
+  } catch (error) {
+    if (error instanceof SeatsInvalid) return [];
+    throw error;
+  }
+}
+
+export async function crewProviders(
+  repo: Repo,
+  projects: readonly string[],
+): Promise<Record<string, string[]>> {
+  const providers: Record<string, string[]> = {};
+  for (const project of projects) {
+    const crew = await singleActive(repo, "crew", "project", project);
+    providers[project] = crew === null ? [] : providersOf(crew.value);
+  }
+  return providers;
+}
+
 export async function readCandidates(
   input: CandidateInput,
 ): Promise<Candidates> {
@@ -93,6 +116,10 @@ export async function readCandidates(
     stories,
     partial,
     activations: await activeProcesses(input.repo),
+    providers: await crewProviders(
+      input.repo,
+      seated.map((each) => each.name),
+    ),
     tracker:
       seated.length === 0
         ? null

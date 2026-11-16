@@ -118,6 +118,32 @@ const BriefMeasurements = z.object({
   ),
 });
 
+const BriefPlan = z.object({
+  plan: z.object({
+    hosts: z.array(
+      z.object({
+        host: z.string(),
+        day: z.string(),
+        capacity: z.object({
+          slots_default: z.number(),
+          slots: z.number(),
+          stretch: z.object({ reason: z.string() }).nullable(),
+        }),
+        ranked: z.array(z.object({ key: z.string() })),
+        ranked_total: z.number(),
+        held: z.array(z.object({ key: z.string(), reason: z.string() })),
+        usage: z.array(z.object({ provider: z.string(), state: z.string() })),
+        overrides: z.object({
+          holds: z.array(z.object({ key: z.string() })),
+          priority: z.object({ projects: z.array(z.string()) }).nullable(),
+          order: z.object({ keys: z.array(z.string()) }).nullable(),
+        }),
+        resets: z.array(z.object({ harness: z.string(), until: z.string() })),
+      }),
+    ),
+  }),
+});
+
 const BriefDigest = z.object({
   projects: z.array(
     z.object({
@@ -493,6 +519,54 @@ function needsHumanTable(parsed: unknown): string {
   return `<table id="needs-human">\n${rows.join("\n")}\n</table>`;
 }
 
+function capacityCell(
+  capacity: z.infer<typeof BriefPlan>["plan"]["hosts"][number]["capacity"],
+): string {
+  return capacity.stretch === null
+    ? String(capacity.slots)
+    : `${capacity.slots} (stretched from ${capacity.slots_default}: ${capacity.stretch.reason})`;
+}
+
+function overridesCell(
+  host: z.infer<typeof BriefPlan>["plan"]["hosts"][number],
+): string {
+  const { holds, priority, order } = host.overrides;
+  return [
+    ...holds.map((hold) => `hold ${hold.key}`),
+    ...(priority === null ? [] : [`priority ${priority.projects.join(" ")}`]),
+    ...(order === null ? [] : [`order ${order.keys.join(" ")}`]),
+    ...host.resets.map((mark) => `reset ${mark.harness} until ${mark.until}`),
+  ].join("; ");
+}
+
+function planTable(parsed: unknown): string {
+  const brief = BriefPlan.safeParse(parsed);
+  if (!brief.success || brief.data.plan.hosts.length === 0) return "";
+  const rows = [
+    row([
+      "host",
+      "day",
+      "capacity",
+      "top of ranked",
+      "held",
+      "usage",
+      "overrides",
+    ]),
+    ...brief.data.plan.hosts.map((host) =>
+      row([
+        host.host,
+        host.day,
+        capacityCell(host.capacity),
+        `${host.ranked.map((entry) => entry.key).join(" ")} of ${host.ranked_total}`,
+        host.held.map((each) => `${each.key}: ${each.reason}`).join("; "),
+        host.usage.map((gate) => `${gate.provider} ${gate.state}`).join("; "),
+        overridesCell(host),
+      ]),
+    ),
+  ];
+  return `<table id="plan">\n${rows.join("\n")}\n</table>`;
+}
+
 function driftTable(parsed: unknown): string {
   const brief = BriefDrift.safeParse(parsed);
   if (!brief.success || brief.data.drift.length === 0) return "";
@@ -516,6 +590,7 @@ export function renderBriefHtml(resultJson: string): string {
     measurementTables(parsed),
     usageTable(parsed),
     yesterdayTable(parsed),
+    planTable(parsed),
   ]
     .filter((table) => table !== "")
     .join("\n");

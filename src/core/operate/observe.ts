@@ -1,5 +1,5 @@
 import { checkObserve } from "../check/check.ts";
-import { hostSlots } from "../config/host.ts";
+import { hostCapacity } from "../plan/capacity.ts";
 import { Json } from "../domain/json.ts";
 import { observedStates } from "./close-candidates.ts";
 import type { OperatePorts } from "./ports.ts";
@@ -10,7 +10,7 @@ export async function observeStep(
   ctx: Pick<StepContext, "db" | "host" | "writer" | "now">,
 ): Promise<StepResult> {
   const { db } = ctx;
-  const capacity = await hostSlots(db, ctx.writer);
+  const capacity = await hostCapacity(db, ctx.writer, ctx.now);
   const runs: Json[] = [];
   let failed = false;
   for (const run of await db.listHostRuns(ctx.host, observedStates)) {

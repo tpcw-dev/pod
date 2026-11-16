@@ -1,0 +1,7 @@
+driver: driver-a
+hostnames: [host-a]
+manager: false
+timezone: America/Los_Angeles
+slots: { default: 2, max: 4 }
+reserved: { process: 1 }
+projects: [pod, process]

@@ -46,6 +46,7 @@ export type ErrorCode =
   | "retro_not_due"
   | "ruling_exists"
   | "not_held"
+  | "not_marked"
   | "tracker_partial"
   | "config_missing"
   | "failed";

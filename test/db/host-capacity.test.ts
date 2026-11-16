@@ -60,6 +60,19 @@ describeDb("host capacity", () => {
     expect(launched.json.result).toMatchObject({ dispatch_id: "ctx_9" });
   });
 
+  test("dispatch reads the person's stretch in force, the same capacity pod plan prints", async () => {
+    await seedHost(conn.db, 0);
+    expect(
+      runCli(["plan", "stretch", "1", "--reason", "launch day"]).json,
+    ).toMatchObject({ ok: true });
+    expect(runCli(["plan"]).json.result).toMatchObject({
+      capacity: { slots_default: 0, slots: 1 },
+    });
+    const launched = dispatchCli();
+    expect(launched.status).toBe(0);
+    expect(launched.json.result).toMatchObject({ dispatch_id: "ctx_9" });
+  });
+
   test("dispatch with no active host Revision refuses config_missing", () => {
     const refused = dispatchCli();
     expect(refused.status).toBe(3);
