@@ -173,13 +173,22 @@ async function readTracked(
   };
 }
 
-export async function runCreate(
+export interface Selected {
+  tracked: Tracked;
+  size: Size;
+  stage: string;
+  process: Revision;
+  steps: Step[];
+  crew: Revision;
+  policy: Revision;
+}
+
+export async function selectRun(
   db: Db,
-  orca: OrcaPort,
   tracker: TrackerPort | null,
   log: ReceiptLog,
   input: RunCreateInput,
-): Promise<Outcome<RunCreateResult>> {
+): Promise<{ ok: true; selected: Selected } | Refused> {
   const story = `story:${input.story}`;
   const tracked = await readTracked(tracker, log, input);
   if ("ok" in tracked) return tracked;
@@ -234,6 +243,25 @@ export async function runCreate(
   if (crew === null) return noSingleActive("crew", scope, scopeRef);
   const policy = await singleActive(db, "policy", scope, scopeRef);
   if (policy === null) return noSingleActive("policy", scope, scopeRef);
+  return {
+    ok: true,
+    selected: { tracked, size, stage, process, steps, crew, policy },
+  };
+}
+
+export async function runCreate(
+  db: Db,
+  orca: OrcaPort,
+  tracker: TrackerPort | null,
+  log: ReceiptLog,
+  input: RunCreateInput,
+): Promise<Outcome<RunCreateResult>> {
+  const story = `story:${input.story}`;
+  const chosen = await selectRun(db, tracker, log, input);
+  if (!chosen.ok) return chosen;
+  const { tracked, size, stage, process, steps, crew, policy } =
+    chosen.selected;
+  const projectRef = input.project ?? null;
   const { version } = await orca.version();
   const ctx: Context = { db, orca, log, input, process, steps, size };
   const opKey = derivedOpKey("run_create", {

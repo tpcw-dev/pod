@@ -1,30 +1,74 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { connect } from "../adapters/postgres/connection.ts";
+import { endHostDrain, HostDrainResult } from "../core/run/attention-pause.ts";
 import { drain, DrainResult } from "../core/run/drain.ts";
 import { singleActive } from "../core/config/active.ts";
 import { hostCapacity } from "../core/plan/capacity.ts";
 import { takeover } from "../core/run/takeover.ts";
-import { podHome } from "./host-profile.ts";
+import { databaseUrl, podHome, readHostProfile } from "./host-profile.ts";
+import { actorOf, needsPerson, writerOf } from "./identity.ts";
 import { Generation, quote, withOrca } from "./run-verbs.ts";
 
-export const DrainInput = z.strictObject({
-  args: z.tuple([]),
-  run: z.string().min(1),
-  generation: Generation,
-  end: z.boolean().optional(),
-  "op-key": z.string().min(1).optional(),
-});
+export const DrainInput = z
+  .strictObject({
+    args: z.tuple([]),
+    run: z.string().min(1).optional(),
+    generation: Generation.optional(),
+    end: z.boolean().optional(),
+    "op-key": z.string().min(1).optional(),
+  })
+  .refine(
+    (input) =>
+      input.run !== undefined && input.generation !== undefined
+        ? true
+        : input.run === undefined &&
+          input.generation === undefined &&
+          input["op-key"] === undefined &&
+          input.end === true,
+    "pass --run and --generation for a Run, or --end alone to end the host pause",
+  );
 type DrainInput = z.infer<typeof DrainInput>;
 
-export const DrainOutput = DrainResult.extend({ op_key: z.string() });
+export const DrainOutput = z.union([
+  DrainResult.extend({ op_key: z.string() }),
+  HostDrainResult.extend({ op_key: z.string() }),
+]);
 type DrainOutput = z.infer<typeof DrainOutput>;
 
+const hostGo = {
+  what: "ending the host attention pause",
+  nextSteps: ["Run pod drain --end from the operator's shell"],
+};
+
 export async function drainVerb(input: DrainInput): Promise<DrainOutput> {
+  const { run, generation } = input;
+  if (run === undefined || generation === undefined) {
+    const host = readHostProfile();
+    const connection = connect(databaseUrl(host));
+    try {
+      const identity = await writerOf(
+        connection.db,
+        host,
+        process.env,
+        hostGo,
+      );
+      needsPerson(identity, hostGo);
+      const { result, opKey } = await endHostDrain(connection.db, {
+        host: host.hostId,
+        actor: actorOf(identity),
+        now: new Date(),
+      });
+      return { ...result, op_key: opKey };
+    } finally {
+      await connection.close();
+    }
+  }
   const { result, opKey } = await withOrca(({ db, host }) =>
     drain(db, {
-      run: input.run,
-      generation: Number(input.generation),
+      run,
+      generation: Number(generation),
       end: input.end === true,
       opKey: input["op-key"] ?? null,
       host: host.hostId,
@@ -35,7 +79,9 @@ export async function drainVerb(input: DrainInput): Promise<DrainOutput> {
 }
 
 export function drainMeta(output: DrainOutput) {
-  return { ownerGeneration: output.owner_generation, opKey: output.op_key };
+  return "owner_generation" in output
+    ? { ownerGeneration: output.owner_generation, opKey: output.op_key }
+    : { opKey: output.op_key };
 }
 
 export const TakeoverInput = z.strictObject({
