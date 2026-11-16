@@ -124,7 +124,9 @@ export async function usageFacts(
         ? { seats: [], records: [], done: [] }
         : await runViewFacts(db, view.run_id);
   const runIds = new Set([
-    ...rows.seats.map((seat) => seat.dispatch.run_id),
+    ...rows.seats.flatMap((seat) =>
+      seat.dispatch.run_id === null ? [] : [seat.dispatch.run_id],
+    ),
     ...rows.records.flatMap(({ record }) =>
       record.run_id === null ? [] : [record.run_id],
     ),

@@ -229,6 +229,7 @@ function toDispatch(row: typeof dispatch.$inferSelect): Dispatch {
     task_id: row.taskId,
     decision_id: row.decisionId,
     run_id: row.runId,
+    owner_host: row.ownerHost,
     seat: row.seat,
     role: row.role,
     requested_launch: json(row.requestedLaunch),
@@ -872,6 +873,7 @@ function makeRepo(x: Executor): Repo {
         taskId: row.task_id,
         decisionId: row.decision_id,
         runId: row.run_id,
+        ownerHost: row.owner_host,
         seat: row.seat,
         role: row.role,
         requestedLaunch: row.requested_launch,
@@ -900,6 +902,21 @@ function makeRepo(x: Executor): Repo {
         .from(dispatch)
         .where(eq(dispatch.dispatchId, dispatchId));
       return row === undefined ? null : toDispatch(row);
+    },
+
+    async openRunlessDispatches(host) {
+      const rows = await x
+        .select()
+        .from(dispatch)
+        .where(
+          and(
+            isNull(dispatch.runId),
+            eq(dispatch.ownerHost, host),
+            eq(dispatch.settlement, "open"),
+          ),
+        )
+        .orderBy(asc(dispatch.dispatchId));
+      return rows.map(toDispatch);
     },
 
     async listDispatches(runId) {
@@ -964,8 +981,7 @@ function makeRepo(x: Executor): Repo {
       const rows = await x
         .select({ activity: dispatch.activity })
         .from(dispatch)
-        .innerJoin(run, eq(run.runId, dispatch.runId))
-        .where(eq(run.host, host));
+        .where(eq(dispatch.ownerHost, host));
       return rows.map((row) => Activity.parse(row.activity));
     },
 
@@ -973,8 +989,12 @@ function makeRepo(x: Executor): Repo {
       const [worker] = await x
         .select({ seat: dispatch.seat })
         .from(dispatch)
-        .innerJoin(run, eq(run.runId, dispatch.runId))
-        .where(and(eq(run.host, host), eq(dispatch.terminalHandle, handle)))
+        .where(
+          and(
+            eq(dispatch.ownerHost, host),
+            eq(dispatch.terminalHandle, handle),
+          ),
+        )
         .limit(1);
       if (worker !== undefined) return worker.seat;
       const [coordinated] = await x
@@ -989,10 +1009,9 @@ function makeRepo(x: Executor): Repo {
       const terminalless = await x
         .select({ id: dispatch.dispatchId })
         .from(dispatch)
-        .innerJoin(run, eq(run.runId, dispatch.runId))
         .where(
           and(
-            eq(run.host, host),
+            eq(dispatch.ownerHost, host),
             ne(dispatch.activity, "settled"),
             isNull(dispatch.terminalHandle),
           ),

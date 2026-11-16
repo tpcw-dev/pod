@@ -79,6 +79,7 @@ function runByPath(
 ): string | null {
   let best: { run_id: string; length: number } | null = null;
   for (const row of dispatches) {
+    if (row.run_id === null) continue;
     const worktree = dispatchWorktree(row);
     if (worktree === null || !underPath(cwd, worktree)) continue;
     if (best === null || worktree.length > best.length)

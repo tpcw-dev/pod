@@ -215,7 +215,8 @@ export async function attentionStep(
       workers: (runId) => listWorkers(ports.orca, runId),
       capacity,
       async retry(dispatch, opKey, worktreePath) {
-        const run = await db.getRun(dispatch.run_id);
+        const run =
+          dispatch.run_id === null ? null : await db.getRun(dispatch.run_id);
         if (run === null)
           return refuse("task_not_ready", `Run ${dispatch.run_id} vanished`, [
             "pod brief",

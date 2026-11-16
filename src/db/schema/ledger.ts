@@ -228,9 +228,7 @@ export const dispatch = ledger.table(
   {
     dispatchId: text("dispatch_id").primaryKey(),
     taskId: text("task_id").references(() => task.taskId),
-    runId: text("run_id")
-      .notNull()
-      .references(() => run.runId),
+    runId: text("run_id").references(() => run.runId),
     decisionId: text("decision_id").references(() => decision.id),
     seat: text("seat").notNull(),
     role: text("role").notNull(),
@@ -249,7 +247,7 @@ export const dispatch = ledger.table(
     manifestId: text("manifest_id").references(() => evidenceManifest.id),
     promptBytes: integer("prompt_bytes"),
     executionBackend: text("execution_backend"),
-    ownerHost: text("owner_host"),
+    ownerHost: text("owner_host").notNull(),
     externalExecutionId: text("external_execution_id"),
     authRef: text("auth_ref"),
     outputRef: text("output_ref"),
@@ -266,7 +264,7 @@ export const dispatch = ledger.table(
     ),
     check(
       "dispatch_owner_check",
-      sql`(${t.taskId} is null or ${t.decisionId} is null) and (${t.taskId} is not null or ${t.role} in ('decider', 'auditor'))`,
+      sql`(${t.runId} is null and ${t.taskId} is null and ${t.decisionId} is null) or (${t.runId} is not null and (${t.taskId} is null or ${t.decisionId} is null) and (${t.taskId} is not null or ${t.role} in ('decider', 'auditor')))`,
     ),
   ],
 );

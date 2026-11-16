@@ -113,6 +113,7 @@ describeDb("evidence manifest", () => {
       task_id: "task-1",
       decision_id: null,
       run_id: "run-1",
+      owner_host: "local",
       seat: "seat-a",
       role: "developer",
       requested_launch: { model: "m" },

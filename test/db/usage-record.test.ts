@@ -242,6 +242,7 @@ describeDb("pod usage record", () => {
       task_id: null,
       decision_id: null,
       run_id: input.runId,
+      owner_host: input.host,
       seat: "example-seat",
       role: "decider",
       requested_launch: requested,

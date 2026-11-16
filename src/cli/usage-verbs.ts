@@ -147,7 +147,7 @@ export const UsageDayJson = z.object({
     z.object({
       dispatch_id: z.string(),
       seat: z.string(),
-      run_id: z.string(),
+      run_id: z.string().nullable(),
       settled_at: z.string().nullable(),
       ...totals,
     }),

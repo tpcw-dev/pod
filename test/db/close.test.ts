@@ -174,6 +174,7 @@ async function seatDispatch(id: string, worktree: string) {
     task_id: "task_r",
     decision_id: null,
     run_id: "run_1",
+    owner_host: "local",
     seat: "dev-2",
     role: "developer",
     requested_launch: { worktree },
