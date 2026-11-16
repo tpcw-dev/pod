@@ -2,7 +2,6 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { dispatch } from "../../src/core/dispatch/dispatch.ts";
 import type { Json } from "../../src/core/domain/json.ts";
-import { hostDay } from "../../src/core/plan/clock.ts";
 import {
   endHostDrain,
   recordAttentionDrains,
@@ -19,55 +18,22 @@ import { fakeTracker } from "./fake-tracker.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { createRun, dispatchInput, replay, started } from "./run-fixture.ts";
-import { activeRevision, crewValue, hostValue, processValue } from "./seed.ts";
-
-const timezone = "America/New_York";
-const morning = new Date("2026-11-16T15:00:00.000Z");
-const lateEvening = new Date("2026-11-17T03:30:00.000Z");
-const attention = { pause_at: "22:00", max_unattended_hours: 12 };
-const worktree = {
-  id: "repo-1::/w/s-1",
-  path: "/w/s-1",
-  branch: "refs/heads/s-1",
-};
-const projectValue = {
-  repo: "acme/widgets",
-  category: "Meta",
-  staging: false,
-  tracker: { project_name: "Widgets", project_id: "id-widgets" },
-};
-
-function notFound(verb: string, argv: string[]): TempEntry {
-  return {
-    verb,
-    argv,
-    exitCode: 1,
-    stdout: JSON.stringify({
-      ok: false,
-      error: { code: "selector_not_found", message: "selector_not_found" },
-    }),
-  };
-}
-
-const createWorktree: TempEntry[] = [
-  notFound("worktree-show", ["--worktree", "name:s-1"]),
-  ok("worktree-create", { worktree }, ["--project", "github:acme/widgets"]),
-];
-
-const createRunEntries: TempEntry[] = [
-  ok("run-create", { run: { id: "run_1" } }),
-  ok("task-create", { task: { id: "task_b", status: "ready" } }),
-  ok("task-create", { task: { id: "task_r", status: "pending" } }),
-];
-
-const startLead: TempEntry = ok("worker-start", started("ctx_1"), [
-  "--task",
-  "task_b",
-  "--worktree",
-  `id:${worktree.id}`,
-]);
-
-const fullLaunch = [...createWorktree, ...createRunEntries, startLead];
+import {
+  attention,
+  createRunEntries,
+  createWorktree,
+  fullLaunch,
+  lateEvening,
+  morning,
+  notFound,
+  publishPlan,
+  seedLaunch,
+  startLead,
+  timezone,
+  worktree,
+  type Seed,
+} from "./launch-fixture.ts";
+import { processValue } from "./seed.ts";
 
 describeDb("pod run launch", () => {
   let conn: Connection;
@@ -79,94 +45,8 @@ describeDb("pod run launch", () => {
   beforeEach(() => clearDb(conn));
   afterAll(() => conn.close());
 
-  interface Seed {
-    slots?: number;
-    reserved?: Record<string, number>;
-    policy?: Record<string, Json>;
-    crew?: Json;
-    process?: Json;
-    actor?: string;
-    now?: Date;
-  }
-
-  async function seed(over: Seed = {}): Promise<void> {
-    await activeRevision(conn.db, "policy", "default", {
-      gates: ["pr"],
-      ...over.policy,
-    });
-    await activeRevision(conn.db, "crew", "default", over.crew ?? crewValue);
-    await activeRevision(
-      conn.db,
-      "process",
-      "impl",
-      over.process ?? processValue,
-    );
-    await activeRevision(conn.db, "project", "widgets", projectValue);
-    const host = await storeRevision(conn.db, {
-      ...envelope("host", "local", {
-        ...(hostValue(over.slots ?? 2) as Record<string, Json>),
-        slots: { default: over.slots ?? 2, max: 4 },
-        reserved: over.reserved ?? {},
-        projects: ["widgets", "gadgets"],
-      }),
-      scope: "host",
-      scope_ref: "local",
-    });
-    const activated = await conn.db.activate({
-      scope: "host",
-      scope_ref: "local",
-      kind: "host",
-      name: "local",
-      expected: null,
-      revision_id: host.id,
-      bundle_id: null,
-      activated_by: "operator",
-      activated_at: morning,
-    });
-    if (!activated.ok) throw new Error("host not activated");
-    await publish(over.now ?? morning, over.actor ?? "person:human");
-  }
-
-  async function publish(at: Date, actor: string): Promise<void> {
-    const day = hostDay(at, timezone);
-    await conn.db.appendEvent({
-      type: "plan",
-      ts: at,
-      host: "local",
-      run_id: null,
-      task_id: null,
-      dispatch_id: null,
-      op_key: `plan:${day}:${actor}`,
-      payload: {
-        kind: "published",
-        host: "local",
-        day,
-        actor,
-        ranked: [
-          {
-            key: "S-1",
-            project: "widgets",
-            title: "Story S-1",
-            points: 2,
-            place: "current",
-            priority: null,
-            driver: null,
-            seats: ["claude"],
-            reasons: [],
-          },
-        ],
-        held: [],
-        inputs: {
-          host_revision: "host.local@1",
-          project_revisions: [],
-          tracker: null,
-          usage_observation_ids: [],
-          overrides: [],
-        },
-      },
-      source: { kind: "command", verb: "plan" },
-    });
-  }
+  const seed = (over: Seed = {}) => seedLaunch(conn, over);
+  const publish = (at: Date, actor: string) => publishPlan(conn, at, actor);
 
   function input(over: Partial<LaunchInput> = {}): LaunchInput {
     return {
@@ -245,7 +125,11 @@ describeDb("pod run launch", () => {
     const again = await launch([]);
     expect(again).toMatchObject({
       ok: true,
-      result: { run_id: "run_1", replayed: true, dispatch: { dispatch_id: "ctx_1" } },
+      result: {
+        run_id: "run_1",
+        replayed: true,
+        dispatch: { dispatch_id: "ctx_1" },
+      },
     });
   });
 
@@ -287,7 +171,11 @@ describeDb("pod run launch", () => {
 
   test("a full host refuses quota_exhausted before Orca, stores nothing, and the same op key launches once a slot frees", async () => {
     await seed({ slots: 1 });
-    await holdSlot("dispatch:other", { task_id: "t-x", seat: "s", host: "local" });
+    await holdSlot("dispatch:other", {
+      task_id: "t-x",
+      seat: "s",
+      host: "local",
+    });
     expect(await launch([])).toMatchObject({
       ok: false,
       refusal: { code: "quota_exhausted" },
@@ -299,7 +187,11 @@ describeDb("pod run launch", () => {
 
   test("another project's unused reservation refuses quota_exhausted, a used one does not", async () => {
     await seed({ slots: 3, reserved: { gadgets: 2 } });
-    await holdSlot("dispatch:other", { task_id: "t-x", seat: "s", host: "local" });
+    await holdSlot("dispatch:other", {
+      task_id: "t-x",
+      seat: "s",
+      host: "local",
+    });
     const refused = await launch([]);
     expect(refused).toMatchObject({
       ok: false,
@@ -349,7 +241,11 @@ describeDb("pod run launch", () => {
       conn.db,
       orca,
       log,
-      dispatchInput({ capacity: 1, opKey: "dispatch:held", heldBy: "tick:held" }),
+      dispatchInput({
+        capacity: 1,
+        opKey: "dispatch:held",
+        heldBy: "tick:held",
+      }),
     );
     expect(passed).toMatchObject({ ok: true });
   });
@@ -414,7 +310,13 @@ describeDb("pod run launch", () => {
       task_id: null,
       dispatch_id: null,
       op_key: "drain:elsewhere",
-      payload: { ended: false, op_key: "drain:elsewhere", scope: "host", host: "elsewhere", cause: "pause_at" },
+      payload: {
+        ended: false,
+        op_key: "drain:elsewhere",
+        scope: "host",
+        host: "elsewhere",
+        cause: "pause_at",
+      },
       source: { kind: "tick", actor: "seat:tick" },
     });
     expect(await launch(fullLaunch)).toMatchObject({ ok: true });
@@ -542,7 +444,9 @@ describeDb("pod run launch", () => {
 
   test("a stop before the worktree is recorded leaves the launch pending; the rerun adopts the worktree by name", async () => {
     await seed();
-    const first = await launch([lost("worktree-show", ["--worktree", "name:s-1"])]);
+    const first = await launch([
+      lost("worktree-show", ["--worktree", "name:s-1"]),
+    ]);
     expect(first).toMatchObject({
       ok: false,
       refusal: { code: "launch_unknown" },
@@ -607,7 +511,12 @@ describeDb("pod run launch", () => {
     });
     const { orca, log } = replay(conn, [ok("worker-start", started("ctx_7"))]);
     expect(
-      await dispatch(conn.db, orca, log, dispatchInput({ opKey: "dispatch:again" })),
+      await dispatch(
+        conn.db,
+        orca,
+        log,
+        dispatchInput({ opKey: "dispatch:again" }),
+      ),
     ).toMatchObject({ ok: true });
     expect(await launch([])).toMatchObject({
       ok: true,
@@ -683,7 +592,9 @@ describeDb("pod run launch", () => {
 
   test("pod run launch needs a coordinator, and refuses a Story the host's plan does not name", async () => {
     await seed();
-    const bare = runCli(["run", "launch", "story:S-1"], { POD_COORDINATOR: "" });
+    const bare = runCli(["run", "launch", "story:S-1"], {
+      POD_COORDINATOR: "",
+    });
     expect(bare.status).toBe(2);
     const missing = runCli(["run", "launch", "story:S-404"], {
       POD_COORDINATOR: "session-1",
