@@ -366,6 +366,8 @@ describeDb("pod run launch", () => {
     const refused = runCli(["drain", "--end"], { POD_SEAT: "TPC-1/lead" });
     expect(refused.status).toBe(3);
     expect(refused.json.error?.code).toBe("activation_needs_person");
+    expect(runCli(["drain", "--run", "run_1"]).status).toBe(2);
+    expect(runCli(["drain"]).status).toBe(2);
     const go = runCli(["drain", "--end"]);
     expect(go.status).toBe(0);
     expect(go.json.result).toMatchObject({ scope: "host", ended: true });
