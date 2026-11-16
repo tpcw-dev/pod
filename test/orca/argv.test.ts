@@ -87,3 +87,42 @@ test("worktree rm names the selector and adds --force only when asked", () => {
     "worktree-rm",
   );
 });
+
+test("worktree create names the project, the base branch, and no parent", () => {
+  const argv = argvFor.worktreeCreate({
+    project: "github:acme/widgets",
+    name: "s-1",
+    baseBranch: "staging",
+    noParent: true,
+  });
+  expect(argv).toEqual([
+    "worktree",
+    "create",
+    "--project",
+    "github:acme/widgets",
+    "--name",
+    "s-1",
+    "--base-branch",
+    "staging",
+    "--no-parent",
+    "--json",
+  ]);
+  expect(verbOf(argv)).toBe("worktree-create");
+});
+
+test("worktree create without a base branch leaves the flag out", () => {
+  expect(
+    argvFor.worktreeCreate({
+      project: "github:acme/widgets",
+      name: "s-1",
+      baseBranch: null,
+      noParent: true,
+    }),
+  ).not.toContain("--base-branch");
+});
+
+test("worktree show reads one worktree by selector", () => {
+  const argv = argvFor.worktreeShow({ worktree: "name:s-1" });
+  expect(argv).toEqual(["worktree", "show", "--worktree", "name:s-1", "--json"]);
+  expect(verbOf(argv)).toBe("worktree-show");
+});
