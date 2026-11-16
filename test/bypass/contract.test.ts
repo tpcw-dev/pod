@@ -8,6 +8,7 @@ const sideEffectVerbs = [
   "config set",
   "config activate",
   "run create",
+  "run launch",
   "dispatch",
   "check",
   "retry",
@@ -93,6 +94,7 @@ const extraVerbs = [
   { story: "TPC-1500", name: "plan reset-used", sideEffect: "ledger" },
   { story: "TPC-1513", name: "tick", sideEffect: "ledger" },
   { story: "S26c", name: "log", sideEffect: "none" },
+  { story: "TPC-1514", name: "run launch", sideEffect: "orca" },
 ] as const;
 
 function trim(value: string): string {

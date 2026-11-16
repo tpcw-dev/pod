@@ -680,4 +680,18 @@ describeDb("pod run launch", () => {
       result: { run_id: "run_1", dispatch: { dispatch_id: "ctx_1" } },
     });
   });
+
+  test("pod run launch needs a coordinator, and refuses a Story the host's plan does not name", async () => {
+    await seed();
+    const bare = runCli(["run", "launch", "story:S-1"], { POD_COORDINATOR: "" });
+    expect(bare.status).toBe(2);
+    const missing = runCli(["run", "launch", "story:S-404"], {
+      POD_COORDINATOR: "session-1",
+    });
+    expect(missing.status).toBe(3);
+    expect(missing.json.error).toMatchObject({
+      code: "selector_none",
+      message: "story:S-404 is in no published plan for host local today",
+    });
+  });
 });

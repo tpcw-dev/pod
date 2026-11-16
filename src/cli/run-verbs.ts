@@ -39,6 +39,7 @@ import { CloseReport, CloseResult } from "../core/domain/close.ts";
 import { closeRun } from "../core/run/close.ts";
 import { actorOf, writerOf } from "./identity.ts";
 import { runCreate } from "../core/run/create.ts";
+import { LaunchResult, runLaunch } from "../core/run/launch.ts";
 import { docsFor } from "./docs.ts";
 import {
   exitFor,
@@ -213,6 +214,61 @@ export async function runCreateVerb(
       }),
   );
   return { ...result, op_key: opKey, orca };
+}
+
+export const RunLaunchInput = z.strictObject({
+  args: z.tuple([z.string().regex(/^story:.+$/)]),
+  seat: z
+    .string()
+    .regex(/^[^=\s]+=[^=\s]+$/, "needs role=model")
+    .optional(),
+});
+type RunLaunchInput = z.infer<typeof RunLaunchInput>;
+
+export const RunLaunchOutput = LaunchResult.extend({ orca: z.string() });
+type RunLaunchOutput = z.infer<typeof RunLaunchOutput>;
+
+export async function runLaunchVerb(
+  input: RunLaunchInput,
+): Promise<RunLaunchOutput> {
+  const coordinator = process.env["POD_COORDINATOR"];
+  if (coordinator === undefined || coordinator === "")
+    throw usageError("POD_COORDINATOR is not set", [
+      "set POD_COORDINATOR to the coordinator session id",
+    ]);
+  const [story] = input.args;
+  const [role, model] = input.seat?.split("=") ?? [];
+  const command = [
+    "pod",
+    "run",
+    "launch",
+    story,
+    ...(input.seat === undefined ? [] : ["--seat", input.seat]),
+  ]
+    .map(quote)
+    .join(" ");
+  const { result, orca } = await withOrca(
+    ({ db, orca: port, tracker, log, host, kinds }) =>
+      runLaunch(
+        db,
+        { orca: port, tracker, log },
+        {
+          story: story.slice("story:".length),
+          host: host.hostId,
+          provider: kinds.trackerKind,
+          seats: role === undefined || model === undefined ? {} : { [role]: model },
+          subject: "manual",
+          coordinator,
+          command,
+          now: () => new Date(),
+        },
+      ),
+  );
+  return { ...result, orca };
+}
+
+export function runLaunchMeta(output: RunLaunchOutput) {
+  return { opKey: output.op_key, orca: output.orca };
 }
 
 export function runMeta(output: {

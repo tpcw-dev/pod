@@ -97,6 +97,7 @@ test("help lists the verbs sorted by name", () => {
     "retry",
     "run close",
     "run create",
+    "run launch",
     "state",
     "takeover",
     "tick",

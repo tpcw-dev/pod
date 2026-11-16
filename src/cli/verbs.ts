@@ -154,6 +154,10 @@ import {
   RunCreateInput,
   RunCreateOutput,
   runCreateVerb,
+  RunLaunchInput,
+  runLaunchMeta,
+  RunLaunchOutput,
+  runLaunchVerb,
   runMeta,
 } from "./run-verbs.ts";
 
@@ -313,6 +317,18 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
       "a groomed Story with a size and a stage, and exactly one selected process Revision",
     ],
     meta: runMeta,
+  }),
+  row({
+    name: "run launch",
+    input: RunLaunchInput,
+    output: RunLaunchOutput,
+    handler: runLaunchVerb,
+    sideEffect: "orca",
+    cancelBy: ["operator"],
+    evidenceRequired: [
+      "a Story in the host's published plan for today, a crew Seat for the lead role of the first step, no attention pause, usage headroom for the lead Seat's runtime, and a free slot after other projects' unused reserved slots",
+    ],
+    meta: runLaunchMeta,
   }),
   row({
     name: "dispatch",
