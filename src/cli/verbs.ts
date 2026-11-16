@@ -18,6 +18,7 @@ import {
   ConfigSetInput,
 } from "./config-verbs.ts";
 import { BriefInput, BriefOutput, brief } from "./brief.ts";
+import { LogInput, LogOutput, logVerb, renderLog } from "./log-verbs.ts";
 import {
   PlanHoldInput,
   PlanInput,
@@ -503,6 +504,16 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     cancelBy: ["nobody"],
     evidenceRequired: [],
     render: renderUsage,
+  }),
+  row({
+    name: "log",
+    input: LogInput,
+    output: LogOutput,
+    handler: logVerb,
+    sideEffect: "none",
+    cancelBy: ["nobody"],
+    evidenceRequired: [],
+    render: renderLog,
   }),
   row({
     name: "usage record",

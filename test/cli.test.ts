@@ -82,6 +82,7 @@ test("help lists the verbs sorted by name", () => {
     "learning add",
     "learning import",
     "learning query",
+    "log",
     "plan",
     "plan hold",
     "plan order",

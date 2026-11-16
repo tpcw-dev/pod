@@ -204,18 +204,17 @@ export const MeasurementUsageJson = z.object({
   }),
 });
 
+export const CalendarDay = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((day) => {
+    const date = new Date(`${day}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(day);
+  }, "is not a calendar day");
+
 export const UsageInput = z.strictObject({
   args: z.tuple([]),
-  day: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .refine((day) => {
-      const date = new Date(`${day}T00:00:00Z`);
-      return (
-        !Number.isNaN(date.getTime()) && date.toISOString().startsWith(day)
-      );
-    }, "is not a calendar day")
-    .optional(),
+  day: CalendarDay.optional(),
   project: z.string().min(1).optional(),
   run: z.string().min(1).optional(),
   json: z.boolean().optional(),

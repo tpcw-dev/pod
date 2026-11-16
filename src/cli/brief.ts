@@ -12,6 +12,7 @@ import { mirrorPath, mirrorSet, scopeText } from "../core/config/mirror.ts";
 import { digestBrief } from "../core/digest/brief.ts";
 import {
   sumBriefCounters,
+  yesterdayOf,
   type BriefTree,
   type DigestBrief,
 } from "../core/domain/brief.ts";
@@ -19,8 +20,9 @@ import type { Repo } from "../core/ports/db.ts";
 import { RevisionEnvelope, type Revision } from "../core/domain/config.ts";
 import { Json } from "../core/domain/json.ts";
 import { runLifetime } from "../core/usage/facts.ts";
-import { runUsage, type RunUsage } from "../core/usage/rollup.ts";
+import { dayOf, runUsage, type RunUsage } from "../core/usage/rollup.ts";
 import { renderBriefHtml } from "../core/manifest/html.ts";
+import { readLog } from "../core/operate/log.ts";
 import { waitingOn } from "../core/process/waiting.ts";
 import { PodError } from "./errors.ts";
 import {
@@ -35,6 +37,7 @@ import {
   todayView,
   UsageDayJson,
 } from "./usage-verbs.ts";
+import { LogDayJson, logJson } from "./log-verbs.ts";
 import { parseYaml } from "./yaml-file.ts";
 
 const storyArg = z.string().regex(/^story:.+$/);
@@ -206,6 +209,7 @@ export const BriefOutput = z.object({
   ),
   drift: z.array(DriftJson),
   usage: UsageDayJson,
+  yesterday: LogDayJson,
   nextSteps: z.array(z.string()).optional(),
 });
 type BriefResult = z.infer<typeof BriefOutput>;
@@ -340,7 +344,7 @@ function toBriefResult(
   drift: BriefResult["drift"],
   usages: ReadonlyMap<string, RunUsage>,
   usage: BriefResult["usage"],
-): BriefResult {
+): Omit<BriefResult, "yesterday"> {
   const current = new Map(projects.map((row) => [row.project, row.profile]));
   return {
     pending_requests: pending,
@@ -456,6 +460,14 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
           zone.zone,
           todayView(zone.zone),
           null,
+        ),
+      ),
+      yesterday: logJson(
+        await readLog(
+          connection.db,
+          host.hostId,
+          yesterdayOf(dayOf(new Date(), zone.zone)),
+          zone.zone,
         ),
       ),
       ...(nextSteps.length === 0 ? {} : { nextSteps }),

@@ -409,6 +409,56 @@ function digestSections(parsed: unknown): string {
     .join("\n");
 }
 
+const LogShape = z.object({
+  day: z.string(),
+  time_zone: z.string(),
+  headings: z.array(
+    z.object({
+      heading: z.string(),
+      lines: z.array(
+        z.object({ event_id: z.number(), ts: z.string(), text: z.string() }),
+      ),
+    }),
+  ),
+});
+
+function slug(heading: string): string {
+  return heading.toLowerCase().replaceAll(" ", "-");
+}
+
+function logTables(parsed: unknown): string {
+  const log = LogShape.safeParse(parsed);
+  if (!log.success) return "";
+  return log.data.headings
+    .map((group) => {
+      const rows =
+        group.lines.length === 0
+          ? [row(["none"])]
+          : group.lines.map((line) =>
+              row([line.ts, `#${line.event_id}`, line.text]),
+            );
+      return `<h2>${escapeHtml(group.heading)}</h2>\n<table id="log-${slug(group.heading)}">\n${rows.join("\n")}\n</table>`;
+    })
+    .join("\n");
+}
+
+function yesterdayTable(parsed: unknown): string {
+  const brief = z.object({ yesterday: LogShape }).safeParse(parsed);
+  if (!brief.success) return "";
+  const { yesterday } = brief.data;
+  const rows = [
+    row([`yesterday ${yesterday.day} (${yesterday.time_zone})`, "", ""]),
+    ...yesterday.headings.flatMap((group) =>
+      group.lines.length === 0
+        ? [row([group.heading, "none", ""])]
+        : group.lines.map((line) =>
+            row([group.heading, line.text, `#${line.event_id}`]),
+          ),
+    ),
+  ];
+  return `<table id="yesterday">\n${rows.join("\n")}\n</table>`;
+}
+
 function pendingTable(parsed: unknown): string {
   const brief = BriefPending.safeParse(parsed);
   if (!brief.success || brief.data.pending_requests.length === 0) return "";
@@ -448,10 +498,15 @@ export function renderBriefHtml(resultJson: string): string {
     testTables(parsed),
     measurementTables(parsed),
     usageTable(parsed),
+    yesterdayTable(parsed),
   ]
     .filter((table) => table !== "")
     .join("\n");
   return page("Brief", [["brief-json", resultJson]], tables);
+}
+
+export function renderLogHtml(resultJson: string): string {
+  return page("Log", [["log-json", resultJson]], logTables(parsedJson(resultJson)));
 }
 
 export function renderRestoreHtml(viewText: string): string {

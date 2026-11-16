@@ -593,6 +593,55 @@ describeDb("pod brief", () => {
     );
   });
 
+  test("brief carries yesterday's log as JSON and as the yesterday table", async () => {
+    const now = new Date();
+    const noon = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1, 12),
+    );
+    await conn.db.appendEvent({
+      type: "escalate",
+      ts: noon,
+      host: "local",
+      run_id: null,
+      task_id: null,
+      dispatch_id: null,
+      op_key: null,
+      payload: { story: "S-yesterday", kind: "p0", text: "a<b" },
+      source: { kind: "command", verb: "test" },
+    });
+    const html = join(cwd, "yesterday.html");
+    const result = runBrief(cwd, ["brief", "--html", html]);
+    expect(result.status).toBe(0);
+    const { yesterday } = JSON.parse(result.stdout).result;
+    expect(yesterday).toMatchObject({
+      host: "local",
+      day: noon.toISOString().slice(0, 10),
+      time_zone: "UTC",
+    });
+    expect(
+      yesterday.headings.map((group: { heading: string }) => group.heading),
+    ).toEqual([
+      "Launched",
+      "Closed",
+      "Groomed",
+      "Decided",
+      "Needs a person",
+      "Held",
+      "Skipped",
+      "Errors",
+    ]);
+    expect(yesterday.headings[4].lines).toMatchObject([
+      { type: "escalate", text: "escalate story=S-yesterday kind=p0 text=a<b" },
+    ]);
+    const table = readFileSync(html, "utf8").match(
+      /<table id="yesterday">([\s\S]*?)<\/table>/,
+    );
+    expect(table?.[0]).toContain(
+      "<td>Needs a person</td><td>escalate story=S-yesterday kind=p0 text=a&lt;b</td>",
+    );
+    expect(table?.[0]).toContain("<td>Groomed</td><td>none</td>");
+  });
+
   test("an unknown story is story_not_found", () => {
     const result = runBrief(cwd, ["brief", "story:missing"]);
     expect(result.status).toBe(3);
