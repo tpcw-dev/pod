@@ -1,6 +1,11 @@
 import type { Json } from "../domain/json.ts";
 import type { Event, EventType } from "../domain/ledger.ts";
-import { TickPayload, type StepOutcome } from "../domain/tick.ts";
+import {
+  MetaTickPayload,
+  TickPayload,
+  type MetaStepOutcome,
+  type StepOutcome,
+} from "../domain/tick.ts";
 import type { Repo } from "../ports/db.ts";
 import { dayWindow } from "../usage/rollup.ts";
 
@@ -96,26 +101,39 @@ function plan(event: Event): Entry[] {
   return under(kind === "hold" ? "Held" : "Decided")(event);
 }
 
-const stepHeadings: Partial<Record<StepOutcome, LogHeading>> = {
-  failed: "Errors",
-  skipped: "Skipped",
-};
+const stepHeadings: Partial<Record<StepOutcome | MetaStepOutcome, LogHeading>> =
+  {
+    failed: "Errors",
+    timed_out: "Errors",
+    skipped: "Skipped",
+  };
 
-function tick(event: Event): Entry[] {
-  const parsed = TickPayload.safeParse(event.payload);
-  if (!parsed.success) return unreadable(event);
-  const steps = parsed.data.steps.flatMap((step): Entry[] => {
+function stepLines(
+  steps: readonly {
+    step: string;
+    result: StepOutcome | MetaStepOutcome;
+    detail: Json;
+  }[],
+): Entry[] {
+  return steps.flatMap((step): Entry[] => {
     const heading = stepHeadings[step.result];
     if (heading === undefined) return [];
     const detail =
       step.detail === null ? "" : ` ${JSON.stringify(step.detail)}`;
     return [[heading, cut(`tick step ${step.step} ${step.result}${detail}`)]];
   });
+}
+
+function tick(event: Event): Entry[] {
+  const meta = MetaTickPayload.safeParse(event.payload);
+  if (meta.success) return stepLines(meta.data.steps);
+  const parsed = TickPayload.safeParse(event.payload);
+  if (!parsed.success) return unreadable(event);
   const refused = parsed.data.refuse.map((entry): Entry => [
     "Skipped",
     cut(`tick refuse ${JSON.stringify(entry)}`),
   ]);
-  return [...steps, ...refused];
+  return [...stepLines(parsed.data.steps), ...refused];
 }
 
 const quiet: Place = () => [];

@@ -200,6 +200,34 @@ describe("groupLog", () => {
     expect(other.map((line) => line.event_id)).toEqual([10, 10, 10]);
   });
 
+  test("a meta tick lists its failed and timed out steps under Errors", () => {
+    const meta: Event = {
+      ...events[8]!,
+      payload: {
+        agenda: "meta",
+        host: "local",
+        tick_id: "tick:meta",
+        actor: "person:human",
+        schedule_revision: "rev",
+        slot: "morning",
+        steps: [
+          { step: "retro", op_key: "m1", result: "failed", detail: null },
+          { step: "digest", op_key: "m2", result: "timed_out", detail: null },
+          { step: "digest", op_key: "m3", result: "ok", detail: null },
+        ],
+      },
+    };
+    const groups = groupLog([meta], "local");
+    expect(
+      groups.flatMap((group) =>
+        group.lines.map((line) => `${group.heading}: ${line.text}`),
+      ),
+    ).toEqual([
+      "Errors: tick step retro failed",
+      "Errors: tick step digest timed_out",
+    ]);
+  });
+
   test("a long text is cut to 160 characters", () => {
     const [line] = groupLog(
       [{ ...events[6]!, payload: { text: "x".repeat(400) } }],
