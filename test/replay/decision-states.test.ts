@@ -1077,5 +1077,5 @@ describeDb("decision states", () => {
     }
   });
 
-  for (const entry of rows) test(entry.name, entry.drive, 120_000);
+  for (const entry of rows) test(entry.name, entry.drive);
 });
