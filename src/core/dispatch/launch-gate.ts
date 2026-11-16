@@ -25,6 +25,7 @@ export async function slotRefusal(
   host: string,
   capacity: number | null,
   launches: readonly OpenLaunch[],
+  heldBy?: string,
 ): Promise<Refusal | null> {
   if (capacity === null) {
     const missing = capacityMissing(host);
@@ -36,7 +37,9 @@ export async function slotRefusal(
       ],
     };
   }
-  const reservations = onHost(launches, host);
+  const reservations = onHost(launches, host).filter(
+    (row) => row.op_key !== heldBy,
+  );
   const slots = freeSlots(
     capacity,
     await tx.hostActivities(host),

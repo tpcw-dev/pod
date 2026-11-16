@@ -4,6 +4,9 @@ import type { Repo } from "../ports/db.ts";
 
 export const launchIntents = ["dispatch", "retry", "decide_seat"] as const;
 
+/** A pending `pod run launch` holds a slot from its gate until its lead Dispatch. */
+const reservationIntents = [...launchIntents, "tick"] as const;
+
 export interface Reservation {
   intent: string;
   status: OperationStatus;
@@ -17,7 +20,7 @@ export function freeSlots(
   const running = activities.filter((activity) => activity === "running");
   const held = reservations.filter(
     (row) =>
-      (launchIntents as readonly string[]).includes(row.intent) &&
+      (reservationIntents as readonly string[]).includes(row.intent) &&
       (row.status === "pending" || row.status === "unknown"),
   );
   return capacity - running.length - held.length;
@@ -27,6 +30,9 @@ const LaunchRequest = z.looseObject({
   request: z.looseObject({
     task_id: z.string().optional(),
     host: z.string().optional(),
+    launch: z.literal(true).optional(),
+    project: z.string().optional(),
+    story: z.string().optional(),
   }),
 });
 
@@ -36,10 +42,12 @@ export type OpenLaunch = Pick<
 > & { request: z.infer<typeof LaunchRequest>["request"] | null };
 
 export async function openLaunches(tx: Repo): Promise<OpenLaunch[]> {
-  return (await tx.launchReservations(launchIntents)).map((row) => ({
-    ...row,
-    request: LaunchRequest.safeParse(row.result_ref).data?.request ?? null,
-  }));
+  return (await tx.launchReservations(reservationIntents))
+    .map((row) => ({
+      ...row,
+      request: LaunchRequest.safeParse(row.result_ref).data?.request ?? null,
+    }))
+    .filter((row) => row.intent !== "tick" || row.request?.launch === true);
 }
 
 export function onHost(

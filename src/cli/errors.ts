@@ -49,6 +49,8 @@ export type ErrorCode =
   | "not_marked"
   | "tracker_partial"
   | "config_missing"
+  | "usage_hold"
+  | "attention_paused"
   | "failed";
 
 const exits: Partial<Record<ErrorCode, number>> = {

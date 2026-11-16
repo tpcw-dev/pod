@@ -138,9 +138,11 @@ export interface Repo {
     dispatchId: string,
   ): Promise<{ activity: Activity; at: Date }[]>;
   hostActivities(host: string): Promise<Activity[]>;
+  hostRunningByProject(host: string): Promise<Record<string, number>>;
   terminalSeat(host: string, handle: string): Promise<string | null>;
   unresolvedWorkers(host: string): Promise<string[]>;
   lockQuota(host: string): Promise<void>;
+  lockClaim(story: string): Promise<void>;
   insertLearning(row: NewLearning): Promise<Learning>;
   listLearnings(filter: LearningFilter): Promise<Learning[]>;
   getLearning(id: number): Promise<Learning | null>;
@@ -232,6 +234,12 @@ export interface Repo {
     options?: { taskId?: string; dispatchId?: string },
   ): Promise<Event | null>;
   listEvents(runId: string, type: EventType): Promise<Event[]>;
+  latestHostEvent(
+    host: string,
+    type: EventType,
+    payload: Record<string, Json>,
+  ): Promise<Event | null>;
+  newestPersonEvent(host: string): Promise<{ id: number; ts: Date } | null>;
   eventsBetween(since: Date, until: Date): Promise<Event[]>;
   insertOperation(
     row: NewOperation,
