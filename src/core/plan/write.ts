@@ -6,7 +6,13 @@ import { derivedOpKey } from "../ledger/op-key.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import { dayEnd, isDay } from "./clock.ts";
 import { planHost, type PlanHost } from "./host.ts";
-import { inForce, newestOf, planEvents, type PlanEvent } from "./overrides.ts";
+import {
+  inForce,
+  newestOf,
+  planEvents,
+  resetsInForce,
+  type PlanEvent,
+} from "./overrides.ts";
 
 export interface WriteInput {
   host: string;
@@ -157,6 +163,40 @@ function notHeld(host: string, key: string): Refused {
   ]);
 }
 
+function notMarked(host: string, harness: string): Refused {
+  return refuse(
+    "not_marked",
+    `${harness} has no reset-available mark in force on host ${host}`,
+    [`pod plan --host ${host} lists the marks in force under resets`],
+  );
+}
+
+function stretchPayload(
+  context: PlanHost,
+  request: { slots: number; reason: string },
+  common: { host: string; day: string; actor: string },
+): PlanPayload | Refused {
+  const { slots } = context;
+  if (!Number.isInteger(request.slots))
+    return usage(`SLOTS ${request.slots} is not a whole number`);
+  if (request.slots <= slots.default)
+    return usage(
+      `SLOTS ${request.slots} is not above slots.default ${slots.default} of host ${context.host}`,
+    );
+  if (request.slots > slots.max)
+    return usage(
+      `SLOTS ${request.slots} is above slots.max ${slots.max} of host ${context.host}`,
+    );
+  if (request.reason.trim() === "") return usage("--reason is empty");
+  return {
+    kind: "stretch",
+    ...common,
+    slots: request.slots,
+    reason: request.reason,
+    expires_at: dayEnd(context.day, context.timezone).toISOString(),
+  };
+}
+
 function overridePayload(
   context: PlanHost,
   request: OverrideRequest,
@@ -165,6 +205,17 @@ function overridePayload(
   const common = { host: context.host, day: context.day, actor };
   if (request.kind === "release")
     return { kind: "release", ...common, key: request.key };
+  if (request.kind === "stretch")
+    return stretchPayload(context, request, common);
+  if (request.kind === "reset_used")
+    return {
+      kind: "reset_available",
+      ...common,
+      harness: request.harness,
+      available: false,
+      until: null,
+      expires_at: null,
+    };
   const expires = expiry(context, request.until);
   if ("ok" in expires) return expires;
   if (request.kind === "hold") {
@@ -178,6 +229,15 @@ function overridePayload(
       ...(request.project === undefined ? {} : { project: request.project }),
     };
   }
+  if (request.kind === "reset_available")
+    return {
+      kind: "reset_available",
+      ...common,
+      harness: request.harness,
+      available: true,
+      until: expires.until,
+      expires_at: expires.expires_at,
+    };
   const list = request.kind === "priority" ? request.projects : request.keys;
   if (!distinct(list))
     return usage(`pod plan ${request.kind} names one entry twice`);
@@ -190,11 +250,22 @@ function isHeld(context: PlanHost, key: string, now: Date): boolean {
   return inForce(context.events, now).holds.some((each) => each.key === key);
 }
 
+function isMarked(context: PlanHost, harness: string, now: Date): boolean {
+  return resetsInForce(context.events, now).some(
+    (each) => each.harness === harness,
+  );
+}
+
 function familyOf(payload: PlanPayload): (each: PlanEvent) => boolean {
   if (payload.kind === "hold" || payload.kind === "release") {
     const key = payload.key;
     return ({ payload: each }) =>
       (each.kind === "hold" || each.kind === "release") && each.key === key;
+  }
+  if (payload.kind === "reset_available") {
+    const harness = payload.harness;
+    return ({ payload: each }) =>
+      each.kind === "reset_available" && each.harness === harness;
   }
   if (payload.kind === "published") {
     const day = payload.day;
@@ -218,7 +289,21 @@ function targetOf(request: OverrideRequest): unknown {
       return { projects: request.projects, until: request.until };
     case "order":
       return { keys: request.keys, until: request.until };
+    case "stretch":
+      return { slots: request.slots, reason: request.reason };
+    case "reset_available":
+      return {
+        harness: request.harness,
+        available: true,
+        until: request.until,
+      };
+    case "reset_used":
+      return { harness: request.harness, available: false, until: null };
   }
+}
+
+function verbOf(request: OverrideRequest): string {
+  return request.kind.replace("_", "-");
 }
 
 export function writeOverride(db: Db, input: OverrideInput): Promise<Written> {
@@ -235,13 +320,20 @@ export function writeOverride(db: Db, input: OverrideInput): Promise<Written> {
       !isHeld(context, payload.key, input.now)
     )
       return notHeld(context.host, payload.key);
+    if (
+      replayed === null &&
+      payload.kind === "reset_available" &&
+      !payload.available &&
+      !isMarked(context, payload.harness, input.now)
+    )
+      return notMarked(context.host, payload.harness);
     const keyed =
       replayed ??
       (await appendKeyed(tx, {
         context,
         base,
         payload,
-        verb: `plan ${payload.kind}`,
+        verb: `plan ${verbOf(input.request)}`,
         writer: input.writer,
         now: input.now,
       }));

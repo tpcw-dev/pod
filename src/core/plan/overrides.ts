@@ -5,6 +5,7 @@ import {
   type OrderPayload,
   type PriorityPayload,
   type PublishedPayload,
+  type StretchPayload,
 } from "../domain/plan.ts";
 
 export interface PlanEvent {
@@ -29,6 +30,16 @@ export interface InForce {
   holds: HoldInForce[];
   priority: PriorityInForce | null;
   order: OrderInForce | null;
+}
+
+export type StretchInForce = Stamp &
+  Pick<StretchPayload, "actor" | "slots" | "reason" | "expires_at">;
+
+export interface ResetInForce extends Stamp {
+  actor: string;
+  harness: string;
+  until: string;
+  expires_at: string;
 }
 
 export interface PublishedRead extends Stamp {
@@ -117,11 +128,67 @@ export function inForce(events: readonly PlanEvent[], now: Date): InForce {
   };
 }
 
-export function overrideIds(overrides: InForce): number[] {
+export function stretchInForce(
+  events: readonly PlanEvent[],
+  now: Date,
+): StretchInForce | null {
+  const found = newestOf(events, (each) => each.payload.kind === "stretch");
+  if (found === undefined || found.payload.kind !== "stretch") return null;
+  const { actor, slots, reason, expires_at } = found.payload;
+  return live(
+    {
+      event_id: found.id,
+      ts: found.ts.toISOString(),
+      actor,
+      slots,
+      reason,
+      expires_at,
+    },
+    now,
+  );
+}
+
+export function resetsInForce(
+  events: readonly PlanEvent[],
+  now: Date,
+): ResetInForce[] {
+  const marks = new Map<string, ResetInForce | null>();
+  for (const each of events) {
+    const payload = each.payload;
+    if (payload.kind !== "reset_available") continue;
+    marks.set(
+      payload.harness,
+      payload.available && payload.until !== null && payload.expires_at !== null
+        ? {
+            event_id: each.id,
+            ts: each.ts.toISOString(),
+            actor: payload.actor,
+            harness: payload.harness,
+            until: payload.until,
+            expires_at: payload.expires_at,
+          }
+        : null,
+    );
+  }
+  return [...marks.values()]
+    .flatMap((mark) => {
+      const held = live(mark, now);
+      return held === null ? [] : [held];
+    })
+    .sort((a, b) => a.harness.localeCompare(b.harness));
+}
+
+export function overrideIds(
+  overrides: InForce,
+  stretch: StretchInForce | null,
+  resets: readonly ResetInForce[],
+): number[] {
   return [
     ...overrides.holds,
     ...(overrides.priority === null ? [] : [overrides.priority]),
     ...(overrides.order === null ? [] : [overrides.order]),
+    ...(stretch === null ? [] : [stretch]),
+    ...resets,
   ]
     .map((each) => each.event_id)
     .sort((a, b) => a - b);

@@ -1,0 +1,8 @@
+pod:
+  - { key: TPC-11, priority: 2, points: 2 }
+  - { key: TPC-12, priority: 1, points: 3 }
+  - { key: TPC-13, priority: 3, points: 1, labels: [blocked] }
+process:
+  - { key: TPC-21, priority: 2, points: 2 }
+  - { key: TPC-22, priority: 4, points: 1 }
+  - { key: TPC-23, priority: 3, points: 2 }

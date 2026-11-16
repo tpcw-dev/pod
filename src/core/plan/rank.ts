@@ -2,6 +2,7 @@ import type { Held, Place, Ranked } from "../domain/plan.ts";
 import type { ListedStory } from "../ports/tracker.ts";
 import { selectProcess, type ActiveProcess } from "../process/select.ts";
 import type { InForce } from "./overrides.ts";
+import type { UsageGate } from "./usage.ts";
 
 export interface PlanStory extends ListedStory {
   project: string;
@@ -13,6 +14,8 @@ export interface RankInput {
   overrides: InForce;
   activations: readonly ActiveProcess[];
   reserved: Readonly<Record<string, number>>;
+  providers: Readonly<Record<string, readonly string[]>>;
+  usage: readonly UsageGate[];
 }
 
 export interface ReservedSlots {
@@ -38,11 +41,21 @@ function placeOf(story: PlanStory): Place | "parked" {
   return milestone === story.current ? "current" : "milestone";
 }
 
-function heldReason(
-  story: PlanStory,
-  holds: ReadonlyMap<string, string>,
-  activations: readonly ActiveProcess[],
-): string | null {
+interface Gates {
+  holds: ReadonlyMap<string, string>;
+  activations: readonly ActiveProcess[];
+  providers: Readonly<Record<string, readonly string[]>>;
+  usage: ReadonlyMap<string, UsageGate>;
+}
+
+function storyGates(story: PlanStory, gates: Gates): UsageGate[] {
+  return (gates.providers[story.project] ?? []).flatMap((provider) => {
+    const gate = gates.usage.get(provider);
+    return gate === undefined ? [] : [gate];
+  });
+}
+
+function heldReason(story: PlanStory, gates: Gates): string | null {
   const label = heldLabels.find((name) => story.labels.includes(name));
   if (label !== undefined) return `label ${label}`;
   if (story.points === null || !launchablePoints.includes(story.points))
@@ -57,11 +70,13 @@ function heldReason(
     size: story.size,
     kickoffLine: story.kickoffLine,
     cliProcess: null,
-    activations,
+    activations: gates.activations,
     named: null,
   });
   if (!selected.ok) return `process ${selected.code}`;
-  return holds.get(story.ref.external_id) ?? null;
+  const held = storyGates(story, gates).find((gate) => gate.state === "held");
+  if (held !== undefined) return `usage: ${held.provider}`;
+  return gates.holds.get(story.ref.external_id) ?? null;
 }
 
 function indexIn(list: readonly string[] | undefined, item: string): number {
@@ -104,7 +119,7 @@ function compare(a: (number | string)[], b: (number | string)[]): number {
   return 0;
 }
 
-function reasonsOf(each: Placed, overrides: InForce): string[] {
+function reasonsOf(each: Placed, overrides: InForce, gates: Gates): string[] {
   const { story } = each;
   const order = overrides.order?.keys.indexOf(story.ref.external_id) ?? -1;
   const project = overrides.priority?.projects.indexOf(story.project) ?? -1;
@@ -113,10 +128,13 @@ function reasonsOf(each: Placed, overrides: InForce): string[] {
     ...(project === -1 ? [] : [`project priority ${project + 1}`]),
     `tracker priority ${story.priority ?? "none"}`,
     `place ${each.place}`,
+    ...storyGates(story, gates)
+      .filter((gate) => gate.state === "unknown")
+      .map((gate) => `usage unknown: ${gate.provider}`),
   ];
 }
 
-function entryOf(each: Placed, overrides: InForce): Ranked {
+function entryOf(each: Placed, overrides: InForce, gates: Gates): Ranked {
   const { story } = each;
   return {
     key: story.ref.external_id,
@@ -127,20 +145,25 @@ function entryOf(each: Placed, overrides: InForce): Ranked {
     priority: story.priority,
     driver: story.driverLabel,
     seats: [],
-    reasons: reasonsOf(each, overrides),
+    reasons: reasonsOf(each, overrides, gates),
   };
 }
 
 export function rankPlan(input: RankInput): Ranking {
   const { overrides } = input;
-  const holds = new Map(overrides.holds.map((hold) => [hold.key, hold.reason]));
+  const gates: Gates = {
+    holds: new Map(overrides.holds.map((hold) => [hold.key, hold.reason])),
+    activations: input.activations,
+    providers: input.providers,
+    usage: new Map(input.usage.map((gate) => [gate.provider, gate])),
+  };
   const candidates = new Set(input.stories.map((each) => each.ref.external_id));
   const held: Held[] = [];
   const open: Placed[] = [];
   for (const story of input.stories) {
     const place = placeOf(story);
     if (place === "parked") continue;
-    const reason = heldReason(story, holds, input.activations);
+    const reason = heldReason(story, gates);
     if (reason === null) open.push({ story, place });
     else
       held.push({
@@ -159,7 +182,7 @@ export function rankPlan(input: RankInput): Ranking {
   const ranked = open
     .map((each) => ({ each, key: sortKey(each, overrides) }))
     .sort((a, b) => compare(a.key, b.key))
-    .map(({ each }) => entryOf(each, overrides));
+    .map(({ each }) => entryOf(each, overrides, gates));
   return {
     ranked,
     held,

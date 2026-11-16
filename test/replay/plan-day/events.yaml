@@ -1,0 +1,27 @@
+- {
+    at: "2026-11-15T16:00:00.000Z",
+    request:
+      { kind: hold, key: TPC-23, reason: waits on a design call, until: null },
+  }
+- {
+    at: "2026-11-15T16:05:00.000Z",
+    request: { kind: priority, projects: [process, pod], until: null },
+  }
+- {
+    at: "2026-11-15T16:10:00.000Z",
+    request: { kind: order, keys: [TPC-22], until: null },
+  }
+- {
+    at: "2026-11-15T16:15:00.000Z",
+    request: { kind: stretch, slots: 3, reason: launch day },
+  }
+- {
+    at: "2026-11-15T16:20:00.000Z",
+    request: { kind: reset_available, harness: grok, until: "2026-11-15" },
+  }
+- {
+    at: "2026-11-15T16:25:00.000Z",
+    request:
+      { kind: hold, key: TPC-99, reason: not on this host's list, until: null },
+  }
+- { at: "2026-11-15T16:30:00.000Z", request: { kind: release, key: TPC-99 } }

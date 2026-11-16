@@ -13,7 +13,13 @@ import { planHost } from "../plan/host.ts";
 import { closeStep } from "./close.ts";
 import { observeStep } from "./observe.ts";
 import type { OperatePorts } from "./ports.ts";
-import { inForce, newestPublished, overrideIds } from "../plan/overrides.ts";
+import {
+  inForce,
+  newestPublished,
+  overrideIds,
+  resetsInForce,
+  stretchInForce,
+} from "../plan/overrides.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import { attentionStep } from "./attention.ts";
 import {
@@ -99,7 +105,11 @@ export async function readPlanStep(
   const plan: PlanRead = {
     event_id: newestPublished(context.events, context.day)?.event_id ?? null,
     day: context.day,
-    overrides: overrideIds(inForce(context.events, now)),
+    overrides: overrideIds(
+      inForce(context.events, now),
+      stretchInForce(context.events, now),
+      resetsInForce(context.events, now),
+    ),
   };
   return { result: "ok", detail: Json.parse(plan), plan };
 }

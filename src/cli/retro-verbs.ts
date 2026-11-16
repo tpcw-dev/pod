@@ -5,7 +5,7 @@ import {
   RetroRecordResult,
   RetroRunResult,
 } from "../core/domain/retro.ts";
-import { hostSlots } from "../core/config/host.ts";
+import { hostCapacity } from "../core/plan/capacity.ts";
 import { retroRecord } from "../core/retro/record.ts";
 import { retroRun } from "../core/retro/run.ts";
 import { codeHostFor } from "./code-host.ts";
@@ -48,7 +48,7 @@ export async function retroRunVerb(
       generation: Number(input.generation),
       attempt: input["op-key"] ?? "1",
       host: host.hostId,
-      capacity: await hostSlots(db, host.hostId),
+      capacity: await hostCapacity(db, host.hostId, new Date()),
       codeHost: codeHostFor(),
       command,
       now: () => new Date(),

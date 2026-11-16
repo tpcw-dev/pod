@@ -10,7 +10,7 @@ import {
 } from "../core/check/check.ts";
 import { launchLeaseSeconds } from "../core/check/reconcile.ts";
 import { singleActive } from "../core/config/active.ts";
-import { hostSlots } from "../core/config/host.ts";
+import { hostCapacity } from "../core/plan/capacity.ts";
 import {
   serviceKinds,
   type ServiceKinds,
@@ -207,7 +207,7 @@ export async function runCreateVerb(
         command,
         seats: {
           templates: await singleActive(db, "decision", "global", ""),
-          capacity: await hostSlots(db, host.hostId),
+          capacity: await hostCapacity(db, host.hostId, new Date()),
         },
         now: () => new Date(),
       }),
@@ -278,7 +278,7 @@ export async function dispatchVerb(
         generation: Number(input.generation),
         opKey: input["op-key"] ?? null,
         host: host.hostId,
-        capacity: await hostSlots(db, host.hostId),
+        capacity: await hostCapacity(db, host.hostId, new Date()),
         command,
         ...(worktree === null ? {} : { gitStatus: gitStatus(worktree) }),
         now: () => new Date(),
@@ -459,7 +459,7 @@ export async function checkVerb(input: CheckInput): Promise<CheckOutput> {
         run,
         generation,
         host: host.hostId,
-        capacity: await hostSlots(db, host.hostId),
+        capacity: await hostCapacity(db, host.hostId, new Date()),
         now,
         leaseSeconds: lease,
         hostName: hostname(),
@@ -497,7 +497,7 @@ async function observeVerb(
       return checkObserve(db, port, tracker, log, {
         run,
         host: host.hostId,
-        capacity: await hostSlots(db, host.hostId),
+        capacity: await hostCapacity(db, host.hostId, new Date()),
         now,
         leaseSeconds,
       });
@@ -557,7 +557,7 @@ export async function retryVerb(input: RetryInput): Promise<RetryOutput> {
         generation: Number(input.generation),
         opKey: input["op-key"] ?? null,
         host: host.hostId,
-        capacity: await hostSlots(db, host.hostId),
+        capacity: await hostCapacity(db, host.hostId, new Date()),
         gitStatus: gitStatus(plan.worktreePath),
         command,
         now: () => new Date(),

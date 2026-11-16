@@ -18,7 +18,10 @@ import { postDigest } from "../../src/core/digest/post.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import type { Run, Story } from "../../src/core/domain/ledger.ts";
 import { addLearning } from "../../src/core/learning/add.ts";
+import { publishPlan } from "../../src/core/plan/plan.ts";
+import { writeOverride } from "../../src/core/plan/write.ts";
 import { waitingOn } from "../../src/core/process/waiting.ts";
+import { fakeTracker, listedStory } from "../db/fake-tracker.ts";
 import { envelope, storeRevision } from "../db/fixtures.ts";
 import { dbUrl, describeDb, openDb, podHome, resetDb } from "../db/helpers.ts";
 
@@ -827,6 +830,166 @@ describeDb("pod brief", () => {
     expect(kept?.runs.map((run) => run.run_id)).toEqual(["run-1-app"]);
     expect(kept?.run_id).toBeNull();
     expect(kept?.counters).toEqual(kept?.runs[0]?.counters);
+  });
+
+  test("brief carries each host's day plan as JSON and as the plan table", async () => {
+    const now = new Date();
+    async function active(
+      row: Awaited<ReturnType<typeof storeRevision>>,
+      scope: "global" | "host" | "project",
+      scopeRef: string,
+    ) {
+      const activated = await conn.db.activate({
+        scope,
+        scope_ref: scopeRef,
+        kind: row.kind,
+        name: row.name,
+        expected: null,
+        revision_id: row.id,
+        bundle_id: null,
+        activated_by: "operator",
+        activated_at: at,
+      });
+      if (!activated.ok) throw new Error(`${row.kind} not activated`);
+    }
+    const host = {
+      driver: "driver-a",
+      manager: false,
+      slots: { default: 1, max: 3 },
+      reserved: {},
+    };
+    await active(
+      await storeRevision(conn.db, {
+        ...envelope("host", "local", {
+          ...host,
+          hostnames: ["host-a"],
+          timezone: "Africa/Abidjan",
+          projects: ["planned"],
+        }),
+        scope: "host",
+        scope_ref: "local",
+      }),
+      "host",
+      "local",
+    );
+    await active(
+      await storeRevision(conn.db, {
+        ...envelope("host", "bare", {
+          ...host,
+          hostnames: ["host-b"],
+          projects: [],
+        }),
+        scope: "host",
+        scope_ref: "bare",
+      }),
+      "host",
+      "bare",
+    );
+    await active(
+      await storeRevision(
+        conn.db,
+        envelope("project", "planned", {
+          repo: "tpcw-dev/planned",
+          category: "Meta",
+          staging: false,
+          tracker: { project_name: "planned", project_id: "id-planned" },
+        }),
+      ),
+      "global",
+      "",
+    );
+    await active(
+      await storeRevision(conn.db, {
+        ...envelope("crew", "crew", {
+          seats: [{ id: "dev-p", roles: ["developer"], runtime: "claude" }],
+        }),
+        scope: "project",
+        scope_ref: "planned",
+      }),
+      "project",
+      "planned",
+    );
+    await active(
+      await storeRevision(
+        conn.db,
+        envelope("process", "impl", {
+          selector: { stage: "impl", size: ["s"] },
+        }),
+      ),
+      "global",
+      "",
+    );
+    const write = (request: Parameters<typeof writeOverride>[1]["request"]) =>
+      writeOverride(conn.db, {
+        host: "local",
+        writer: "local",
+        actor: "person:human",
+        now,
+        request,
+      });
+    const day = now.toISOString().slice(0, 10);
+    expect(
+      await write({ kind: "stretch", slots: 2, reason: "launch" }),
+    ).toMatchObject({ ok: true });
+    expect(
+      await write({ kind: "hold", key: "P-9", reason: "waits", until: null }),
+    ).toMatchObject({ ok: true });
+    expect(
+      await write({ kind: "reset_available", harness: "claude", until: day }),
+    ).toMatchObject({ ok: true });
+    const tracker = fakeTracker();
+    tracker.listings = {
+      "id-planned": ["P-1", "P-2", "P-3"].map((key, index) =>
+        listedStory({
+          ref: { provider: "linear", external_id: key },
+          title: key,
+          priority: index + 1,
+        }),
+      ),
+    };
+    expect(
+      await publishPlan(conn.db, {
+        host: "local",
+        writer: "local",
+        actor: "person:human",
+        now,
+        sources: { tracker, docs: null },
+      }),
+    ).toMatchObject({
+      ok: true,
+      ranked: [{ key: "P-1" }, { key: "P-2" }, { key: "P-3" }],
+    });
+    const html = join(cwd, "plan.html");
+    const result = runBrief(cwd, ["brief", "--html", html]);
+    expect(result.status).toBe(0);
+    const { plan } = JSON.parse(result.stdout).result;
+    expect(plan).toMatchObject({
+      hosts: [
+        {
+          host: "local",
+          day,
+          capacity: {
+            slots_default: 1,
+            slots_max: 3,
+            slots: 2,
+            stretch: { slots: 2, reason: "launch" },
+          },
+          ranked: [{ key: "P-1" }, { key: "P-2" }],
+          ranked_total: 3,
+          held: [{ key: "P-9", reason: "waits" }],
+          usage: [{ provider: "claude", state: "reset" }],
+          overrides: { holds: [{ key: "P-9" }], priority: null, order: null },
+          resets: [{ harness: "claude", until: day }],
+        },
+      ],
+      refused: [{ host: "bare", code: "config_missing" }],
+    });
+    const table = readFileSync(html, "utf8").match(
+      /<table id="plan">([\s\S]*?)<\/table>/,
+    );
+    expect(table?.[0]).toContain(
+      `<td>local</td><td>${day}</td><td>2 (stretched from 1: launch)</td><td>P-1 P-2 of 3</td><td>P-9: waits</td><td>claude reset</td><td>hold P-9; reset claude until ${day}</td>`,
+    );
   });
 });
 

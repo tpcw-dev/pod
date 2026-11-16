@@ -101,18 +101,39 @@ export const OrderPayload = z.strictObject({
   keys: Names,
 });
 
+export const StretchPayload = z.strictObject({
+  kind: z.literal("stretch"),
+  ...Common,
+  slots: z.int(),
+  reason: Name,
+  expires_at: Instant,
+});
+
+export const ResetPayload = z.strictObject({
+  kind: z.literal("reset_available"),
+  ...Common,
+  harness: Name,
+  available: z.boolean(),
+  until: Day.nullable(),
+  expires_at: Instant.nullable(),
+});
+
 export const PlanPayload = z.discriminatedUnion("kind", [
   PublishedPayload,
   HoldPayload,
   ReleasePayload,
   PriorityPayload,
   OrderPayload,
+  StretchPayload,
+  ResetPayload,
 ]);
 export type PlanPayload = z.infer<typeof PlanPayload>;
 export type PublishedPayload = z.infer<typeof PublishedPayload>;
 export type HoldPayload = z.infer<typeof HoldPayload>;
 export type PriorityPayload = z.infer<typeof PriorityPayload>;
 export type OrderPayload = z.infer<typeof OrderPayload>;
+export type StretchPayload = z.infer<typeof StretchPayload>;
+export type ResetPayload = z.infer<typeof ResetPayload>;
 
 export type OverrideRequest =
   | {
@@ -124,4 +145,7 @@ export type OverrideRequest =
     }
   | { kind: "release"; key: string }
   | { kind: "priority"; projects: string[]; until: string | null }
-  | { kind: "order"; keys: string[]; until: string | null };
+  | { kind: "order"; keys: string[]; until: string | null }
+  | { kind: "stretch"; slots: number; reason: string }
+  | { kind: "reset_available"; harness: string; until: string }
+  | { kind: "reset_used"; harness: string };

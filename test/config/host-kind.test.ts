@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { parse, stringify } from "yaml";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
-import { hostSlots, validateHost } from "../../src/core/config/host.ts";
+import { validateHost } from "../../src/core/config/host.ts";
+import { hostCapacity } from "../../src/core/plan/capacity.ts";
 import { envelope, storeRevision } from "../db/fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "../db/helpers.ts";
 
@@ -195,8 +196,10 @@ describeDb("host kind", () => {
       activated_at: new Date("2026-11-14T00:00:00.000Z"),
     });
     expect(activated.ok).toBe(true);
-    expect(await hostSlots(conn.db, "alpha")).toBe(2);
-    expect(apply("beta", hostValue({ projects: ["p1"] })).json.error?.message).toContain("alpha");
+    expect(await hostCapacity(conn.db, "alpha", new Date())).toBe(2);
+    expect(
+      apply("beta", hostValue({ projects: ["p1"] })).json.error?.message,
+    ).toContain("alpha");
     const set = runCli([
       "config",
       "set",

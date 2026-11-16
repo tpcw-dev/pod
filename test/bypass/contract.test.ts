@@ -33,6 +33,9 @@ const sideEffectVerbs = [
   "plan release",
   "plan priority",
   "plan order",
+  "plan stretch",
+  "plan reset-available",
+  "plan reset-used",
   "tick",
 ] as const;
 
@@ -85,6 +88,9 @@ const extraVerbs = [
   { story: "TPC-1498", name: "plan release", sideEffect: "ledger" },
   { story: "TPC-1498", name: "plan priority", sideEffect: "ledger" },
   { story: "TPC-1498", name: "plan order", sideEffect: "ledger" },
+  { story: "TPC-1500", name: "plan stretch", sideEffect: "ledger" },
+  { story: "TPC-1500", name: "plan reset-available", sideEffect: "ledger" },
+  { story: "TPC-1500", name: "plan reset-used", sideEffect: "ledger" },
   { story: "TPC-1513", name: "tick", sideEffect: "ledger" },
   { story: "S26c", name: "log", sideEffect: "none" },
 ] as const;
@@ -165,7 +171,7 @@ test("the tick row names --agenda meta and --slot", () => {
 test("the contract copies the bypass paragraphs", () => {
   const spec = readFileSync("docs/tech-spec.md", "utf8").split("\n");
   const contract = readFileSync("docs/contract.md", "utf8").split("\n");
-  for (const lineNumber of [907, 909, 911]) {
+  for (const lineNumber of [911, 913, 915]) {
     const line = spec[lineNumber - 1];
     expect(line?.length).toBeGreaterThan(0);
     expect(contract).toContain(line);

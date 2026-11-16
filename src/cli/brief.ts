@@ -25,6 +25,8 @@ import { runLifetime } from "../core/usage/facts.ts";
 import { dayOf, runUsage, type RunUsage } from "../core/usage/rollup.ts";
 import { renderBriefHtml } from "../core/manifest/html.ts";
 import { readLog } from "../core/operate/log.ts";
+import { planDigest } from "../core/plan/plan.ts";
+import { Held, Ranked } from "../core/domain/plan.ts";
 import { waitingOn } from "../core/process/waiting.ts";
 import { PodError } from "./errors.ts";
 import {
@@ -40,6 +42,12 @@ import {
   UsageDayJson,
 } from "./usage-verbs.ts";
 import { LogDayJson, logJson } from "./log-verbs.ts";
+import {
+  CapacityJson,
+  OverridesJson,
+  ResetInForce,
+  UsageGateJson,
+} from "./plan-verbs.ts";
 import { parseYaml } from "./yaml-file.ts";
 
 const storyArg = z.string().regex(/^story:.+$/);
@@ -143,6 +151,27 @@ const PendingRequestJson = z.object({
   comment: z.string(),
 });
 
+const PlanJson = z.object({
+  hosts: z.array(
+    z.object({
+      host: z.string(),
+      day: z.string(),
+      capacity: CapacityJson,
+      ranked: z.array(Ranked),
+      ranked_total: z.number(),
+      held: z.array(Held),
+      usage: z.array(UsageGateJson),
+      overrides: OverridesJson,
+      resets: z.array(ResetInForce),
+      published: z.object({ event_id: z.number(), ts: z.string() }).nullable(),
+    }),
+  ),
+  refused: z.array(
+    z.object({ host: z.string(), code: z.string(), message: z.string() }),
+  ),
+});
+type PlanJson = z.infer<typeof PlanJson>;
+
 export const BriefOutput = z.object({
   pending_requests: z.array(PendingRequestJson),
   projects: z.array(
@@ -213,6 +242,7 @@ export const BriefOutput = z.object({
   usage: UsageDayJson,
   yesterday: LogDayJson,
   tick: TickLines.nullable(),
+  plan: PlanJson,
   nextSteps: z.array(z.string()).optional(),
 });
 type BriefResult = z.infer<typeof BriefOutput>;
@@ -340,6 +370,38 @@ function usageOf(
   return usage;
 }
 
+async function planSection(repo: Repo, now: Date): Promise<PlanJson> {
+  const section: PlanJson = { hosts: [], refused: [] };
+  for (const host of (await repo.activeScopeRefs("host", "host")).sort()) {
+    const digest = await planDigest(repo, host, now);
+    if (!digest.ok) {
+      section.refused.push({
+        host,
+        code: digest.refusal.code,
+        message: digest.refusal.message,
+      });
+      continue;
+    }
+    const { published, capacity } = digest;
+    section.hosts.push({
+      host,
+      day: digest.day,
+      capacity,
+      ranked: published?.ranked.slice(0, capacity.slots) ?? [],
+      ranked_total: published?.ranked.length ?? 0,
+      held: published?.held ?? [],
+      usage: digest.usage,
+      overrides: digest.overrides,
+      resets: digest.resets,
+      published:
+        published === null
+          ? null
+          : { event_id: published.event_id, ts: published.ts },
+    });
+  }
+  return section;
+}
+
 function toBriefResult(
   tree: BriefTree,
   projects: readonly (ProjectProfile & { digest: DigestBrief })[],
@@ -347,6 +409,7 @@ function toBriefResult(
   drift: BriefResult["drift"],
   usages: ReadonlyMap<string, RunUsage>,
   usage: BriefResult["usage"],
+  plan: PlanJson,
 ): Omit<BriefResult, "yesterday" | "tick"> {
   const current = new Map(projects.map((row) => [row.project, row.profile]));
   return {
@@ -420,6 +483,7 @@ function toBriefResult(
     })),
     drift,
     usage,
+    plan,
   };
 }
 
@@ -464,6 +528,7 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
           todayView(zone.zone),
           null,
         ),
+        await planSection(connection.db, new Date()),
       ),
       yesterday: logJson(
         await readLog(

@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { PlanPayload } from "../../src/core/domain/plan.ts";
 import { inForce, type InForce } from "../../src/core/plan/overrides.ts";
 import { rankPlan, type PlanStory } from "../../src/core/plan/rank.ts";
+import type { UsageGate } from "../../src/core/plan/usage.ts";
 import type { ActiveProcess } from "../../src/core/process/select.ts";
 import { listedStory } from "../db/fake-tracker.ts";
 
@@ -32,6 +33,8 @@ function ranked(stories: PlanStory[], overrides: InForce = none) {
     overrides,
     activations: [impl],
     reserved: {},
+    providers: {},
+    usage: [],
   });
 }
 
@@ -274,10 +277,65 @@ describe("reserved slots", () => {
       overrides: none,
       activations: [impl],
       reserved: { process: 2, quant: 1 },
+      providers: {},
+      usage: [],
     });
     expect(result.reserved).toEqual([
       { project: "process", slots: 2, covers: ["TPC-1", "TPC-3"] },
       { project: "quant", slots: 1, covers: [] },
     ]);
+  });
+});
+
+function gate(provider: string, state: UsageGate["state"]): UsageGate {
+  return { provider, state, value: null, pace: null, observation_id: null };
+}
+
+function gated(usage: UsageGate[]) {
+  return rankPlan({
+    stories: [story("TPC-1"), story("TPC-2", { project: "quant" })],
+    overrides: none,
+    activations: [impl],
+    reserved: {},
+    providers: { pod: ["claude", "grok"], quant: ["codex"] },
+    usage,
+  });
+}
+
+describe("usage gating", () => {
+  test("a Story whose crew needs a provider with no headroom is held", () => {
+    const result = gated([
+      gate("claude", "available"),
+      gate("grok", "held"),
+      gate("codex", "available"),
+    ]);
+    expect(result.held).toEqual([
+      { key: "TPC-1", reason: "usage: grok", project: "pod" },
+    ]);
+    expect(result.ranked.map((entry) => entry.key)).toEqual(["TPC-2"]);
+  });
+
+  test("an unknown reading does not hold and marks the entry", () => {
+    const result = gated([
+      gate("claude", "unknown"),
+      gate("grok", "available"),
+      gate("codex", "available"),
+    ]);
+    expect(result.held).toEqual([]);
+    expect(
+      result.ranked.find((entry) => entry.key === "TPC-1")?.reasons,
+    ).toContain("usage unknown: claude");
+    expect(
+      result.ranked.find((entry) => entry.key === "TPC-2")?.reasons,
+    ).not.toContain("usage unknown: claude");
+  });
+
+  test("a reset mark in force does not hold", () => {
+    const result = gated([
+      gate("claude", "available"),
+      gate("grok", "reset"),
+      gate("codex", "available"),
+    ]);
+    expect(result.held).toEqual([]);
   });
 });

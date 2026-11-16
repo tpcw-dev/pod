@@ -19,7 +19,7 @@ import {
   readHostProfile,
   type HostSettings,
 } from "./host-profile.ts";
-import { actorOf, writerOf } from "./identity.ts";
+import { actorOf, needsPerson, writerOf, type PersonNeed } from "./identity.ts";
 import { trackerFor } from "./tracker.ts";
 
 function failWith(refusal: Refusal): never {
@@ -62,6 +62,36 @@ const OrderInForce = z.object({
   ...Expiry,
   keys: z.array(z.string()),
 });
+const StretchInForce = z.object({
+  ...Stamp,
+  slots: z.number(),
+  reason: z.string(),
+  expires_at: z.string(),
+});
+export const ResetInForce = z.object({
+  ...Stamp,
+  harness: z.string(),
+  until: z.string(),
+  expires_at: z.string(),
+});
+export const UsageGateJson = z.object({
+  provider: z.string(),
+  state: z.enum(["available", "held", "unknown", "reset"]),
+  value: z.string().nullable(),
+  pace: z.enum(["spend", "ok", "avoid"]).nullable(),
+  observation_id: z.number().nullable(),
+});
+export const OverridesJson = z.object({
+  holds: z.array(HoldInForce),
+  priority: PriorityInForce.nullable(),
+  order: OrderInForce.nullable(),
+});
+export const CapacityJson = z.object({
+  slots_default: z.number(),
+  slots_max: z.number(),
+  slots: z.number(),
+  stretch: StretchInForce.nullable(),
+});
 
 export const PlanInput = z.strictObject({
   args: z.tuple([]),
@@ -75,16 +105,12 @@ export const PlanOutput = z.object({
   day: z.string(),
   timezone: z.string(),
   host_revision: z.string(),
-  capacity: z.object({
-    slots_default: z.number(),
-    slots_max: z.number(),
+  capacity: CapacityJson.extend({
     reserved: z.record(z.string(), z.number()),
   }),
-  overrides: z.object({
-    holds: z.array(HoldInForce),
-    priority: PriorityInForce.nullable(),
-    order: OrderInForce.nullable(),
-  }),
+  overrides: OverridesJson,
+  resets: z.array(ResetInForce),
+  usage: z.array(UsageGateJson),
   partial: z.array(z.object({ project: z.string(), error: z.string() })),
   ranked: z.array(Ranked),
   held: z.array(Held),
@@ -111,7 +137,14 @@ type PlanOutput = z.infer<typeof PlanOutput>;
 export const PlanOverrideOutput = z.object({
   host: z.string(),
   day: z.string(),
-  kind: z.enum(["hold", "release", "priority", "order"]),
+  kind: z.enum([
+    "hold",
+    "release",
+    "priority",
+    "order",
+    "stretch",
+    "reset_available",
+  ]),
   actor: z.string(),
   event_id: z.number(),
   op_key: z.string(),
@@ -122,7 +155,10 @@ export const PlanOverrideOutput = z.object({
   projects: z.array(z.string()).optional(),
   keys: z.array(z.string()).optional(),
   until: z.string().nullable().optional(),
-  expires_at: z.string().optional(),
+  expires_at: z.string().nullable().optional(),
+  slots: z.number().optional(),
+  harness: z.string().optional(),
+  available: z.boolean().optional(),
 });
 type PlanOverrideOutput = z.infer<typeof PlanOverrideOutput>;
 
@@ -182,11 +218,13 @@ export async function plan(input: PlanInput): Promise<PlanOutput> {
 async function override(
   hostFlag: string | undefined,
   request: OverrideRequest,
+  need: PersonNeed | null = null,
 ): Promise<PlanOverrideOutput> {
   const profile = readHostProfile();
   const connection = connect(databaseUrl(profile));
   try {
-    const identity = await writerOf(connection.db, profile, process.env, null);
+    const identity = await writerOf(connection.db, profile, process.env, need);
+    if (need !== null) needsPerson(identity, need);
     const outcome = await writeOverride(connection.db, {
       host: hostFlag ?? profile.hostId,
       writer: profile.hostId,
@@ -256,5 +294,56 @@ export function planOrder(input: PlanListInput): Promise<PlanOverrideOutput> {
     kind: "order",
     keys: [...input.args],
     until: input.until ?? null,
+  });
+}
+
+const stretchNeed: PersonNeed = {
+  what: "a slots stretch",
+  nextSteps: ["a person runs pod plan stretch from the operator's shell"],
+};
+
+export const PlanStretchInput = z.strictObject({
+  args: z.tuple([z.string().regex(/^\d+$/u)]),
+  reason: z.string().min(1),
+  host: HostFlag,
+});
+
+export function planStretch(
+  input: z.infer<typeof PlanStretchInput>,
+): Promise<PlanOverrideOutput> {
+  return override(
+    input.host,
+    { kind: "stretch", slots: Number(input.args[0]), reason: input.reason },
+    stretchNeed,
+  );
+}
+
+export const PlanResetAvailableInput = z.strictObject({
+  args: z.tuple([z.string().min(1)]),
+  until: z.string().min(1),
+  host: HostFlag,
+});
+
+export function planResetAvailable(
+  input: z.infer<typeof PlanResetAvailableInput>,
+): Promise<PlanOverrideOutput> {
+  return override(input.host, {
+    kind: "reset_available",
+    harness: input.args[0],
+    until: input.until,
+  });
+}
+
+export const PlanResetUsedInput = z.strictObject({
+  args: z.tuple([z.string().min(1)]),
+  host: HostFlag,
+});
+
+export function planResetUsed(
+  input: z.infer<typeof PlanResetUsedInput>,
+): Promise<PlanOverrideOutput> {
+  return override(input.host, {
+    kind: "reset_used",
+    harness: input.args[0],
   });
 }

@@ -1,0 +1,8 @@
+pod:
+  seats:
+    - { id: dev-pod, roles: [developer], runtime: claude }
+    - { id: rev-pod, roles: [reviewer], runtime: codex }
+process:
+  seats:
+    - { id: dev-process, roles: [developer], runtime: claude }
+    - { id: rev-process, roles: [reviewer], runtime: grok }

@@ -3,25 +3,39 @@ import type { PlanInputs, PublishedPayload } from "../domain/plan.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { DocsPort } from "../ports/docs.ts";
 import type { TrackerPort } from "../ports/tracker.ts";
+import { capacityOf } from "./capacity.ts";
 import {
+  crewProviders,
   readCandidates,
   type Candidates,
   type PartialRead,
 } from "./candidates.ts";
-import { planHost, type PlanHost } from "./host.ts";
+import { planHost, seatedProjects, type PlanHost } from "./host.ts";
 import {
   inForce,
   newestPublished,
   overrideIds,
+  resetsInForce,
+  stretchInForce,
   type InForce,
   type PublishedRead,
+  type ResetInForce,
+  type StretchInForce,
 } from "./overrides.ts";
 import { rankPlan, type Ranking } from "./rank.ts";
+import { observationIds, usageGates, type UsageGate } from "./usage.ts";
 import { appendKeyed, opKeyBase, replayOf, type WriteInput } from "./write.ts";
 
 export interface PlanSources {
   tracker: TrackerPort | null;
   docs: DocsPort | null;
+}
+
+export interface Capacity {
+  slots_default: number;
+  slots_max: number;
+  slots: number;
+  stretch: StretchInForce | null;
 }
 
 export interface PlanView extends Ranking {
@@ -30,12 +44,10 @@ export interface PlanView extends Ranking {
   day: string;
   timezone: string;
   host_revision: string;
-  capacity: {
-    slots_default: number;
-    slots_max: number;
-    reserved: Record<string, number>;
-  };
+  capacity: Capacity & { reserved: Record<string, number> };
   overrides: InForce;
+  resets: ResetInForce[];
+  usage: UsageGate[];
   partial: PartialRead[];
   published: (PublishedRead & { replayed?: boolean }) | null;
 }
@@ -43,10 +55,39 @@ export interface PlanView extends Ranking {
 interface Read {
   context: PlanHost;
   candidates: Candidates;
+  usage: UsageGate[];
+}
+
+function capacity(context: PlanHost, now: Date): Capacity {
+  const stretch = stretchInForce(context.events, now);
+  return {
+    slots_default: context.slots.default,
+    slots_max: context.slots.max,
+    slots: capacityOf(context.slots, stretch),
+    stretch,
+  };
+}
+
+function allProviders(providers: Record<string, string[]>): string[] {
+  return [...new Set(Object.values(providers).flat())].sort();
+}
+
+function gatesOf(
+  repo: Repo,
+  context: PlanHost,
+  providers: Record<string, string[]>,
+  now: Date,
+): Promise<UsageGate[]> {
+  return usageGates(
+    repo,
+    allProviders(providers),
+    resetsInForce(context.events, now),
+    now,
+  );
 }
 
 function view(
-  { context, candidates }: Read,
+  { context, candidates, usage }: Read,
   now: Date,
 ): Omit<PlanView, "published"> {
   const overrides = inForce(context.events, now);
@@ -56,18 +97,18 @@ function view(
     day: context.day,
     timezone: context.timezone,
     host_revision: context.revision_id,
-    capacity: {
-      slots_default: context.slots.default,
-      slots_max: context.slots.max,
-      reserved: context.reserved,
-    },
+    capacity: { ...capacity(context, now), reserved: context.reserved },
     overrides,
+    resets: resetsInForce(context.events, now),
+    usage,
     partial: candidates.partial,
     ...rankPlan({
       stories: candidates.stories,
       overrides,
       activations: candidates.activations,
       reserved: context.reserved,
+      providers: candidates.providers,
+      usage,
     }),
   };
 }
@@ -84,7 +125,8 @@ async function readSources(
     context,
     now: input.now,
   });
-  return { context, candidates };
+  const usage = await gatesOf(repo, context, candidates.providers, input.now);
+  return { context, candidates, usage };
 }
 
 export async function readPlan(
@@ -142,13 +184,18 @@ export async function publishPlan(
         candidates.host_revision,
         context.revision_id,
       );
-    const current = view({ context, candidates }, input.now);
+    const usage = await gatesOf(tx, context, candidates.providers, input.now);
+    const current = view({ context, candidates, usage }, input.now);
     const inputs: PlanInputs = {
       host_revision: context.revision_id,
       project_revisions: candidates.project_revisions,
       tracker: candidates.tracker,
-      usage_observation_ids: [],
-      overrides: overrideIds(current.overrides),
+      usage_observation_ids: observationIds(usage),
+      overrides: overrideIds(
+        current.overrides,
+        current.capacity.stretch,
+        current.resets,
+      ),
     };
     const payload: PublishedPayload = {
       kind: "published",
@@ -191,4 +238,39 @@ export async function publishPlan(
       },
     };
   });
+}
+
+export interface PlanDigest {
+  ok: true;
+  host: string;
+  day: string;
+  capacity: Capacity;
+  overrides: InForce;
+  resets: ResetInForce[];
+  usage: UsageGate[];
+  published: PublishedRead | null;
+}
+
+export async function planDigest(
+  repo: Repo,
+  host: string,
+  now: Date,
+): Promise<PlanDigest | Refused> {
+  const context = await planHost(repo, host, now);
+  if (!context.ok) return context;
+  const seated = await seatedProjects(repo, context);
+  const providers = await crewProviders(
+    repo,
+    seated.map((each) => each.name),
+  );
+  return {
+    ok: true,
+    host: context.host,
+    day: context.day,
+    capacity: capacity(context, now),
+    overrides: inForce(context.events, now),
+    resets: resetsInForce(context.events, now),
+    usage: await gatesOf(repo, context, providers, now),
+    published: newestPublished(context.events, context.day),
+  };
 }

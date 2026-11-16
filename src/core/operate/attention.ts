@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { recordStops } from "../check/check.ts";
 import { listWorkers } from "../check/workers.ts";
-import { hostSlots } from "../config/host.ts";
+import { hostCapacity } from "../plan/capacity.ts";
 import { retry, retryPlan, retryReady } from "../dispatch/retry.ts";
 import { Json } from "../domain/json.ts";
 import type { Dispatch } from "../domain/ledger.ts";
@@ -208,7 +208,7 @@ export async function attentionStep(
   ctx: Pick<StepContext, "db" | "host" | "writer" | "now">,
 ): Promise<StepResult> {
   const { db } = ctx;
-  const capacity = await hostSlots(db, ctx.writer);
+  const capacity = await hostCapacity(db, ctx.writer, ctx.now);
   return attend(
     db,
     {
