@@ -517,10 +517,25 @@ describeDb("pod decide runs the Reserved check before any Seat", () => {
       { outcome: "needs_human", reason: "policy-required", verb: "decide", member: "spend" },
     ]);
     expect([found.seats, found.rounds, found.op]).toEqual([0, 0, "done"]);
+    const triggers = () => conn.sql<{ run_id: string; payload: Record<string, string> }[]>`
+      select run_id, payload from ledger.event where type = 'trigger' order by id`;
+    expect(await triggers()).toEqual([
+      {
+        run_id: "run_1",
+        payload: {
+          host: "local",
+          source: "orchestration",
+          trigger_id: expect.stringMatching(
+            new RegExp(`^decision:${outcome.result.decision_id}:needs_human:`),
+          ),
+        },
+      },
+    ]);
     expect(await quiet({ category: "tradeoff", question: "Should the plan purchase a hosted build cache?" })(templates)).toMatchObject({
       ok: true,
       result: { decision_id: outcome.result.decision_id, state: "needs_human" },
     });
+    expect(await triggers()).toHaveLength(1);
   });
 
   test("a deny member ends reserved_denied and returns decision_denied", async () => {

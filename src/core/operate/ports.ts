@@ -12,6 +12,7 @@ export interface OperatePorts {
   codeHost: CodeHostPort;
   git: GitPort;
   worktreeStatus: (path: string) => WorktreeStatus | null;
+  gitStatus: (path: string) => string;
   provider: string;
   leaseSeconds: number;
 }

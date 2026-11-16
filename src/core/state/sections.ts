@@ -17,6 +17,7 @@ import type {
   UsageSection,
 } from "../domain/state.ts";
 import { gateOf } from "../gate/receipt.ts";
+import { newestTickLines } from "../brief/counters.ts";
 import type { Repo } from "../ports/db.ts";
 import type { DocsPort, Section } from "../ports/docs.ts";
 import { ProcessValue, type Step } from "../process/schema.ts";
@@ -27,6 +28,7 @@ import { readHeadroom } from "../usage/pace.ts";
 
 export interface StateContext {
   repo: Repo;
+  host: string;
   docs: DocsPort | null;
   now: () => Date;
 }
@@ -41,7 +43,7 @@ const satisfied = new Set(["passed", "done"]);
 const listed = new Set(["active", "hold"]);
 const Escalation = z.looseObject({ kind: z.string(), text: z.string() });
 
-function observed(ctx: StateContext): string {
+function observed(ctx: Pick<StateContext, "now">): string {
   return ctx.now().toISOString();
 }
 
@@ -86,7 +88,7 @@ export function roadmapPage(policy: Revision | null): string | null {
 }
 
 export async function roadmapSection(
-  ctx: StateContext,
+  ctx: Omit<StateContext, "host">,
   policy: Revision | null,
   scope: StateScope,
 ): Promise<WithRouting<RoadmapSection>> {
@@ -424,6 +426,7 @@ export async function needsHumanSection(
     }
   closed.sort((a, b) => b.at.localeCompare(a.at));
   return {
+    tick: await newestTickLines(ctx.repo, ctx.host),
     items: [...open, ...closed],
     source_revision: null,
     observed_at: observed(ctx),

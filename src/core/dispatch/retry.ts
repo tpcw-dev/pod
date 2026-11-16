@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Json } from "../domain/json.ts";
-import type { Dispatch, Operation, Task } from "../domain/ledger.ts";
+import type { Dispatch, Operation, Run, Task } from "../domain/ledger.ts";
 import {
   refuse,
   type Outcome,
@@ -181,6 +181,88 @@ function taskViewOf(references: unknown, method: string | null): string {
   }).text;
 }
 
+export interface RetryGateInput {
+  run: Run;
+  task: Task;
+  original: Dispatch;
+  seat: Seat | undefined;
+  host: string;
+  capacity: number | null;
+}
+
+export type RetryGate =
+  | { ok: true; launch: LaunchArgs }
+  | { ok: false; refusal: Refusal };
+
+function refused(refusal: Refusal): RetryGate {
+  return { ok: false, refusal };
+}
+
+export async function retryGate(
+  tx: Repo,
+  gate: RetryGateInput,
+): Promise<RetryGate> {
+  const { run, task, original, seat } = gate;
+  if (await drainInForce(tx, run.run_id))
+    return refused({
+      code: "drained",
+      message: `a drain is in force on Run ${run.run_id}`,
+      nextSteps: [
+        "pod check",
+        "pod release",
+        "this refusal is recorded under its op key; pass a new --op-key once the drain ends",
+      ],
+    });
+  const siblings = (await tx.listDispatches(run.run_id)).filter(
+    (row) => row.task_id === task.task_id,
+  );
+  const latest = siblings.every(
+    (row) => row.created_at.getTime() <= original.created_at.getTime(),
+  );
+  const blocked = await runBlocked(tx, run.run_id);
+  const launches = await openLaunches(tx);
+  const inFlight = launches.filter(
+    (row) => row.request?.task_id === task.task_id,
+  );
+  if (
+    task.state !== "blocked" ||
+    !latest ||
+    run.state !== "active" ||
+    blocked !== null ||
+    inFlight.length > 0
+  )
+    return refused({
+      code: "task_not_ready",
+      message: `Task ${task.task_id} is not ready to retry Dispatch ${original.dispatch_id}`,
+      nextSteps: [
+        `Task state ${task.state}`,
+        `Run state ${run.state}`,
+        ...(latest
+          ? []
+          : [
+              `Dispatch ${original.dispatch_id} is not the Task's latest Dispatch`,
+            ]),
+        ...inFlight.map(
+          (row) =>
+            `launch ${row.op_key} (${row.intent}) is ${row.status} for Task ${task.task_id}`,
+        ),
+        ...(blocked === null
+          ? []
+          : [`Run blocked by a ${blocked.type} event`]),
+      ],
+    });
+  const full = await slotRefusal(tx, gate.host, gate.capacity, launches);
+  if (full !== null) return refused(full);
+  const launch = launchFor(original, seat);
+  if (launch === null)
+    return refused({
+      code: "role_unfilled",
+      message: `Seat ${original.seat} is not in the pinned crew and Dispatch ${original.dispatch_id} names no agent`,
+      nextSteps: [`role ${task.role}`],
+    });
+  return { ok: true, launch };
+}
+
 type Gate =
   | { kind: "refused"; refusal: Refusal }
   | { kind: "existing"; operation: Operation }
@@ -191,15 +273,17 @@ type Gate =
       launch: LaunchArgs;
     };
 
-export async function retry(
-  db: Db,
-  orca: OrcaPort,
-  log: ReceiptLog,
-  input: RetryInput,
-): Promise<Outcome<RetryResult>> {
-  const plan = await retryPlan(db, input.dispatch, input.host);
-  if ("ok" in plan) return plan;
-  const original = await db.getDispatch(input.dispatch);
+interface RetrySubject {
+  original: Dispatch;
+  task: Task;
+  seat: Seat | undefined;
+}
+
+async function retrySubject(
+  db: Repo,
+  dispatchId: string,
+): Promise<RetrySubject | Refused> {
+  const original = await db.getDispatch(dispatchId);
   const task =
     original?.task_id == null ? null : await db.getTask(original.task_id);
   const snapshot = task === null ? null : await db.getSnapshot(task.run_id);
@@ -208,12 +292,11 @@ export async function retry(
   if (original === null || task === null || crew === null)
     return refuse(
       "task_not_ready",
-      `Dispatch ${input.dispatch} lost its Task or crew`,
+      `Dispatch ${dispatchId} lost its Task or crew`,
       ["pod brief"],
     );
   const superseded = await supersededRefusal(db, task);
   if (superseded !== null) return superseded;
-  const method = await stepMethod(db, task.run_id, task.step_id);
   let seats: Seat[];
   try {
     seats = readSeats(crew.value);
@@ -221,7 +304,56 @@ export async function retry(
     if (!(error instanceof SeatsInvalid)) throw error;
     return refuse("schema_invalid", error.message, [error.path]);
   }
-  const seat = seats.find((item) => item.id === original.seat);
+  return {
+    original,
+    task,
+    seat: seats.find((item) => item.id === original.seat),
+  };
+}
+
+/**
+ * Answers whether `pod retry` of a Dispatch would launch now, and writes
+ * nothing, so a refusal that can clear is not stored under an op key.
+ */
+export async function retryReady(
+  db: Db,
+  dispatchId: string,
+  host: string,
+  capacity: number | null,
+): Promise<{ worktreePath: string } | Refused> {
+  const plan = await retryPlan(db, dispatchId, host);
+  if ("ok" in plan) return plan;
+  const subject = await retrySubject(db, dispatchId);
+  if ("ok" in subject) return subject;
+  const gate = await db.transaction(async (tx) => {
+    const run = await tx.getRun(subject.task.run_id);
+    const task = await tx.getTask(subject.task.task_id);
+    if (run === null || task === null)
+      throw new Error(`Run ${subject.task.run_id} vanished`);
+    return retryGate(tx, {
+      run,
+      task,
+      original: subject.original,
+      seat: subject.seat,
+      host,
+      capacity,
+    });
+  });
+  return gate.ok ? plan : { ok: false, refusal: gate.refusal };
+}
+
+export async function retry(
+  db: Db,
+  orca: OrcaPort,
+  log: ReceiptLog,
+  input: RetryInput,
+): Promise<Outcome<RetryResult>> {
+  const plan = await retryPlan(db, input.dispatch, input.host);
+  if ("ok" in plan) return plan;
+  const subject = await retrySubject(db, input.dispatch);
+  if ("ok" in subject) return subject;
+  const { original, task, seat } = subject;
+  const method = await stepMethod(db, task.run_id, task.step_id);
   const { version } = await orca.version();
   const attempts = (await db.listDispatches(task.run_id)).filter(
     (row) => row.task_id === task.task_id,
@@ -276,63 +408,16 @@ export async function retry(
         ],
       });
     if (existing !== null) return { kind: "existing", operation: existing };
-    if (await drainInForce(tx, run.run_id))
-      return record({
-        code: "drained",
-        message: `a drain is in force on Run ${run.run_id}`,
-        nextSteps: [
-          "pod check",
-          "pod release",
-          "this refusal is recorded under its op key; pass a new --op-key once the drain ends",
-        ],
-      });
-    const siblings = (await tx.listDispatches(run.run_id)).filter(
-      (row) => row.task_id === current.task_id,
-    );
-    const latest = siblings.every(
-      (row) => row.created_at.getTime() <= original.created_at.getTime(),
-    );
-    const blocked = await runBlocked(tx, run.run_id);
-    const launches = await openLaunches(tx);
-    const inFlight = launches.filter(
-      (row) => row.request?.task_id === current.task_id,
-    );
-    if (
-      current.state !== "blocked" ||
-      !latest ||
-      run.state !== "active" ||
-      blocked !== null ||
-      inFlight.length > 0
-    )
-      return record({
-        code: "task_not_ready",
-        message: `Task ${current.task_id} is not ready to retry Dispatch ${original.dispatch_id}`,
-        nextSteps: [
-          `Task state ${current.state}`,
-          `Run state ${run.state}`,
-          ...(latest
-            ? []
-            : [
-                `Dispatch ${original.dispatch_id} is not the Task's latest Dispatch`,
-              ]),
-          ...inFlight.map(
-            (row) =>
-              `launch ${row.op_key} (${row.intent}) is ${row.status} for Task ${current.task_id}`,
-          ),
-          ...(blocked === null
-            ? []
-            : [`Run blocked by a ${blocked.type} event`]),
-        ],
-      });
-    const full = await slotRefusal(tx, input.host, input.capacity, launches);
-    if (full !== null) return record(full);
-    const launch = launchFor(original, seat);
-    if (launch === null)
-      return record({
-        code: "role_unfilled",
-        message: `Seat ${original.seat} is not in the pinned crew and Dispatch ${original.dispatch_id} names no agent`,
-        nextSteps: [`role ${current.role}`],
-      });
+    const ready = await retryGate(tx, {
+      run,
+      task: current,
+      original,
+      seat,
+      host: input.host,
+      capacity: input.capacity,
+    });
+    if (!ready.ok) return record(ready.refusal);
+    const { launch } = ready;
     const parent =
       original.manifest_id === null
         ? null

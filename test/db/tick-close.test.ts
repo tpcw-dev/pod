@@ -54,6 +54,7 @@ function ports(
       codeHost: makeFixtureCodeHost(),
       git: fakeGit(),
       worktreeStatus: () => ({ files: [], ahead: 0 }),
+      gitStatus: () => "## main",
       provider: "linear",
       leaseSeconds: launchLeaseSeconds,
     },

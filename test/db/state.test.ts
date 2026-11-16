@@ -134,7 +134,7 @@ describeDb("pod state", () => {
     docs: DocsPort | null = null,
   ): Promise<StateView> {
     const built = await buildState(
-      { repo: conn.db, docs, now: () => now },
+      { repo: conn.db, host: "local", docs, now: () => now },
       { story: null, project: null, ...scope },
     );
     if (!built.ok) throw new Error(built.refusal.message);
@@ -359,7 +359,7 @@ describeDb("pod state", () => {
     expect((await state({ story: "S-1" })).runs.runs).toHaveLength(1);
     expect(
       await buildState(
-        { repo: conn.db, docs: null, now: () => now },
+        { repo: conn.db, host: "local", docs: null, now: () => now },
         { story: "S-2", project: null },
       ),
     ).toMatchObject({ ok: false, refusal: { code: "story_not_found" } });
@@ -402,7 +402,7 @@ describeDb("pod state with Decisions", () => {
 
   async function view(): Promise<StateView> {
     const built = await buildState(
-      { repo: conn.db, docs: null, now: () => new Date() },
+      { repo: conn.db, host: "local", docs: null, now: () => new Date() },
       { story: "S-9", project: null },
     );
     if (!built.ok) throw new Error(built.refusal.message);
@@ -472,7 +472,7 @@ test("the policies section names the object members of specs/policy/default.yaml
     created_at: now,
   };
   const section = policiesSection(
-    { repo: {} as never, docs: null, now: () => now },
+    { repo: {} as never, host: "local", docs: null, now: () => now },
     revision,
     null,
     { pending_profile: [], pending_requests: 0 },

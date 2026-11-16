@@ -2,6 +2,7 @@ import { activeSchedule, scheduleMissing } from "../config/schedule.ts";
 import { Json } from "../domain/json.ts";
 import type { Refused } from "../domain/outcome.ts";
 import type {
+  NeedsHumanLine,
   StepName,
   StepOutcome,
   StepRecord,
@@ -14,6 +15,7 @@ import { observeStep } from "./observe.ts";
 import type { OperatePorts } from "./ports.ts";
 import { inForce, newestPublished, overrideIds } from "../plan/overrides.ts";
 import type { Db, Repo } from "../ports/db.ts";
+import { attentionStep } from "./attention.ts";
 import {
   newestTick,
   pendingTriggers,
@@ -45,6 +47,7 @@ export interface StepResult {
   result: "ok" | "failed";
   detail: Json | null;
   plan?: PlanRead;
+  needs_human?: NeedsHumanLine[];
 }
 
 export interface TickStep {
@@ -76,6 +79,7 @@ export interface TickOutcome {
   steps: StepRecord[];
   launch: Json[];
   refuse: Json[];
+  needs_human: NeedsHumanLine[];
 }
 
 export async function readPlanStep(
@@ -118,7 +122,7 @@ export function operateSteps(ports: OperatePorts): readonly TickStep[] {
     { name: "observe", built: true, run: (ctx) => observeStep(ports, ctx) },
     { name: "close", built: true, run: (ctx) => closeStep(ports, ctx) },
     slot("launch"),
-    slot("attention"),
+    { name: "attention", built: true, run: (ctx) => attentionStep(ports, ctx) },
     {
       name: "write_tick",
       built: true,
@@ -169,6 +173,7 @@ function record(
 export interface StepsRun {
   plan: PlanRead | null;
   steps: StepRecord[];
+  needs_human: NeedsHumanLine[];
 }
 
 export async function runSteps(
@@ -177,6 +182,7 @@ export async function runSteps(
   steps: readonly TickStep[],
 ): Promise<StepsRun> {
   let plan: PlanRead | null = null;
+  let needsHuman: NeedsHumanLine[] = [];
   const results: StepRecord[] = [];
   for (const step of steps) {
     const base = { db, ...input, plan, results };
@@ -199,11 +205,12 @@ export async function runSteps(
       outcome = { result: "failed", detail: { message } };
     }
     if (outcome.plan !== undefined) plan = outcome.plan;
+    if (outcome.needs_human !== undefined) needsHuman = outcome.needs_human;
     results.push(
       record({ ...base, plan }, step.name, outcome.result, outcome.detail),
     );
   }
-  return { plan, steps: results };
+  return { plan, steps: results, needs_human: needsHuman };
 }
 
 function empty(
@@ -226,6 +233,7 @@ function empty(
     steps: [],
     launch: [],
     refuse: [],
+    needs_human: [],
   };
 }
 
@@ -321,6 +329,7 @@ export async function runTick(
       steps: run.steps,
       launch: [],
       refuse: [],
+      needs_human: run.needs_human,
     });
     const listed = new Set(written.payload.triggers);
     return {
@@ -340,6 +349,7 @@ export async function runTick(
       steps: written.payload.steps,
       launch: written.payload.launch,
       refuse: written.payload.refuse,
+      needs_human: written.payload.needs_human,
     };
   });
 }

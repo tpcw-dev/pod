@@ -12,6 +12,7 @@ import { storyStatusOf } from "../config/policy.ts";
 import type { Snapshot } from "../domain/config.ts";
 import { openStates } from "../domain/decision.ts";
 import { Json } from "../domain/json.ts";
+import { orchestrationTrigger } from "../domain/tick.ts";
 import {
   OutboxPayload,
   type Dispatch,
@@ -241,8 +242,8 @@ const closeSteps: readonly CloseStep[] = [
     async act(tx, { run, input }) {
       const opKey = closeStepKey(run.run_id, "escalate");
       const p0 = p0Leftovers(input.report);
-      for (const row of p0)
-        await tx.appendEvent({
+      for (const row of p0) {
+        const escalated = await tx.appendEvent({
           type: "escalate",
           ts: input.now(),
           host: input.host,
@@ -258,6 +259,16 @@ const closeSteps: readonly CloseStep[] = [
           },
           source: closeSource(),
         });
+        await tx.recordTrigger(
+          orchestrationTrigger({
+            run,
+            trigger_id: `escalate:${escalated.id}`,
+            writer: input.host,
+            at: escalated.ts,
+            verb: "run close",
+          }),
+        );
+      }
       return { escalations: p0.length };
     },
     async readBack(db, { run, input }) {

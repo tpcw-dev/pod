@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TickLines } from "./tick.ts";
 
 export interface StateScope {
   story: string | null;
@@ -96,6 +97,7 @@ export type UsageSection = z.infer<typeof UsageSection>;
 
 export const NeedsHumanSection = z.object({
   ...stamp,
+  tick: TickLines.nullable(),
   items: z.array(
     z.object({
       story: z.string(),

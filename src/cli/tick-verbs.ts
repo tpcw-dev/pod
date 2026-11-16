@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Json } from "../core/domain/json.ts";
 import {
   MetaStepRecord,
+  NeedsHumanLine,
   StepRecord,
   TriggerSource,
 } from "../core/domain/tick.ts";
@@ -10,7 +11,7 @@ import { dryRunTick, operateSteps, runTick } from "../core/operate/tick.ts";
 import type { TriggerInput } from "../core/operate/triggers.ts";
 import { codeHostFor } from "./code-host.ts";
 import { usageError } from "./errors.ts";
-import { realGit, worktreeStatus } from "./git.ts";
+import { gitStatus, realGit, worktreeStatus } from "./git.ts";
 import { actorOf, writerOf } from "./identity.ts";
 import { launchLease, withOrca } from "./run-verbs.ts";
 
@@ -46,6 +47,7 @@ const OperateTickOutput = z.object({
   steps: z.array(StepRecord),
   launch: z.array(Json),
   refuse: z.array(Json),
+  needs_human: z.array(NeedsHumanLine),
 });
 
 const MetaTickOutput = z.object({
@@ -119,6 +121,7 @@ export async function tick(input: TickInput): Promise<TickOutput> {
         codeHost: codeHostFor(),
         git: realGit,
         worktreeStatus,
+        gitStatus,
         provider: kinds.trackerKind,
         leaseSeconds,
       });

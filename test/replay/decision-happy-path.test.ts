@@ -261,7 +261,7 @@ describeDb("decision-happy-path", () => {
         expect((await conn.db.getTask(implement.task_id))?.state).toBe("ready");
 
         const built = await buildState(
-          { repo: conn.db, docs: null, now },
+          { repo: conn.db, host: "local", docs: null, now },
           { story, project: null },
         );
         if (!built.ok) throw new Error(built.refusal.message);

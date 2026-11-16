@@ -1,4 +1,5 @@
 import type { StateView } from "../domain/state.ts";
+import type { TickLines } from "../domain/tick.ts";
 
 interface Stamp {
   source_revision: string | null;
@@ -38,6 +39,14 @@ function revisionLine(
 
 function refText(ref: { name: string; rev: number } | null): string {
   return ref === null ? "none" : `${ref.name}@${ref.rev}`;
+}
+
+function tickLines(tick: TickLines | null): string[] {
+  if (tick === null) return [];
+  return tick.needs_human.map(
+    (line) =>
+      `tick ${tick.event_id} ${line.kind} story ${line.story} ${line.run_id} since ${line.since}: ${line.text}`,
+  );
 }
 
 export function renderState(view: StateView): string {
@@ -103,12 +112,13 @@ export function renderState(view: StateView): string {
     [
       "Open needs-human items",
       needs_human,
-      orNone(
-        needs_human.items.map(
+      orNone([
+        ...needs_human.items.map(
           (item) =>
             `${item.open ? "open" : "closed"} story ${item.story} ${item.run_id} ${item.task_id} gate ${item.gate} keeper ${item.keeper}: ${item.reason}`,
         ),
-      ),
+        ...tickLines(needs_human.tick),
+      ]),
     ],
     [
       "Learnings",

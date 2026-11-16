@@ -9,7 +9,7 @@ import {
 } from "../domain/policy.ts";
 import { GateEntry } from "../gate/receipt.ts";
 import { LearningKinds } from "./learning-kinds.ts";
-import { UsageLimitsValue } from "./limits.ts";
+import { StallMinutes, UsageLimitsValue } from "./limits.ts";
 import {
   packetLimit,
   packetLimitBounds,
@@ -316,6 +316,12 @@ function limitsProblem(limits: unknown): Problem {
       path: "limits.usage",
       message:
         "limits.usage: must be { floor_percent: a number from 0 to 100, stale_minutes: a positive integer }",
+    };
+  const stall = given["stall_minutes"];
+  if (stall !== undefined && !StallMinutes.safeParse(stall).success)
+    return {
+      path: "limits.stall_minutes",
+      message: "limits.stall_minutes: must be a positive integer",
     };
   const budget = parseBudget(given["decision_budget"]);
   if (!budget.ok)
