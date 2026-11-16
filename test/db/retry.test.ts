@@ -267,8 +267,8 @@ describeDb("pod retry", () => {
     await conn.sql`update ledger.dispatch set created_at = now() - interval '1 hour' where dispatch_id = 'ctx_1'`;
     await conn.sql`
       insert into ledger.dispatch (dispatch_id, task_id, run_id, seat, role, requested_launch, model_attribution,
-        op_key, settlement, created_at, activity)
-      values ('ctx_later', 'task_b', 'run_1', 'dev-1', 'developer', '{}', 'unknown', ${firstKey}, 'stopped', now(), 'settled')`;
+        op_key, settlement, created_at, activity, owner_host)
+      values ('ctx_later', 'task_b', 'run_1', 'dev-1', 'developer', '{}', 'unknown', ${firstKey}, 'stopped', now(), 'settled', 'local')`;
     expect(
       await refused("task_not_ready", { opKey: "k-latest" }),
     ).toMatchObject({

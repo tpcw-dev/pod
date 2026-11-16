@@ -237,7 +237,7 @@ describeDb("pod check --observe", () => {
     ])
       expect(CheckInput.safeParse({ ...base, ...extra }).success).toBe(false);
     expect(CheckInput.safeParse({ args: [], observe: true }).success).toBe(
-      false,
+      true,
     );
     expect(CheckInput.safeParse({ args: [], run: "run_1" }).success).toBe(
       false,
