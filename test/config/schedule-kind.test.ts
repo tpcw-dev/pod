@@ -52,6 +52,44 @@ test("another name, another scope, or a bad value is schema_invalid naming the f
   ).toEqual(["schema_invalid", "extra"]);
 });
 
+test("the seed carries one morning meta slot at 05:00 with retro and digest", () => {
+  expect(seed.value).toMatchObject({
+    meta_slots: [{ name: "morning", at: "05:00", steps: ["retro", "digest"] }],
+  });
+});
+
+test("a bad meta slot is schema_invalid naming its path, and meta_slots may be absent", () => {
+  const base = { tick_minutes: 15, hold_minutes: 60 };
+  const slot = { name: "morning", at: "05:00", steps: ["retro"] };
+  expect(refusedAt({ value: base })).toBeNull();
+  expect(
+    refusedAt({
+      value: { ...base, meta_slots: [{ ...slot, steps: ["retro", "log"] }] },
+    }),
+  ).toEqual(["schema_invalid", "meta_slots.0.steps.1"]);
+  expect(
+    refusedAt({ value: { ...base, meta_slots: [{ ...slot, at: "5:00" }] } }),
+  ).toEqual(["schema_invalid", "meta_slots.0.at"]);
+  expect(
+    refusedAt({ value: { ...base, meta_slots: [{ ...slot, at: "24:00" }] } }),
+  ).toEqual(["schema_invalid", "meta_slots.0.at"]);
+  expect(
+    refusedAt({ value: { ...base, meta_slots: [{ ...slot, steps: [] }] } }),
+  ).toEqual(["schema_invalid", "meta_slots.0.steps"]);
+  expect(
+    refusedAt({
+      value: { ...base, meta_slots: [{ ...slot, steps: ["retro", "retro"] }] },
+    }),
+  ).toEqual(["schema_invalid", "meta_slots.0.steps"]);
+  expect(refusedAt({ value: { ...base, meta_slots: [slot, slot] } })).toEqual([
+    "schema_invalid",
+    "meta_slots",
+  ]);
+  expect(
+    refusedAt({ value: { ...base, meta_slots: [{ ...slot, when: "x" }] } }),
+  ).toEqual(["schema_invalid", "meta_slots.0.when"]);
+});
+
 describeDb("schedule kind", () => {
   let conn: Connection;
 

@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { Json } from "../core/domain/json.ts";
-import { StepRecord, TriggerSource } from "../core/domain/tick.ts";
+import {
+  MetaStepRecord,
+  StepRecord,
+  TriggerSource,
+} from "../core/domain/tick.ts";
+import { dryRunMeta, runMeta } from "../core/operate/meta.ts";
 import { dryRunTick, operateSteps, runTick } from "../core/operate/tick.ts";
 import type { TriggerInput } from "../core/operate/triggers.ts";
 import { codeHostFor } from "./code-host.ts";
@@ -11,13 +16,15 @@ import { launchLease, withOrca } from "./run-verbs.ts";
 
 export const TickInput = z.strictObject({
   args: z.tuple([]),
+  agenda: z.enum(["operate", "meta"]).optional(),
   host: z.string().min(1).optional(),
+  slot: z.string().min(1).optional(),
   trigger: z.array(z.string()).optional(),
   "dry-run": z.boolean().optional(),
 });
 type TickInput = z.infer<typeof TickInput>;
 
-export const TickOutput = z.object({
+const OperateTickOutput = z.object({
   host: z.string(),
   outcome: z.enum(["ran", "coalesced", "not due", "dry run"]),
   due: z.boolean().nullable(),
@@ -40,6 +47,25 @@ export const TickOutput = z.object({
   launch: z.array(Json),
   refuse: z.array(Json),
 });
+
+const MetaTickOutput = z.object({
+  host: z.string(),
+  agenda: z.literal("meta"),
+  outcome: z.enum(["ran", "coalesced", "not due", "dry run"]),
+  schedule_revision: z.string().nullable(),
+  slots: z.array(
+    z.object({
+      slot: z.string(),
+      due: z.boolean(),
+      tick_id: z.string().nullable(),
+      event_id: z.number().nullable(),
+      replayed: z.boolean(),
+      steps: z.array(MetaStepRecord),
+    }),
+  ),
+});
+
+export const TickOutput = z.union([OperateTickOutput, MetaTickOutput]);
 type TickOutput = z.infer<typeof TickOutput>;
 
 function parseTrigger(text: string): TriggerInput {
@@ -55,37 +81,59 @@ function parseTrigger(text: string): TriggerInput {
 }
 
 export function tickOpKeyMeta(output: TickOutput) {
-  return output.tick_id === null ? {} : { opKey: output.tick_id };
+  const tickId =
+    "slots" in output
+      ? (output.slots.find((each) => each.event_id !== null)?.tick_id ?? null)
+      : output.tick_id;
+  return tickId === null ? {} : { opKey: tickId };
+}
+
+function checkAgenda(input: TickInput): void {
+  if (input.agenda === "meta") {
+    if (input.trigger !== undefined)
+      throw usageError(
+        "usage: tick --agenda meta takes no --trigger; the meta agenda runs its due slots",
+        ["pod tick --agenda meta [--host H] [--slot NAME] [--dry-run]"],
+      );
+    return;
+  }
+  if (input.slot !== undefined)
+    throw usageError("usage: tick --slot needs --agenda meta", [
+      "pod tick --agenda meta --slot NAME",
+    ]);
 }
 
 export async function tick(input: TickInput): Promise<TickOutput> {
+  checkAgenda(input);
   const triggers = (input.trigger ?? []).map(parseTrigger);
   const leaseSeconds = launchLease();
-  return withOrca(async ({ db, orca, tracker, log, host: profile, kinds }) => {
-    const host = input.host ?? profile.hostId;
-    const now = new Date();
-    const steps = operateSteps({
-      orca,
-      tracker,
-      log,
-      codeHost: codeHostFor(),
-      git: realGit,
-      worktreeStatus,
-      provider: kinds.trackerKind,
-      leaseSeconds,
-    });
-    if (input["dry-run"] === true)
-      return dryRunTick(db, { host, now, triggers }, steps);
-    return runTick(
-      db,
-      {
+  return withOrca<TickOutput & { ok: true }>(
+    async ({ db, orca, tracker, log, host: profile, kinds }) => {
+      const host = input.host ?? profile.hostId;
+      const now = new Date();
+      const slot = input.slot === undefined ? {} : { slot: input.slot };
+      const steps = operateSteps({
+        orca,
+        tracker,
+        log,
+        codeHost: codeHostFor(),
+        git: realGit,
+        worktreeStatus,
+        provider: kinds.trackerKind,
+        leaseSeconds,
+      });
+      if (input["dry-run"] === true)
+        return input.agenda === "meta"
+          ? dryRunMeta(db, { host, now, ...slot })
+          : dryRunTick(db, { host, now, triggers }, steps);
+      const writer = {
         host,
         writer: profile.hostId,
         actor: actorOf(await writerOf(db, profile, process.env, null)),
         now,
-        triggers,
-      },
-      steps,
-    );
-  });
+      };
+      if (input.agenda === "meta") return runMeta(db, { ...writer, ...slot });
+      return runTick(db, { ...writer, triggers }, steps);
+    },
+  );
 }

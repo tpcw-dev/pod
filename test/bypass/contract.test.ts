@@ -153,10 +153,18 @@ test("verbs beyond the 17 are registered with their side effect", () => {
   }
 });
 
+test("the tick row names --agenda meta and --slot", () => {
+  const row = contractRows(readFileSync("docs/contract.md", "utf8")).get(
+    "tick",
+  );
+  expect(row?.evidence).toContain("`--agenda meta`");
+  expect(row?.evidence).toContain("`--slot NAME`");
+});
+
 test("the contract copies the bypass paragraphs", () => {
   const spec = readFileSync("docs/tech-spec.md", "utf8").split("\n");
   const contract = readFileSync("docs/contract.md", "utf8").split("\n");
-  for (const lineNumber of [899, 901, 903]) {
+  for (const lineNumber of [903, 905, 907]) {
     const line = spec[lineNumber - 1];
     expect(line?.length).toBeGreaterThan(0);
     expect(contract).toContain(line);

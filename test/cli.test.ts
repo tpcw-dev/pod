@@ -191,3 +191,16 @@ test("decide ruling refuses a verb other than resume, agreed, or cancelled", () 
   const result = run(["decide", "ruling", "D", "maybe"]);
   expect(result.status).toBe(2);
 });
+
+test("tick --agenda takes operate or meta, and --slot needs --agenda meta", () => {
+  for (const args of [
+    ["tick", "--agenda", "weekly"],
+    ["tick", "--slot", "morning"],
+    ["tick", "--agenda", "operate", "--slot", "morning"],
+    ["tick", "--agenda", "meta", "--trigger", "operator:a"],
+  ]) {
+    const result = run(args);
+    expect(result.status, args.join(" ")).toBe(2);
+    expect(JSON.parse(result.stdout).error.code).toBe("usage");
+  }
+});

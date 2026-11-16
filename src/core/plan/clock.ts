@@ -39,6 +39,12 @@ export function hostDay(now: Date, timezone: string): string {
     .slice(0, 10);
 }
 
+export function hostTime(now: Date, timezone: string): string {
+  return new Date(wallClock(now.getTime(), timezone))
+    .toISOString()
+    .slice(11, 16);
+}
+
 export function isDay(text: string): boolean {
   return (
     /^\d{4}-\d{2}-\d{2}$/u.test(text) &&
