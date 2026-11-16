@@ -433,7 +433,7 @@ describeDb("migration 0027", () => {
       }
       expect(await migrate(dbUrl(), "db/migrations")).toMatchObject({
         kind: "ok",
-        applied: 2,
+        applied: 3,
       });
       expect(
         await conn.sql`select dispatch_id, owner_host from ledger.dispatch order by dispatch_id`,
