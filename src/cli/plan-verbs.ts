@@ -79,6 +79,7 @@ export const UsageGateJson = z.object({
   state: z.enum(["available", "held", "unknown", "reset"]),
   value: z.string().nullable(),
   pace: z.enum(["spend", "ok", "avoid"]).nullable(),
+  window: z.string().nullable(),
   observation_id: z.number().nullable(),
 });
 export const OverridesJson = z.object({

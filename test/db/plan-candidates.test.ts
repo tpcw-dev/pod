@@ -342,12 +342,18 @@ describeDb("pod plan candidates across projects", () => {
       ranked: [],
       held: [{ key: "TPC-1", reason: "usage: codex", project: "pod" }],
       usage: [
-        { provider: "claude", state: "unknown", observation_id: null },
+        {
+          provider: "claude",
+          state: "unknown",
+          window: null,
+          observation_id: null,
+        },
         {
           provider: "codex",
           state: "held",
           value: "80",
           pace: "avoid",
+          window: "5h",
           observation_id: avoid.id,
         },
       ],
@@ -392,8 +398,8 @@ describeDb("pod plan candidates across projects", () => {
       held: [],
       ranked: [{ key: "TPC-1" }],
       usage: [
-        { provider: "claude", state: "unknown" },
-        { provider: "codex", state: "reset" },
+        { provider: "claude", state: "unknown", window: null },
+        { provider: "codex", state: "reset", window: "weekly" },
       ],
     });
     if (!plan.ok) throw new Error("plan refused");

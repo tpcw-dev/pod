@@ -601,7 +601,12 @@ describeDb("pod brief", () => {
   test("brief carries yesterday's log as JSON and as the yesterday table", async () => {
     const now = new Date();
     const noon = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1, 12),
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate() - 1,
+        12,
+      ),
     );
     await conn.db.appendEvent({
       type: "escalate",
@@ -979,7 +984,7 @@ describeDb("pod brief", () => {
           ranked: [{ key: "P-1" }, { key: "P-2" }],
           ranked_total: 3,
           held: [{ key: "P-9", reason: "waits" }],
-          usage: [{ provider: "claude", state: "reset" }],
+          usage: [{ provider: "claude", state: "reset", window: null }],
           overrides: { holds: [{ key: "P-9" }], priority: null, order: null },
           resets: [{ harness: "claude", until: day }],
         },

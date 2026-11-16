@@ -83,6 +83,7 @@ function view(
           provider: "claude",
           value: "unknown",
           coverage: "no_source",
+          window: null,
           observed_at,
         },
       ],

@@ -359,6 +359,7 @@ function toUsageObservation(
     coverage: Coverage.parse(row.coverage),
     observed_at: row.observedAt,
     source: json(row.source),
+    window: row.window,
   };
 }
 
@@ -1228,6 +1229,21 @@ function makeRepo(x: Executor): Repo {
         .where(inArray(usageObservation.provider, [...providers]))
         .orderBy(
           asc(usageObservation.provider),
+          desc(usageObservation.observedAt),
+          desc(usageObservation.id),
+        );
+      return rows.map(toUsageObservation);
+    },
+
+    async latestUsageWindows(providers: readonly string[]) {
+      if (providers.length === 0) return [];
+      const rows = await x
+        .selectDistinctOn([usageObservation.provider, usageObservation.window])
+        .from(usageObservation)
+        .where(inArray(usageObservation.provider, [...providers]))
+        .orderBy(
+          asc(usageObservation.provider),
+          asc(usageObservation.window),
           desc(usageObservation.observedAt),
           desc(usageObservation.id),
         );

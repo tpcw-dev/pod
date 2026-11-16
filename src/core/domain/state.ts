@@ -89,6 +89,7 @@ export const UsageSection = z.object({
       provider: z.string(),
       value: z.string(),
       coverage: z.string(),
+      window: z.string().nullable(),
       observed_at: z.string().nullable(),
     }),
   ),

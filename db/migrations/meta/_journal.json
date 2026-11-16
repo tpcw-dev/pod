@@ -204,6 +204,13 @@
       "when": 1794869871371,
       "tag": "0028_standup",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794872182515,
+      "tag": "0029_usage_observation_window",
+      "breakpoints": true
     }
   ]
 }

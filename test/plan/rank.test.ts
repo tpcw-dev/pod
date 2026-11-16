@@ -288,7 +288,14 @@ describe("reserved slots", () => {
 });
 
 function gate(provider: string, state: UsageGate["state"]): UsageGate {
-  return { provider, state, value: null, pace: null, observation_id: null };
+  return {
+    provider,
+    state,
+    value: null,
+    pace: null,
+    window: null,
+    observation_id: null,
+  };
 }
 
 function gated(usage: UsageGate[]) {

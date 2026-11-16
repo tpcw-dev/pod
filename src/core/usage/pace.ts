@@ -42,3 +42,48 @@ export function readHeadroom(
     pace: Source.catch({ pace: null }).parse(row.source).pace,
   };
 }
+
+export function noHeadroom(value: string, pace: Pace | null): boolean {
+  return pace === "avoid" || Number(value) >= 100;
+}
+
+export interface UsageReading {
+  row: UsageObservation | undefined;
+  headroom: Headroom;
+}
+
+interface Known {
+  row: UsageObservation;
+  headroom: Exclude<Headroom, "unknown">;
+}
+
+function highest(readings: readonly Known[]): Known | undefined {
+  return readings.reduce<Known | undefined>(
+    (best, each) =>
+      best === undefined ||
+      Number(each.headroom.value) > Number(best.headroom.value)
+        ? each
+        : best,
+    undefined,
+  );
+}
+
+export function worstWindow(
+  rows: readonly UsageObservation[],
+  limits: UsageLimits,
+  now: Date,
+): UsageReading {
+  const newestFirst = [...rows].sort(
+    (a, b) => b.observed_at.getTime() - a.observed_at.getTime() || b.id - a.id,
+  );
+  const known = newestFirst.flatMap((row): Known[] => {
+    const headroom = readHeadroom(row, limits, now);
+    return headroom === "unknown" ? [] : [{ row, headroom }];
+  });
+  return (
+    highest(
+      known.filter(({ headroom }) => noHeadroom(headroom.value, headroom.pace)),
+    ) ??
+    highest(known) ?? { row: newestFirst[0], headroom: "unknown" }
+  );
+}

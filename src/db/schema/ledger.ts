@@ -472,6 +472,7 @@ export const usageObservation = ledger.table(
     coverage: text("coverage").notNull(),
     observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
     source: jsonb("source").notNull(),
+    window: text("window").generatedAlwaysAs(sql`source->>'window'`),
   },
   (t) => [
     check(
@@ -479,6 +480,11 @@ export const usageObservation = ledger.table(
       sql`${t.coverage} in ('measured', 'partial', 'no_source')`,
     ),
     index("usage_observation_provider_idx").on(t.provider, t.observedAt),
+    index("usage_observation_window_idx").on(
+      t.provider,
+      t.window,
+      t.observedAt,
+    ),
   ],
 );
 

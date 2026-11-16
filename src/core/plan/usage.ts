@@ -2,7 +2,7 @@ import { singleActive } from "../config/active.ts";
 import { usageLimits } from "../config/limits.ts";
 import type { Pace } from "../domain/usage.ts";
 import type { Repo } from "../ports/db.ts";
-import { readHeadroom } from "../usage/pace.ts";
+import { noHeadroom, worstWindow } from "../usage/pace.ts";
 import type { ResetInForce } from "./overrides.ts";
 
 export type UsageState = "available" | "held" | "unknown" | "reset";
@@ -12,11 +12,8 @@ export interface UsageGate {
   state: UsageState;
   value: string | null;
   pace: Pace | null;
+  window: string | null;
   observation_id: number | null;
-}
-
-function noHeadroom(value: string, pace: Pace | null): boolean {
-  return pace === "avoid" || Number(value) >= 100;
 }
 
 export async function usageGates(
@@ -27,16 +24,14 @@ export async function usageGates(
 ): Promise<UsageGate[]> {
   const policy = await singleActive(repo, "policy", "global", "");
   const limits = usageLimits(policy?.value);
-  const latest = new Map(
-    (await repo.latestUsageObservations(providers)).map((row) => [
-      row.provider,
-      row,
-    ]),
-  );
+  const windows = await repo.latestUsageWindows(providers);
   const marked = new Set(resets.map((each) => each.harness));
   return [...providers].sort().map((provider) => {
-    const row = latest.get(provider);
-    const headroom = readHeadroom(row, limits, now);
+    const { row, headroom } = worstWindow(
+      windows.filter((each) => each.provider === provider),
+      limits,
+      now,
+    );
     const read =
       headroom === "unknown"
         ? { value: null, pace: null }
@@ -48,7 +43,13 @@ export async function usageGates(
         : noHeadroom(read.value, read.pace)
           ? "held"
           : "available";
-    return { provider, state, ...read, observation_id: row?.id ?? null };
+    return {
+      provider,
+      state,
+      ...read,
+      window: row?.window ?? null,
+      observation_id: row?.id ?? null,
+    };
   });
 }
 
