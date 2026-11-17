@@ -8,6 +8,7 @@ import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { seatLaunch } from "./dispatch.ts";
+import { runWorktree } from "./run-worktree.ts";
 import { returnSlot, yieldDispatch } from "./handoff.ts";
 import { drainRefusal, slotRefusal } from "./launch-gate.ts";
 import {
@@ -310,7 +311,10 @@ async function launchSeat(
     fallback?.of ?? null,
     input.relaunch ?? 0,
   );
-  const launch: LaunchArgs = seatLaunch(seat);
+  const launch: LaunchArgs = seatLaunch(
+    seat,
+    await runWorktree(db, run, input.host),
+  );
   const request = {
     decision_id: input.decisionId,
     run_id: run.run_id,

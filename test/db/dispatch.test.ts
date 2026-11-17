@@ -10,6 +10,7 @@ import { launchIntents } from "../../src/core/dispatch/quota.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import { runCreate } from "../../src/core/run/create.ts";
+import { runLaunch } from "../../src/core/run/launch.ts";
 import {
   fixtures,
   lost,
@@ -18,7 +19,10 @@ import {
   unknownReply,
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
+import { launchedRun } from "./close-ports.ts";
+import { fakeTracker } from "./fake-tracker.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
+import { fullLaunch, morning, seedLaunch, worktree } from "./launch-fixture.ts";
 import { residentSeat } from "./resident-fixture.ts";
 import { seedConfig, seedHost } from "./seed.ts";
 
@@ -544,6 +548,27 @@ describeDb("pod dispatch", () => {
     expect(await resultRef("h-6")).not.toHaveProperty("coordinator_waiting");
   });
 
+  test("a Task of a Run with no launch record starts in current", async () => {
+    const { orca, log } = replay([
+      ok("worker-start", started("ctx_1", "m-1"), devArgv),
+    ]);
+    expect(await dispatch(conn.db, orca, log, input())).toMatchObject({
+      ok: true,
+    });
+    orca.assertDone();
+  });
+
+  test("a launch of the Run on another host leaves a Dispatch on this host in current", async () => {
+    await launchedRun(conn, "repo-9::/w/elsewhere", "other-host");
+    const { orca, log } = replay([
+      ok("worker-start", started("ctx_1", "m-1"), devArgv),
+    ]);
+    expect(await dispatch(conn.db, orca, log, input())).toMatchObject({
+      ok: true,
+    });
+    orca.assertDone();
+  });
+
   test("the CLI prints the Dispatch with the owner generation in meta", async () => {
     await seedHost(conn.db);
     const result = runCli(
@@ -570,5 +595,85 @@ describeDb("pod dispatch", () => {
     );
     expect(stale.status).toBe(3);
     expect(stale.json.error?.code).toBe("owner_generation_stale");
+  });
+});
+
+describeDb("pod dispatch of a launched Run", () => {
+  let conn: Connection;
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  beforeEach(() => clearDb(conn));
+  afterAll(() => conn.close());
+
+  test("a later Dispatch starts in the Run worktree", async () => {
+    await seedLaunch(conn);
+    const log = receiptLog(conn.db, "local");
+    const launched = await runLaunch(
+      conn.db,
+      {
+        orca: makeReplayOrca({ dir: fixtures(fullLaunch), sink: log.sink }),
+        tracker: fakeTracker(),
+        log,
+      },
+      {
+        story: "S-1",
+        host: "local",
+        provider: "linear",
+        seats: {},
+        subject: "manual",
+        coordinator: "session-1",
+        command: "pod run launch story:S-1",
+        now: () => morning,
+      },
+    );
+    expect(launched).toMatchObject({ ok: true });
+    await conn.db.setTaskState("task_b", "done");
+    await conn.db.setTaskState("task_r", "ready");
+    const selector = `id:${worktree.id}`;
+    const orca = makeReplayOrca({
+      dir: fixtures([
+        ok(
+          "worker-start",
+          {
+            dispatchId: "ctx_2",
+            state: "ready",
+            taskId: "task_r",
+            terminalHandle: "term_ctx_2",
+            launch: null,
+          },
+          ["--task", "task_r", "--agent", "codex", "--worktree", selector],
+        ),
+      ]),
+      sink: log.sink,
+    });
+    const outcome = await dispatch(conn.db, orca, log, {
+      task: "task_r",
+      seat: "rev-1",
+      generation: 1,
+      opKey: "dispatch:review",
+      host: "local",
+      capacity: 2,
+      command: (opKey) => `pod dispatch --op-key ${opKey}`,
+      now: () => morning,
+    });
+    orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { dispatch_id: "ctx_2" },
+    });
+    expect((await conn.db.getDispatch("ctx_2"))?.requested_launch).toEqual({
+      agent: "codex",
+      worktree: selector,
+    });
+    const [receipt] = await conn.sql<{ argv: string[] }[]>`
+      select payload -> 'argv' as argv from ledger.event
+      where type = 'receipt' and payload -> 'argv' ? 'task_r'`;
+    expect(receipt?.argv).toEqual(
+      expect.arrayContaining(["--worktree", selector]),
+    );
+    expect(receipt?.argv).not.toContain("current");
   });
 });

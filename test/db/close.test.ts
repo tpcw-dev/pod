@@ -17,7 +17,7 @@ import {
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import { closeRun, type CloseInput } from "../../src/core/run/close.ts";
 import { closeStepKey } from "../../src/core/run/close-record.ts";
-import { launchedWorktrees } from "../../src/core/run/launch.ts";
+import { launchedWorktrees } from "../../src/core/dispatch/run-worktree.ts";
 import { lost, noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
 import { cliReplay, generation } from "./decision-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
