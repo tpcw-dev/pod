@@ -7,12 +7,13 @@ import {
   TriggerSource,
 } from "../core/domain/tick.ts";
 import { dryRunMeta, metaStepsWith, runMeta } from "../core/operate/meta.ts";
-import { unbuiltSeat } from "../core/operate/meta-digest.ts";
+import { metaSeat, realPause } from "../core/operate/meta-seat.ts";
 import { dryRunTick, operateSteps, runTick } from "../core/operate/tick.ts";
 import type { TriggerInput } from "../core/operate/triggers.ts";
 import { codeHostFor } from "./code-host.ts";
 import { usageError } from "./errors.ts";
 import { gitStatus, realGit, worktreeStatus } from "./git.ts";
+import { podHome } from "./host-profile.ts";
 import { actorOf, writerOf } from "./identity.ts";
 import { launchLease, withOrca } from "./run-verbs.ts";
 
@@ -130,7 +131,15 @@ export async function tick(input: TickInput): Promise<TickOutput> {
         orca,
         log,
         codeHost: codeHostFor(),
-        seat: unbuiltSeat,
+        seat: metaSeat({
+          db,
+          orca,
+          log,
+          host,
+          home: podHome(),
+          now: () => new Date(),
+          pause: realPause,
+        }),
       });
       if (input["dry-run"] === true)
         return input.agenda === "meta"

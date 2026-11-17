@@ -185,6 +185,7 @@ export interface StartRow {
   verb: string;
   late: boolean;
   at: Date;
+  revisions?: Json;
 }
 
 async function ownerHost(tx: Repo, start: StartRow): Promise<string> {
@@ -251,6 +252,9 @@ export async function insertStart(tx: Repo, start: StartRow): Promise<void> {
           ? {}
           : { fallback_of: start.fallback_of }),
         ...(start.late ? { late: true } : {}),
+        ...(start.revisions === undefined
+          ? {}
+          : { revisions: start.revisions }),
       },
       source: { kind: "command", verb: start.verb },
     });
