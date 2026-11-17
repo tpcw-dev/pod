@@ -34,6 +34,21 @@ function timeout(ms: number): Promise<"timeout"> {
   );
 }
 
+function parseServerLine(
+  line: string,
+): { url: string; host: string } | string {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    return "is not JSON";
+  }
+  const url = (value as { url?: unknown } | null)?.url;
+  if (typeof url !== "string") return "has no string url";
+  if (!URL.canParse(url)) return "has an invalid url";
+  return { url, host: new URL(url).host };
+}
+
 export default async function setup(
   project: TestProject,
 ): Promise<(() => Promise<void>) | undefined> {
@@ -71,9 +86,15 @@ export default async function setup(
     );
   }
 
-  const { url } = JSON.parse(first) as { url: string };
-  console.log(`test database: embedded Postgres at ${new URL(url).host}`);
-  project.provide("dbUrl", url);
+  const parsed = parseServerLine(first);
+  if (typeof parsed === "string") {
+    killGroup(child);
+    throw setupError(
+      `embedded Postgres printed a first line that ${parsed}: ${first}; server log:\n${serverLog}`,
+    );
+  }
+  console.log(`test database: embedded Postgres at ${parsed.host}`);
+  project.provide("dbUrl", parsed.url);
 
   return async () => {
     child.stdin.end();
