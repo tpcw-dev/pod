@@ -108,7 +108,10 @@ describeDb("decision Seats fall back", () => {
     const outcome = await decide(templates, [
       seatTask("decider"),
       refusedStart("orca_decider"),
-      ok("task-create", { task: { id: "orca_fb", status: "ready" } }),
+      ok("task-create", { task: { id: "orca_fb", status: "ready" } }, [
+        "--from",
+        "session-1",
+      ]),
       ok("worker-start", startedOn("ctx_fb", "claude", "m-4"), [
         "--task",
         "orca_fb",
@@ -116,6 +119,8 @@ describeDb("decision Seats fall back", () => {
         "claude",
         "--model",
         "m-4",
+        "--from",
+        "session-1",
       ]),
       sent("ctx_fb"),
     ]);

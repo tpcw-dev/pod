@@ -61,7 +61,7 @@ const Recorded = z.looseObject({
 type Gate =
   | { kind: "refused"; refusal: Refusal }
   | { kind: "existing"; operation: Operation }
-  | { kind: "launch"; manifestId: string; launch: LaunchArgs };
+  | { kind: "launch"; manifestId: string; launch: LaunchArgs; from: string };
 
 interface Checked {
   run: Run;
@@ -313,7 +313,12 @@ export async function dispatch(
         ...handoff,
       }),
     });
-    return { kind: "launch", manifestId: manifest.id, launch };
+    return {
+      kind: "launch",
+      manifestId: manifest.id,
+      launch,
+      from: run.coordinator,
+    };
   });
 
   if (gate.kind === "refused") return { ok: false, refusal: gate.refusal };
@@ -334,6 +339,7 @@ export async function dispatch(
     task: task.task_id,
     run: task.run_id,
     ...launch,
+    from: gate.from,
   });
   const recorded = await recordReceipt(db, {
     opKey,

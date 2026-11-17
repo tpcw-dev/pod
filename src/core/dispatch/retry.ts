@@ -271,6 +271,7 @@ type Gate =
       manifestId: string;
       references: unknown;
       launch: LaunchArgs;
+      from: string;
     };
 
 interface RetrySubject {
@@ -448,6 +449,7 @@ export async function retry(
       manifestId: manifest.id,
       references: manifest.references,
       launch,
+      from: run.coordinator,
     };
   });
 
@@ -483,6 +485,7 @@ export async function retry(
     task: task.task_id,
     run: task.run_id,
     ...launch,
+    from: gate.from,
   });
   const recorded = await recordReceipt(db, {
     opKey,

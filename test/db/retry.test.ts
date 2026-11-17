@@ -49,6 +49,8 @@ const retryArgv = [
   `id:${worktreeId}`,
   "--retry-of",
   "ctx_1",
+  "--from",
+  "session-1",
 ];
 
 describeDb("pod retry", () => {
@@ -361,8 +363,10 @@ describeDb("pod retry", () => {
     const second = await run(
       [
         ok("worker-start", started("ctx_3"), [
-          ...retryArgv.slice(0, -1),
+          ...retryArgv.slice(0, -3),
           "ctx_2",
+          "--from",
+          "session-1",
         ]),
       ],
       { dispatch: "ctx_2", gitStatus: newer },

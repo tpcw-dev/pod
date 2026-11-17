@@ -292,7 +292,10 @@ export async function runCreate(
   if (!first.created) return recorded(ctx, first.operation, opKey, version);
 
   log.at({ run_id: null, task_id: null, op_key: opKey });
-  const receipt = await orca.runCreate({ objective: `Pod Run for ${story}` });
+  const receipt = await orca.runCreate({
+    objective: `Pod Run for ${story}`,
+    from: input.coordinator,
+  });
   const outcome = launchOutcome(receipt);
   if (outcome.kind === "unknown") {
     await db.moveOperation(

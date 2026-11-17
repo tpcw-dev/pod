@@ -566,7 +566,7 @@ describeDb("pod run create", () => {
     });
   });
 
-  test("the CLI prints ownerGeneration in meta and needs POD_COORDINATOR", () => {
+  test("the CLI prints ownerGeneration in meta, needs POD_COORDINATOR, and passes it to Orca as --from", () => {
     const args = [
       "run",
       "create",
@@ -584,6 +584,9 @@ describeDb("pod run create", () => {
     });
     expect(unset.status).toBe(2);
     expect(unset.json.error?.code).toBe("usage");
+    expect(unset.json.error?.nextSteps).toEqual([
+      "set POD_COORDINATOR to the coordinator's Orca terminal handle",
+    ]);
     const record = runCli(args, {
       POD_COORDINATOR: "session-1",
       POD_ORCA_RECORD: fixtures([]),
@@ -593,9 +596,15 @@ describeDb("pod run create", () => {
     expect(record.json.error?.message).toBe(
       "POD_ORCA_RECORD needs POD_SCRUB_DENYLIST",
     );
+    const from = ["--from", "term_coord"];
     const result = runCli(args, {
-      POD_COORDINATOR: "session-1",
-      POD_ORCA_FIXTURES: fixtures(happy),
+      POD_COORDINATOR: "term_coord",
+      POD_ORCA_FIXTURES: fixtures(
+        happy.map((entry) => ({
+          ...entry,
+          argv: [...(entry.argv ?? []), ...from],
+        })),
+      ),
     });
     expect(result.status).toBe(0);
     expect(result.json).toMatchObject({

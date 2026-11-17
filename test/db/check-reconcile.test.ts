@@ -32,6 +32,8 @@ const replayArgv = [
   ...devArgv,
   "--worktree",
   "current",
+  "--from",
+  "session-1",
   "--retry-request",
   requestId,
 ];

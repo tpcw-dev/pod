@@ -85,12 +85,14 @@ async function callTaskCreate(
 ) {
   const { runId, step, opKey, deps } = plan;
   const method = await stepMethod(ctx.db, runId, step.id);
+  const run = await ctx.db.getRun(runId);
   ctx.log.at({ run_id: runId, task_id: null, op_key: opKey });
   const receipt = await ctx.orca.taskCreate({
     spec: withMethod(step.spec ?? defaultSpec(ctx.process, step), method),
     run: runId,
     ...(deps.length > 0 ? { deps } : {}),
     taskTitle: step.id,
+    ...(run === null ? {} : { from: run.coordinator }),
   });
   return { receipt, outcome: launchOutcome(receipt) };
 }

@@ -132,3 +132,59 @@ test("worktree show reads one worktree by selector", () => {
   ]);
   expect(verbOf(argv)).toBe("worktree-show");
 });
+
+const sender = (from?: string) => (from === undefined ? {} : { from });
+
+const sent = {
+  runCreate: (from?: string) =>
+    argvFor.runCreate({ objective: "o", ...sender(from) }),
+  taskCreate: (from?: string) =>
+    argvFor.taskCreate({ spec: "s", run: "run_1", ...sender(from) }),
+  workerStart: (from?: string) =>
+    argvFor.workerStart({
+      task: "task_1",
+      run: "run_1",
+      agent: "claude",
+      ...sender(from),
+    }),
+};
+
+test.each(Object.keys(sent) as (keyof typeof sent)[])(
+  "%s names the sender with --from before --json",
+  (verb) => {
+    expect(sent[verb]("term_coord").slice(-4)).toEqual([
+      "--from",
+      "term_coord",
+      "--json",
+      "--full",
+    ]);
+  },
+);
+
+test.each(Object.keys(sent) as (keyof typeof sent)[])(
+  "%s with no sender, or an empty one, leaves --from out",
+  (verb) => {
+    expect(sent[verb]()).not.toContain("--from");
+    expect(sent[verb]("")).not.toContain("--from");
+  },
+);
+
+test("--from comes before --retry-request on a replayed worker-start", () => {
+  expect(
+    argvFor
+      .workerStart({
+        task: "task_1",
+        agent: "claude",
+        from: "term_coord",
+        retryRequest: "req_1",
+      })
+      .slice(-6),
+  ).toEqual([
+    "--from",
+    "term_coord",
+    "--retry-request",
+    "req_1",
+    "--json",
+    "--full",
+  ]);
+});
