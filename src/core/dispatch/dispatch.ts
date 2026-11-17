@@ -30,6 +30,7 @@ import {
 import { returnSlot, yieldDispatch } from "./handoff.ts";
 import { drainRefusal, slotRefusal } from "./launch-gate.ts";
 import { openLaunches } from "./quota.ts";
+import { callerWorktree, runWorktree } from "./run-worktree.ts";
 import { readSeats, SeatsInvalid, type Seat } from "./seats.ts";
 
 export interface DispatchInput {
@@ -179,7 +180,7 @@ function refusal(
   return { code, message, nextSteps };
 }
 
-export function seatLaunch(seat: Seat, worktree = "current"): LaunchArgs {
+export function seatLaunch(seat: Seat, worktree = callerWorktree): LaunchArgs {
   return {
     agent: seat.runtime,
     ...(seat.model === undefined ? {} : { model: seat.model }),
@@ -277,7 +278,10 @@ export async function dispatch(
       await returnSlot(tx, handoff, now);
       return record(found.refusal);
     }
-    const launch = seatLaunch(found.seat, input.worktree);
+    const launch = seatLaunch(
+      found.seat,
+      input.worktree ?? (await runWorktree(tx, run, input.host)),
+    );
     const story = await tx.getStory(run.story_provider, run.story_external_id);
     const process = await tx.getRevision(snapshot.process_revision_id);
     const policy = await tx.getRevision(snapshot.policy_revision_id);

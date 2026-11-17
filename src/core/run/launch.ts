@@ -2,13 +2,10 @@ import { z } from "zod";
 import { launchSlotRefusal } from "../dispatch/launch-gate.ts";
 import { dispatch } from "../dispatch/dispatch.ts";
 import { openLaunches } from "../dispatch/quota.ts";
+import { LaunchRequest, LaunchWorktree } from "../dispatch/run-worktree.ts";
 import { readSeats, SeatsInvalid, type Seat } from "../dispatch/seats.ts";
 import { Json } from "../domain/json.ts";
-import {
-  operationStatuses,
-  type Operation,
-  type Run,
-} from "../domain/ledger.ts";
+import type { Operation } from "../domain/ledger.ts";
 import {
   refuse,
   RefusalCode,
@@ -56,7 +53,7 @@ export const LaunchResult = z.object({
   run_id: z.string(),
   op_key: z.string(),
   replayed: z.boolean(),
-  worktree: z.object({ id: z.string(), path: z.string(), branch: z.string() }),
+  worktree: LaunchWorktree,
   dispatch: z.object({
     dispatch_id: z.string(),
     task_id: z.string(),
@@ -67,15 +64,6 @@ export type LaunchResult = z.infer<typeof LaunchResult>;
 
 type Worktree = LaunchResult["worktree"];
 
-const Request = z.object({
-  launch: z.literal(true),
-  host: z.string(),
-  project: z.string(),
-  story: z.string(),
-  subject: z.string(),
-});
-type Request = z.infer<typeof Request>;
-
 const DispatchRefusal = z.object({
   code: RefusalCode,
   message: z.string(),
@@ -84,7 +72,7 @@ const DispatchRefusal = z.object({
 });
 
 const Recorded = z.object({
-  request: Request,
+  request: LaunchRequest,
   worktree: LaunchResult.shape.worktree.optional(),
   run_id: z.string().optional(),
   task_id: z.string().optional(),
@@ -136,20 +124,6 @@ export async function launchAttempt(
   return newest.operation !== null && resumable(newest.operation)
     ? nextAttempt(base, newest)
     : newest;
-}
-
-export async function launchedWorktrees(db: Repo, run: Run): Promise<string[]> {
-  const selectors = new Set<string>();
-  for (const row of await db.listOperations(["tick"], operationStatuses)) {
-    const recorded = Recorded.safeParse(row.result_ref).data;
-    if (
-      recorded?.run_id === run.run_id &&
-      recorded.request.host === run.host &&
-      recorded.worktree !== undefined
-    )
-      selectors.add(`id:${recorded.worktree.id}`);
-  }
-  return [...selectors];
 }
 
 export function worktreeName(story: string): string {
@@ -337,7 +311,7 @@ async function claim(
   return db.transaction(async (tx) => {
     const refusal = await gate(tx, input, lead, opKey);
     if (refusal !== null) return { refusal };
-    const request: Request = {
+    const request: LaunchRequest = {
       launch: true,
       host: input.host,
       project: lead.project,

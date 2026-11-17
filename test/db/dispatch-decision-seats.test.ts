@@ -12,11 +12,20 @@ import {
   proposal,
   refusedReply,
   run,
+  seatStarted,
   seatTask,
   sent,
 } from "./decision-fixture.ts";
+import { launchedRun } from "./close-ports.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
-import { batch, empty, events, replay, workers } from "./run-fixture.ts";
+import {
+  batch,
+  empty,
+  events,
+  replay,
+  workers,
+  worktreeId,
+} from "./run-fixture.ts";
 
 const fallbackCrew = {
   seats: [
@@ -102,6 +111,41 @@ describeDb("decision Seats fall back", () => {
       select status, result_ref -> 'request' as request from ledger.operation
       where intent = 'decide_seat' order by created_at, op_key`;
   }
+
+  test("a Decision Seat of a launched Run starts in the Run worktree", async () => {
+    const templates = await deliveredPlan(conn);
+    await launchedRun(conn);
+    const selector = `id:${worktreeId}`;
+    const outcome = await decide(templates, [
+      seatTask("decider"),
+      ok("worker-start", seatStarted("ctx_dec"), [
+        "--task",
+        "orca_decider",
+        "--worktree",
+        selector,
+      ]),
+      sent("ctx_dec"),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { decider_dispatch_id: "ctx_dec" },
+    });
+  });
+
+  test("a Decision Seat of a Run with no launch record starts in current", async () => {
+    const templates = await deliveredPlan(conn);
+    const outcome = await decide(templates, [
+      seatTask("decider"),
+      ok("worker-start", seatStarted("ctx_dec"), [
+        "--task",
+        "orca_decider",
+        "--worktree",
+        "current",
+      ]),
+      sent("ctx_dec"),
+    ]);
+    expect(outcome).toMatchObject({ ok: true });
+  });
 
   test("a refused decider launch opens the fallback Seat, marks the start fallback_of, and records the primary refused", async () => {
     const templates = await deliveredPlan(conn, { gates: [] }, fallbackCrew);

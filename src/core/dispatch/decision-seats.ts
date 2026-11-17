@@ -19,6 +19,7 @@ import {
   type Launched,
 } from "./launch-record.ts";
 import { openLaunches } from "./quota.ts";
+import { runWorktree } from "./run-worktree.ts";
 import { readSeats, SeatsInvalid, type Seat } from "./seats.ts";
 
 export type { ReceiptLog } from "../ledger/receipts.ts";
@@ -310,7 +311,10 @@ async function launchSeat(
     fallback?.of ?? null,
     input.relaunch ?? 0,
   );
-  const launch: LaunchArgs = seatLaunch(seat);
+  const launch: LaunchArgs = seatLaunch(
+    seat,
+    await runWorktree(db, run, input.host),
+  );
   const request = {
     decision_id: input.decisionId,
     run_id: run.run_id,

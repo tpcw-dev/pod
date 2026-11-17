@@ -23,6 +23,7 @@ import {
 } from "../domain/ledger.ts";
 import { refuse, type Refusal, type Refused } from "../domain/outcome.ts";
 import { dispatchSelector, dispatchWorktree } from "../dispatch/retry.ts";
+import { launchedWorktrees } from "../dispatch/run-worktree.ts";
 import { gateOf } from "../gate/receipt.ts";
 import { writeLearning } from "../learning/add.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
@@ -60,7 +61,6 @@ import {
   learningIds,
   worktreeOutcomes,
 } from "./close-record.ts";
-import { launchedWorktrees } from "./launch.ts";
 import { coordinatorStopped } from "./takeover.ts";
 
 export interface CloseInput {
