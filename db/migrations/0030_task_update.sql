@@ -1,0 +1,2 @@
+ALTER TABLE "ledger"."operation" DROP CONSTRAINT "operation_intent_check";--> statement-breakpoint
+ALTER TABLE "ledger"."operation" ADD CONSTRAINT "operation_intent_check" CHECK ("ledger"."operation"."intent" in ('run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide', 'config_apply', 'config_activate', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning', 'close', 'retro', 'digest', 'ruling', 'usage', 'plan', 'tick', 'standup', 'task_update'));

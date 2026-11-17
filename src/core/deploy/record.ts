@@ -5,9 +5,12 @@ import { refuse, type Refused } from "../domain/outcome.ts";
 import { candidateSha } from "../gate/receipt.ts";
 import { moveTask } from "../ledger/move-task.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
+import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
+import type { OrcaPort } from "../ports/orca.ts";
 import type { StoryRef } from "../ports/tracker.ts";
 import { readProcess, recordDelivery } from "../process/project.ts";
+import { settleRuntime } from "../process/settle.ts";
 
 export interface DeployInput {
   story: StoryRef;
@@ -25,6 +28,7 @@ export interface DeployResult {
   deployed_revision: string;
   op_key: string;
   replayed: boolean;
+  nextSteps?: string[];
 }
 
 type Recorded = { ok: true; result: DeployResult } | Refused;
@@ -144,6 +148,8 @@ async function write(
 
 export async function recordDeploy(
   db: Db,
+  orca: OrcaPort,
+  log: ReceiptLog,
   input: DeployInput,
 ): Promise<Recorded> {
   const story = await db.getStory(
@@ -157,8 +163,9 @@ export async function recordDeploy(
       `no Run for story:${input.story.external_id}`,
       [`pod run create story:${input.story.external_id}`],
     );
+  let recorded: Recorded;
   try {
-    return await db.transaction((tx) => write(tx, run, input));
+    recorded = await db.transaction((tx) => write(tx, run, input));
   } catch (error) {
     if (!(error instanceof StaleGeneration)) throw error;
     return refuse(
@@ -169,4 +176,12 @@ export async function recordDeploy(
       ],
     );
   }
+  if (!recorded.ok) return recorded;
+  const nextSteps = await settleRuntime(
+    { db, orca, log, now: input.now },
+    run,
+    recorded.result.task_id,
+  );
+  if (nextSteps.length === 0) return recorded;
+  return { ok: true, result: { ...recorded.result, nextSteps } };
 }

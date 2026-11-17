@@ -3,15 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
+import { checkPass } from "../../src/core/check/check.ts";
 import { HqaAmbiguous, recordHqa } from "../../src/core/gate/hqa.ts";
 import { contentHash } from "../../src/core/gate/receipt.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
-import { noCalls } from "../orca/temp-fixtures.ts";
+import type { OrcaPort } from "../../src/core/ports/orca.ts";
+import { noCalls, ok, unknownReply } from "../orca/temp-fixtures.ts";
 import { deliveredPlan } from "./decision-fixture.ts";
 import { fakeTracker, type FakeTracker } from "./fake-tracker.ts";
-import { gatedRun, headSha, type GatedRun } from "./gate-fixture.ts";
+import { checkArgs, gatedRun, headSha, type GatedRun } from "./gate-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
-import { events, taskState } from "./run-fixture.ts";
+import { empty, events, replay, taskState, workers } from "./run-fixture.ts";
 
 const principals = {
   human: { tracker_account: "keeper-1" },
@@ -60,22 +62,16 @@ describeDb("pod hqa record", () => {
     });
   }
 
-  function record() {
-    return recordHqa(
-      conn.db,
-      noCalls(),
-      tracker,
-      receiptLog(conn.db, "local"),
-      {
-        story: { provider: "linear", external_id: "S-1" },
-        generation: 1,
-        host: "local",
-        hostName: "h1",
-        bypassPath,
-        command: "pod hqa record story:S-1 --generation 1",
-        now: () => new Date(),
-      },
-    );
+  function record(orca: OrcaPort = noCalls()) {
+    return recordHqa(conn.db, orca, tracker, receiptLog(conn.db, "local"), {
+      story: { provider: "linear", external_id: "S-1" },
+      generation: 1,
+      host: "local",
+      hostName: "h1",
+      bypassPath,
+      command: "pod hqa record story:S-1 --generation 1",
+      now: () => new Date(),
+    });
   }
 
   async function bypassEvents() {
@@ -109,15 +105,84 @@ describeDb("pod hqa record", () => {
     expect(await taskState(conn, "task_r")).toBe("delivered");
   });
 
+  const settleArgv = ["--id", "task_r", "--status", "completed"];
+
+  async function settleOps() {
+    return conn.sql<
+      { status: string }[]
+    >`select status from ledger.operation where intent = 'task_update'`;
+  }
+
   test("a ready human_wait gate accepts the keeper comment", async () => {
     await setup({ review: "human_wait" });
     expect(await taskState(conn, "task_r")).toBe("ready");
     say("pr PASS");
-    expect(await record()).toMatchObject({
+    const { orca } = replay(conn, [ok("task-update", {}, settleArgv)]);
+    const recorded = await record(orca);
+    expect(recorded).toMatchObject({
+      ok: true,
+      result: { gate: "pr", outcome: { state: "done" }, nextSteps: [] },
+    });
+    orca.assertDone();
+    expect(await taskState(conn, "task_r")).toBe("done");
+    expect(await settleOps()).toEqual([{ status: "done" }]);
+  });
+
+  test("a failed runtime update keeps the receipt and pod check sends it again", async () => {
+    await setup({ review: "human_wait" });
+    say("pr PASS");
+    const failed = replay(conn, [
+      {
+        verb: "task-update",
+        argv: settleArgv,
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          error: { code: "task_not_found", message: "no task" },
+        }),
+      },
+    ]);
+    const recorded = await record(failed.orca);
+    expect(recorded).toMatchObject({
       ok: true,
       result: { gate: "pr", outcome: { state: "done" } },
     });
+    expect(recorded.ok && recorded.result.nextSteps).toContain(
+      "pod check --run run_1 --generation 1",
+    );
+    expect(recorded.ok && recorded.result.receipt_id).not.toBeNull();
     expect(await taskState(conn, "task_r")).toBe("done");
+    expect(await settleOps()).toEqual([{ status: "pending" }]);
+
+    const run = ["--run", "run_1"];
+    const again = replay(conn, [
+      ok("check", empty(), run),
+      ok("task-update", {}, settleArgv),
+      ok("worker-list", workers([]), run),
+    ]);
+    const checked = await checkPass(
+      conn.db,
+      again.orca,
+      null,
+      again.log,
+      checkArgs,
+    );
+    expect(checked.ok).toBe(true);
+    again.orca.assertDone();
+    expect(await settleOps()).toEqual([{ status: "done" }]);
+  });
+
+  test("an unknown runtime reply leaves the update unknown and names pod check", async () => {
+    await setup({ review: "human_wait" });
+    say("pr PASS");
+    const { orca } = replay(conn, [
+      unknownReply("task-update", "req_9", settleArgv),
+    ]);
+    const recorded = await record(orca);
+    expect(recorded.ok && recorded.result.nextSteps).toEqual([
+      "pod check --run run_1 --generation 1",
+    ]);
+    expect(await settleOps()).toEqual([{ status: "unknown" }]);
   });
 
   test("the keeper's comment is accepted, synced, and passes the gate", async () => {

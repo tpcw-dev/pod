@@ -6,6 +6,7 @@ import type {
   RunUseRequest,
   SendRequest,
   TaskCreateRequest,
+  TaskUpdateRequest,
   TerminalReadRequest,
   TerminalShowRequest,
   WorkerListRequest,
@@ -46,6 +47,7 @@ export const freeTextFlags: readonly string[] = [
   "--task-title",
   "--subject",
   "--body",
+  "--result",
 ];
 
 export const argvFor = {
@@ -68,6 +70,15 @@ export const argvFor = {
       ["--run", req.run],
       ["--deps", req.deps],
       ["--task-title", req.taskTitle],
+      ["--from", req.from || undefined],
+      ["--retry-request", req.retryRequest],
+    ]),
+  taskUpdate: (req: TaskUpdateRequest) =>
+    flags("task-update", [
+      ["--id", req.task],
+      ["--status", req.status],
+      ["--result", req.result],
+      ["--run", req.run],
       ["--from", req.from || undefined],
       ["--retry-request", req.retryRequest],
     ]),

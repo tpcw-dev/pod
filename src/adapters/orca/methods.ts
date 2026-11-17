@@ -31,6 +31,7 @@ export function methods(call: Call): Omit<OrcaPort, "version"> {
     runUse: (req) => call(argvFor.runUse(req), RunUseResult),
     runShow: (req) => call(argvFor.runShow(req), RunShowResult),
     taskCreate: (req) => call(argvFor.taskCreate(req), TaskCreateResult),
+    taskUpdate: (req) => call(argvFor.taskUpdate(req), LooseResult),
     workerStart: (req) => call(argvFor.workerStart(req), WorkerStartResult),
     workerStop: (req) => call(argvFor.workerStop(req), WorkerStopResult),
     workerRelease: (req) =>

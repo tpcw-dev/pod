@@ -1,0 +1,25 @@
+{
+  "verb": "task-update",
+  "match": {
+    "argv": [
+      "orchestration",
+      "task-update",
+      "--id",
+      "task_272f203a398e",
+      "--status",
+      "completed",
+      "--run",
+      "run_0e13621dc8ea",
+      "--from",
+      "record",
+      "--json",
+      "--full"
+    ]
+  },
+  "exitCode": 0,
+  "signal": null,
+  "stdout": "{\"ok\":true,\"result\":{\"task\":{\"id\":\"task_272f203a398e\",\"status\":\"completed\"}}}",
+  "stderr": "",
+  "orcaVersion": "1.4.211",
+  "recordedAt": "1970-01-01T00:00:00.000Z"
+}

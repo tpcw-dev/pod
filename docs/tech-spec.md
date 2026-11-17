@@ -1088,6 +1088,8 @@ The projector is a scribe, not a judge. It turns each step into an Orca Task thr
 - Each projection carries its own op key, so replaying an event creates no Task twice.
 - `needs` sets the Orca `deps` of each projected Task. Edges decide which step the projector creates next. A downstream Task is created only when its edge fires, and its `deps` name the Tasks that must be `passed`.
 
+Spec clarification: S22j. A `human_wait` or `external_action` step has no worker to settle its Orca task, so Pod settles it. When `pod hqa record` or `pod deploy record` moves such a Task to `done` or `failed` in the ledger, Pod sends `task-update` with the status `completed` or `failed` after the ledger transaction commits. The update is its own operation with the new intent `task_update`, added through migration `0030_task_update`, and keyed `derivedOpKey("task_update", { run_id, task_id, status })`. A failed update stays `pending` and an unknown update stays `unknown`. Either one adds `pod check --run <run> --generation <n>` to `nextSteps` and never undoes the ledger move. Each `pod check` pass sends the update for any such settled Task whose operation is not `done`, so a Run settled only in the ledger is repaired.
+
 #### Task states
 
 `core/domain` models the Task as a typed state machine and refuses any transition the table below does not list.

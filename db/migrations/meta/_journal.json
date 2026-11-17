@@ -211,6 +211,13 @@
       "when": 1794872182515,
       "tag": "0029_usage_observation_window",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794947240231,
+      "tag": "0030_task_update",
+      "breakpoints": true
     }
   ]
 }

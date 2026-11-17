@@ -147,6 +147,13 @@ const sent = {
       agent: "claude",
       ...sender(from),
     }),
+  taskUpdate: (from?: string) =>
+    argvFor.taskUpdate({
+      task: "task_1",
+      status: "completed",
+      run: "run_1",
+      ...sender(from),
+    }),
 };
 
 test.each(Object.keys(sent) as (keyof typeof sent)[])(
@@ -187,4 +194,31 @@ test("--from comes before --retry-request on a replayed worker-start", () => {
     "--json",
     "--full",
   ]);
+});
+
+test("task-update settles a task by id and status, with the retry request last", () => {
+  const argv = argvFor.taskUpdate({
+    task: "task_1",
+    status: "completed",
+    run: "run_1",
+    from: "term_coord",
+    retryRequest: "req_1",
+  });
+  expect(argv).toEqual([
+    "orchestration",
+    "task-update",
+    "--id",
+    "task_1",
+    "--status",
+    "completed",
+    "--run",
+    "run_1",
+    "--from",
+    "term_coord",
+    "--retry-request",
+    "req_1",
+    "--json",
+    "--full",
+  ]);
+  expect(verbOf(argv)).toBe("task-update");
 });

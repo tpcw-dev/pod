@@ -77,6 +77,7 @@ export function noCalls(): OrcaPort {
     runUse: refuse,
     runShow: refuse,
     taskCreate: refuse,
+    taskUpdate: refuse,
     workerStart: refuse,
     workerStop: refuse,
     workerRelease: refuse,
