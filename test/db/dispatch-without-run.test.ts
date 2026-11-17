@@ -31,7 +31,12 @@ const model = "example-model";
 async function runless(
   conn: Connection,
   dispatchId: string,
-  over: { host?: string; at?: Date; terminal?: string | null } = {},
+  over: {
+    host?: string;
+    at?: Date;
+    terminal?: string | null;
+    workerRun?: string;
+  } = {},
 ): Promise<void> {
   const opKey = `launch:${dispatchId}`;
   const at = over.at ?? new Date();
@@ -52,7 +57,8 @@ async function runless(
         effective: null,
         worktreeId: null,
       },
-      requested_launch: {},
+      requested_launch:
+        over.workerRun === undefined ? {} : { worker_run: over.workerRun },
       model_attribution: "unknown",
       retry_of: null,
       fallback_of: null,
@@ -307,6 +313,35 @@ describeDb("a Dispatch with no Run", () => {
       CheckInput.safeParse({ args: [], observe: true, generation: "1" })
         .success,
     ).toBe(false);
+  });
+
+  test("the Run-less observe lists a Dispatch with a worker_run by its Run, so a bound terminal still settles it", async () => {
+    await runless(conn, "ctx_bound", { workerRun: "run_w" });
+    const { orca, log } = replay(conn, [
+      ok(
+        "worker-list",
+        {
+          ...(workers([
+            { dispatchId: "ctx_bound", workerState: "stopped" },
+          ]) as Record<string, unknown>),
+          scope: { run: "run_w", source: "flag" },
+        },
+        ["--run", "run_w"],
+      ),
+    ]);
+    const outcome = await observeRunless(conn.db, orca, log, {
+      host: "local",
+      capacity: 2,
+      now: () => new Date(),
+    });
+    orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { stopped: ["ctx_bound"], unknown_workers: [], nextSteps: [] },
+    });
+    expect((await conn.db.getDispatch("ctx_bound"))?.settlement).toBe(
+      "stopped",
+    );
   });
 
   test("the Run-less observe settles a stopped one and lists a missing one, leaving it open", async () => {

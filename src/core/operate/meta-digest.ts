@@ -15,6 +15,7 @@ import type {
   PacketItem,
   PacketInput,
 } from "./packet.ts";
+import { seatRevisions } from "./meta-seat.ts";
 import { writeVerifiedOutput } from "./watermark.ts";
 
 export const digestStep = "digest";
@@ -225,9 +226,15 @@ const aborted = failed(
   "the step passed limits.packet_minutes; no output was written",
 );
 
-async function digestProcess(
-  db: Db,
-): Promise<{ role: string; method: string | null } | MetaStepResult> {
+export interface MetaProcess {
+  role: string;
+  method: string | null;
+  revisionId: string;
+}
+
+export async function metaProcess(
+  db: Repo,
+): Promise<MetaProcess | MetaStepResult> {
   const meta = (await activeProcesses(db)).filter(
     (row) => row.selector.stage === "meta",
   );
@@ -251,7 +258,11 @@ async function digestProcess(
       "config_missing",
       `process ${only.name} has no ${digestStep} worker step`,
     );
-  return { role: step.role, method: step.method ?? null };
+  return {
+    role: step.role,
+    method: step.method ?? null,
+    revisionId: only.revisionId,
+  };
 }
 
 function readProposals(path: string): unknown {
@@ -265,7 +276,7 @@ function readProposals(path: string): unknown {
 async function seatProposals(
   deps: DigestDeps,
   ctx: MetaStepContext,
-  process: { role: string; method: string | null },
+  process: MetaProcess,
 ) {
   const queued = (await ctx.db.listOpenProposals(ctx.scope))
     .filter((row) => row.shown_on === null)
@@ -313,7 +324,7 @@ async function runDigest(
   deps: DigestDeps,
   ctx: MetaStepContext,
 ): Promise<MetaStepResult> {
-  const process = await digestProcess(ctx.db);
+  const process = await metaProcess(ctx.db);
   if ("result" in process) return process;
   const proposals =
     ctx.packet.items.length === 0
@@ -351,6 +362,10 @@ async function runDigest(
     return (await readback())
       ? { result: "ok", detail: Json.parse({ ...summary, output_event: null }) }
       : unread;
+  const revisions =
+    ctx.packet.items.length === 0
+      ? null
+      : await seatRevisions(ctx.db, ctx.opKey);
   const written = await writeVerifiedOutput(ctx.db, {
     type: "digest",
     ts: ctx.now,
@@ -365,6 +380,7 @@ async function runDigest(
         truncated: ctx.packet.truncated,
         held: ctx.packet.held,
       },
+      revisions,
     },
     source: Json.parse({ kind: "command", verb: "tick", agenda: "meta" }),
     ref: { step: digestStep, scope: ctx.scope, input: ctx.packet.bound },
