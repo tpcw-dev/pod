@@ -126,11 +126,21 @@ export async function openPrRefusal(
 export async function removeWorktrees(
   orca: OrcaPort,
   plan: readonly PlannedWorktree[],
+  own: readonly string[],
   reviewed: ReadonlySet<string>,
   again: string,
 ): Promise<WorktreeOutcome[] | Refusal> {
   const outcomes: WorktreeOutcome[] = [];
   for (const row of plan) {
+    if (!own.includes(row.selector)) {
+      outcomes.push({
+        path: row.path,
+        removed: false,
+        via: "kept",
+        reason: "not_run_worktree",
+      });
+      continue;
+    }
     const receipt = await orca.worktreeRemove({
       worktree: row.selector,
       force: reviewed.has(row.path),
@@ -329,9 +339,10 @@ function list(entries: readonly string[], separator: string): string {
 }
 
 export function worktreeField(outcomes: readonly WorktreeOutcome[]): string {
-  return outcomes.length === 0
+  const removed = outcomes.filter((row) => row.removed);
+  return removed.length === 0
     ? "none"
-    : `removed ${outcomes.map((row) => row.path).join(", ")}`;
+    : `removed ${removed.map((row) => row.path).join(", ")}`;
 }
 
 export function branchesRemovedField(

@@ -21,6 +21,7 @@ import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import { closeRun, type CloseInput } from "../../src/core/run/close.ts";
 import { closeStepKey } from "../../src/core/run/close-record.ts";
 import { noCalls } from "../orca/temp-fixtures.ts";
+import { launchedRun } from "./close-ports.ts";
 import { fakeTracker, type FakeTracker } from "./fake-tracker.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
 import { dispatched, freshRun } from "./run-fixture.ts";
@@ -144,6 +145,7 @@ describeDb("pod run close branches", () => {
       at: new Date(),
     });
     await conn.sql`update ledger.dispatch set terminal_handle = null, requested_launch = jsonb_set(requested_launch, '{worktree}', to_jsonb(${`id:repo-1::${worktree}`}::text)) where dispatch_id = 'ctx_1'`;
+    await launchedRun(conn, `repo-1::${worktree}`);
     for (const number of prs)
       await conn.db.appendEvent({
         type: "pr",

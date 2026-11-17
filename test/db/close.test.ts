@@ -17,13 +17,20 @@ import {
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import { closeRun, type CloseInput } from "../../src/core/run/close.ts";
 import { closeStepKey } from "../../src/core/run/close-record.ts";
+import { launchedWorktrees } from "../../src/core/run/launch.ts";
 import { lost, noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
 import { cliReplay, generation } from "./decision-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
 import { residentSeat } from "./resident-fixture.ts";
-import { dispatched, events, freshRun, replay } from "./run-fixture.ts";
+import {
+  dispatched,
+  events,
+  freshRun,
+  replay,
+  worktreeId,
+} from "./run-fixture.ts";
 import { closeBody, closeCommentTracker } from "./close-tracker.ts";
-import { fakeGit, removedWorktree } from "./close-ports.ts";
+import { fakeGit, launchedRun, removedWorktree } from "./close-ports.ts";
 import { fakeTracker } from "./fake-tracker.ts";
 import { operator } from "./identity-fixture.ts";
 
@@ -144,6 +151,7 @@ async function settle(dispatchId: string) {
 }
 
 async function readyToClose() {
+  await launchedRun(conn);
   await dispatched(conn, "ctx_1");
   await finishTasks();
   await settle("ctx_1");
@@ -425,6 +433,7 @@ describeDb("pod run close", () => {
 
   test("--keep-files-reviewed passes needs_file and records the actor per worktree", async () => {
     await readyToClose();
+    await launchedRun(conn, "repo-1::/w/two");
     await seatDispatch("ctx_2", "id:repo-1::/w/two");
     const statuses: Record<string, WorktreeStatus> = {
       "/w/one": { files: [], ahead: 1 },
@@ -576,6 +585,172 @@ describeDb("pod run close", () => {
       ]),
     );
     expect(await runState()).toBe("active");
+  });
+
+  test("close never removes a worktree the Run did not create", async () => {
+    await readyToClose();
+    await seatDispatch("ctx_2", "id:repo-2::/w/two");
+    const outcome = await close([shown(term, false), removedWorktree()]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        state: "done",
+        worktrees: [
+          { path: "/w/one", removed: true, via: "removed" },
+          {
+            path: "/w/two",
+            removed: false,
+            via: "kept",
+            reason: "not_run_worktree",
+          },
+        ],
+      },
+    });
+  });
+
+  test("a re-run of a close whose archive holds a foreign worktree first skips it and finishes", async () => {
+    await readyToClose();
+    await seatDispatch("ctx_2", "id:repo-2::/w/two");
+    const key = closeStepKey("run_1", "archive");
+    const at = new Date();
+    const request = {
+      run_id: "run_1",
+      step: "archive",
+      report_hash: emptyHash,
+    };
+    await conn.db.insertOperation({
+      op_key: key,
+      intent: "close",
+      owner_generation: 1,
+      at,
+      result_ref: { request },
+    });
+    const plan = [
+      {
+        selector: "id:repo-2::/w/two",
+        path: "/w/two",
+        repo: "/r2",
+        branch: "main",
+        tip: null,
+      },
+      {
+        selector: `id:${worktreeId}`,
+        path: "/w/one",
+        repo: "/r",
+        branch: "feature-7",
+        tip: null,
+      },
+    ];
+    await conn.db.appendEvent({
+      type: "close",
+      ts: at,
+      host: "local",
+      run_id: "run_1",
+      task_id: null,
+      dispatch_id: null,
+      op_key: key,
+      payload: { op_key: key, report_hash: emptyHash, worktrees: plan },
+      source: { kind: "command", verb: "run close" },
+    });
+    await conn.db.moveOperation(key, "done", { request, result: {} }, at);
+    const outcome = await close([shown(term, false), removedWorktree()]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        state: "done",
+        worktrees: [
+          {
+            path: "/w/two",
+            removed: false,
+            via: "kept",
+            reason: "not_run_worktree",
+          },
+          { path: "/w/one", removed: true, via: "removed" },
+        ],
+      },
+    });
+    expect(await events(conn, "close")).toHaveLength(1);
+    expect(await runState()).toBe("done");
+  });
+
+  test("--keep-files-reviewed never forces the removal of a foreign Dispatch checkout", async () => {
+    await readyToClose();
+    await seatDispatch("ctx_2", "id:repo-2::/w/two");
+    const seen: string[] = [];
+    const outcome = await close([shown(term, false), removedWorktree()], {
+      keepFilesReviewed: true,
+      worktreeStatus: (path) => {
+        seen.push(path);
+        return path === "/w/two" ? { files: ["notes.txt"], ahead: 0 } : clean;
+      },
+    });
+    expect(seen).toEqual(["/w/one"]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        keep_files_reviewed: null,
+        worktrees: [
+          { path: "/w/one", removed: true, via: "removed" },
+          { path: "/w/two", removed: false, via: "kept" },
+        ],
+      },
+    });
+  });
+
+  test("launchedWorktrees reads only a launch of this Run on its host", async () => {
+    const run = await conn.db.getRun("run_1");
+    if (run === null) throw new Error("no run_1");
+    expect(await launchedWorktrees(conn.db, run)).toEqual([]);
+    await launchedRun(conn, "repo-9::/w/elsewhere", "other-host");
+    for (const [key, ref] of [
+      ["launch-malformed", { run_id: "run_1", worktree: "id:x" }],
+      [
+        "launch-other-run",
+        {
+          request: {
+            launch: true,
+            host: "local",
+            project: "pod",
+            story: "S-2",
+            subject: "manual",
+          },
+          worktree: { id: "repo-3::/w/three", path: "/w/three", branch: "b" },
+          run_id: "run_2",
+        },
+      ],
+    ] as const) {
+      await conn.db.insertOperation({
+        op_key: key,
+        intent: "tick",
+        owner_generation: 0,
+        at: new Date(),
+      });
+      await conn.db.moveOperation(key, "done", ref, new Date());
+    }
+    expect(await launchedWorktrees(conn.db, run)).toEqual([]);
+    await launchedRun(conn);
+    expect(await launchedWorktrees(conn.db, run)).toEqual([`id:${worktreeId}`]);
+  });
+
+  test("a Run with no launch record removes no worktree", async () => {
+    await dispatched(conn, "ctx_1");
+    await finishTasks();
+    await settle("ctx_1");
+    const outcome = await close([shown(term, false)]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        state: "done",
+        worktrees: [
+          {
+            path: "/w/one",
+            removed: false,
+            via: "kept",
+            reason: "not_run_worktree",
+          },
+        ],
+      },
+    });
   });
 
   test("the close lists the Run's pr events and closes when the code host reads none open", async () => {
@@ -786,6 +961,7 @@ describeDb("pod run close", () => {
     expect(spawnSync("git", ["-C", worktree, "init", "-q"]).status).toBe(0);
     writeFileSync(join(worktree, "notes.txt"), "draft\n");
     await conn.sql`update ledger.dispatch set terminal_handle = null, requested_launch = jsonb_set(requested_launch, '{worktree}', to_jsonb(${`id:repo-1::${worktree}`}::text)) where dispatch_id = 'ctx_1'`;
+    await launchedRun(conn, `repo-1::${worktree}`);
     const args = ["run", "close", "story:S-1", ...generation];
     const refused = await cliReplay(conn, args);
     expect(refused.status).toBe(3);

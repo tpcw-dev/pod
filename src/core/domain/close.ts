@@ -68,11 +68,19 @@ export const PlannedWorktree = z.object({
 });
 export type PlannedWorktree = z.infer<typeof PlannedWorktree>;
 
-export const WorktreeOutcome = z.object({
-  path: z.string(),
-  removed: z.literal(true),
-  via: z.enum(["removed", "absent"]),
-});
+export const WorktreeOutcome = z.union([
+  z.object({
+    path: z.string(),
+    removed: z.literal(true),
+    via: z.enum(["removed", "absent"]),
+  }),
+  z.object({
+    path: z.string(),
+    removed: z.literal(false),
+    via: z.literal("kept"),
+    reason: z.literal("not_run_worktree"),
+  }),
+]);
 export type WorktreeOutcome = z.infer<typeof WorktreeOutcome>;
 
 const Side = z.enum(["removed", "absent", "kept"]);

@@ -10,7 +10,7 @@ import { CloseReport } from "../../src/core/domain/close.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { closeRun } from "../../src/core/run/close.ts";
 import { closeStepKey } from "../../src/core/run/close-record.ts";
-import { fakeGit } from "../db/close-ports.ts";
+import { fakeGit, launchedRun } from "../db/close-ports.ts";
 import { fakeTracker } from "../db/fake-tracker.ts";
 import { describeDb, openDb, resetDb } from "../db/helpers.ts";
 import { dispatched, freshRun, worktreeId } from "../db/run-fixture.ts";
@@ -30,6 +30,7 @@ describeDb("close-resume", () => {
   afterAll(() => conn.close());
 
   test("a close that crashes after the worktree step converges on the re-run without removing anything twice", async () => {
+    await launchedRun(conn);
     await dispatched(conn, "ctx_1");
     await conn.db.setTaskState("task_b", "done");
     await conn.db.setTaskState("task_r", "done");

@@ -16,7 +16,7 @@ import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { closeRun, type CloseInput } from "../../src/core/run/close.ts";
 import { describeDb, openDb, resetDb } from "../db/helpers.ts";
 import { dispatched, events, freshRun } from "../db/run-fixture.ts";
-import { fakeGit } from "../db/close-ports.ts";
+import { fakeGit, launchedRun } from "../db/close-ports.ts";
 import { fakeTracker } from "../db/fake-tracker.ts";
 
 const dir = process.env["POD_ORCA_FIXTURES"] ?? "fixtures/orca/close-refused";
@@ -119,6 +119,7 @@ describeDb("close-refused", () => {
     const worktree = worktreeWithUntrackedFile();
     await terminal(agent);
     await conn.sql`update ledger.dispatch set requested_launch = jsonb_set(requested_launch, '{worktree}', to_jsonb(${`id:repo-1::${worktree}`}::text)) where dispatch_id = 'ctx_1'`;
+    await launchedRun(conn, `repo-1::${worktree}`);
     const stale = await closeRun(conn.db, orca, log, input());
     expect(
       stale,
