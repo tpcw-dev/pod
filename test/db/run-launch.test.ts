@@ -11,6 +11,8 @@ import {
   runLaunch,
   type LaunchInput,
 } from "../../src/core/run/launch.ts";
+import { failure } from "../../src/core/ledger/launch.ts";
+import { derivedOpKey } from "../../src/core/ledger/op-key.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { runCreate } from "../../src/core/run/create.ts";
 import { lost, noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
@@ -25,6 +27,7 @@ import {
   fullLaunch,
   lateEvening,
   morning,
+  noSender,
   notFound,
   publishPlan,
   seedLaunch,
@@ -512,6 +515,153 @@ describeDb("pod run launch", () => {
     });
     expect(await operation()).toMatchObject({ status: "pending" });
     expect(await launch(fullLaunch)).toMatchObject({ ok: true });
+  });
+
+  const runCreateKey = derivedOpKey("run_create", {
+    provider: "linear",
+    external_id: "S-1",
+  });
+  const adoptWorktree = ok("worktree-show", { worktree }, [
+    "--worktree",
+    "name:s-1",
+  ]);
+
+  async function operationsOf(intent: string) {
+    return conn.sql<{ op_key: string; status: string }[]>`
+      select op_key, status from ledger.operation
+      where intent = ${intent} order by created_at, op_key`;
+  }
+
+  test("a no-sender run-create refusal, then a retry with the sender, launches", async () => {
+    await seed();
+    const refused = await launch([...createWorktree, noSender("run-create")]);
+    expect(refused).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "failed",
+        message: expect.stringContaining(worktree.id),
+        nextSteps: ["pod run launch story:S-1", "pod check"],
+      },
+    });
+    expect(await operation()).toMatchObject({
+      status: "refused",
+      result_ref: { code: "failed", worktree },
+    });
+
+    const from = ["--from", "term_coord"];
+    const retried = await launch(
+      [
+        adoptWorktree,
+        ok("run-create", { run: { id: "run_1" } }, from),
+        ok("task-create", { task: { id: "task_b", status: "ready" } }, from),
+        ok("task-create", { task: { id: "task_r", status: "pending" } }, from),
+        ok("worker-start", started("ctx_1"), ["--task", "task_b", ...from]),
+      ],
+      { coordinator: "term_coord" },
+    );
+    const launchKey = launchOpKey("local", "manual", "S-1");
+    expect(retried).toMatchObject({
+      ok: true,
+      result: {
+        run_id: "run_1",
+        op_key: `${launchKey}:2`,
+        worktree: { id: worktree.id },
+        dispatch: { dispatch_id: "ctx_1", task_id: "task_b", seat: "dev-1" },
+      },
+    });
+    expect(await operationsOf("tick")).toEqual([
+      { op_key: launchKey, status: "refused" },
+      { op_key: `${launchKey}:2`, status: "done" },
+    ]);
+    expect(await operationsOf("run_create")).toEqual([
+      { op_key: runCreateKey, status: "done" },
+      { op_key: `${runCreateKey}:2`, status: "done" },
+    ]);
+    expect(await launch([])).toMatchObject({
+      ok: true,
+      result: { run_id: "run_1", replayed: true, op_key: `${launchKey}:2` },
+    });
+  });
+
+  test("a Story whose run-create and launch were refused failed before this release launches on the next run", async () => {
+    await seed();
+    const launchKey = launchOpKey("local", "manual", "S-1");
+    const request = {
+      launch: true,
+      host: "local",
+      project: "widgets",
+      story: "S-1",
+      subject: "manual",
+    };
+    await conn.db.insertOperation({
+      op_key: runCreateKey,
+      intent: "run_create",
+      owner_generation: 1,
+      at: morning,
+    });
+    await conn.db.moveOperation(
+      runCreateKey,
+      "done",
+      failure("run-create", { ok: false }, 1),
+      morning,
+    );
+    await conn.db.insertOperation({
+      op_key: launchKey,
+      intent: "tick",
+      owner_generation: 0,
+      at: morning,
+      result_ref: { request },
+    });
+    await conn.db.moveOperation(
+      launchKey,
+      "refused",
+      {
+        request,
+        worktree,
+        code: "failed",
+        message: "run-create for story:S-1 failed",
+        nextSteps: ["pod check"],
+      },
+      morning,
+    );
+    expect(
+      await launch([adoptWorktree, ...createRunEntries, startLead]),
+    ).toMatchObject({
+      ok: true,
+      result: { run_id: "run_1", worktree, op_key: `${launchKey}:2` },
+    });
+  });
+
+  test("no run-create attempt opens while attempt 1 is unknown", async () => {
+    await seed();
+    const requestId = "44444444-4444-4444-8444-444444444444";
+    await conn.db.insertOperation({
+      op_key: runCreateKey,
+      intent: "run_create",
+      owner_generation: 1,
+      at: morning,
+    });
+    await conn.db.moveOperation(
+      runCreateKey,
+      "unknown",
+      { verb: "run-create", requestId },
+      morning,
+    );
+    const outcome = await launch([
+      ...createWorktree,
+      ok("request-show", { requestId, state: "pending" }, [
+        "--request",
+        requestId,
+      ]),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: { code: "launch_unknown" },
+    });
+    expect(await operationsOf("run_create")).toEqual([
+      { op_key: runCreateKey, status: "unknown" },
+    ]);
+    expect(await operation()).toMatchObject({ status: "pending" });
   });
 
   test("a refused lead dispatch leaves the launch done with its code; the replay returns the refusal until a person dispatches", async () => {

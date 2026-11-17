@@ -16,7 +16,12 @@ import {
   type Refusal,
 } from "../domain/outcome.ts";
 import { launchOutcome } from "../ledger/launch.ts";
-import { derivedOpKey } from "../ledger/op-key.ts";
+import {
+  derivedOpKey,
+  newestAttempt,
+  nextAttempt,
+  type Attempt,
+} from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import { hostCapacity } from "../plan/capacity.ts";
 import { planHost, seatedProjects, type PlanHost } from "../plan/host.ts";
@@ -92,8 +97,11 @@ const Recorded = z.object({
 });
 type Recorded = z.infer<typeof Recorded>;
 
-/** The runCreate refusals its own Story-keyed op returns to every caller, forever. */
-const storedForever = new Set(["failed", "duplicate_op"]);
+/**
+ * The runCreate refusals that end a launch attempt as refused. A failed one
+ * leaves the Story to the next attempt; duplicate_op ends the launch.
+ */
+const endsAttempt = new Set(["failed", "duplicate_op"]);
 
 export function launchOpKey(
   host: string,
@@ -101,6 +109,33 @@ export function launchOpKey(
   story: string,
 ): string {
   return derivedOpKey("tick", { host, step: "launch", subject, story });
+}
+
+function resumable(operation: Operation): boolean {
+  const recorded = Recorded.safeParse(operation.result_ref).data;
+  return (
+    operation.intent === "tick" &&
+    operation.status === "refused" &&
+    recorded?.code === "failed" &&
+    recorded.run_id === undefined
+  );
+}
+
+/**
+ * The launch attempt a launch of this Story works under: the newest, or the
+ * next when the newest was refused by a failed run-create before any Run.
+ */
+export async function launchAttempt(
+  db: Pick<Repo, "getOperation">,
+  host: string,
+  subject: string,
+  story: string,
+): Promise<Attempt> {
+  const base = launchOpKey(host, subject, story);
+  const newest = await newestAttempt(db, base);
+  return newest.operation !== null && resumable(newest.operation)
+    ? nextAttempt(base, newest)
+    : newest;
 }
 
 export async function launchedWorktrees(db: Repo, run: Run): Promise<string[]> {
@@ -462,8 +497,12 @@ export async function runLaunch(
   ports: LaunchPorts,
   input: LaunchInput,
 ): Promise<Outcome<LaunchResult>> {
-  const opKey = launchOpKey(input.host, input.subject, input.story);
-  const existing = await db.getOperation(opKey);
+  const { opKey, operation: existing } = await launchAttempt(
+    db,
+    input.host,
+    input.subject,
+    input.story,
+  );
   const prior = existing === null ? null : priorOf(existing, opKey);
   if (prior !== null && "refusal" in prior) return prior;
   if (prior?.status === "done")
@@ -511,15 +550,22 @@ export async function runLaunch(
       lead.create,
     );
     if (!created.ok) {
-      if (storedForever.has(created.refusal.code))
+      const refusal =
+        created.refusal.code === "failed"
+          ? {
+              ...created.refusal,
+              message: `${created.refusal.message}; worktree ${worktree.id} is kept for the next launch`,
+            }
+          : created.refusal;
+      if (endsAttempt.has(refusal.code))
         await record(
           db,
           opKey,
           "refused",
-          { ...recorded, ...created.refusal },
+          { ...recorded, ...refusal },
           input.now(),
         );
-      return created;
+      return ofRefusal(refusal);
     }
     recorded = { ...recorded, run_id: created.result.run_id };
     await record(db, opKey, "pending", recorded, input.now());

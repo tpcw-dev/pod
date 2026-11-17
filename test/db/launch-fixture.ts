@@ -34,6 +34,23 @@ export function notFound(verb: string, argv: string[]): TempEntry {
   };
 }
 
+export function noSender(verb: string, argv: string[] = []): TempEntry {
+  return {
+    verb,
+    argv,
+    exitCode: 1,
+    stdout: JSON.stringify({
+      id: "local",
+      ok: false,
+      error: {
+        code: "no_active_sender_terminal",
+        message: "Could not determine the sender terminal",
+      },
+      _meta: { runtimeId: null },
+    }),
+  };
+}
+
 export const createWorktree: TempEntry[] = [
   notFound("worktree-show", ["--worktree", "name:s-1"]),
   ok("worktree-create", { worktree }, ["--project", "github:acme/widgets"]),

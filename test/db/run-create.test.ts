@@ -15,6 +15,7 @@ import {
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
 import { fakeTracker, trackerStory } from "./fake-tracker.ts";
+import { noSender } from "./launch-fixture.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { defaultTemplates } from "./decision-fixture.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
@@ -369,6 +370,42 @@ describeDb("pod run create", () => {
     expect(two).toEqual(one);
   });
 
+  async function runCreateOps() {
+    return conn.sql<{ op_key: string; status: string; result_ref: unknown }[]>`
+      select op_key, status, result_ref from ledger.operation
+      where intent = 'run_create' order by created_at, op_key`;
+  }
+
+  test("a failed run-create opens attempt 2 on the next call, which creates the Run", async () => {
+    const failed = replay([noSender("run-create")]);
+    expect(await create(failed.orca, failed.log)).toMatchObject({
+      ok: false,
+      refusal: { code: "failed", nextSteps: [input.command, "pod check"] },
+    });
+    const [first] = await runCreateOps();
+    expect(first).toMatchObject({
+      status: "done",
+      result_ref: { outcome: "failed" },
+    });
+    const retried = replay(happy);
+    const outcome = await create(retried.orca, retried.log);
+    retried.orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: true,
+      opKey: `${first?.op_key}:2`,
+      result: { run_id: "run_1" },
+    });
+    expect((await runCreateOps()).map((row) => row.status)).toEqual([
+      "done",
+      "done",
+    ]);
+    expect(await create(noCalls())).toMatchObject({
+      ok: true,
+      opKey: `${first?.op_key}:2`,
+      result: { run_id: "run_1" },
+    });
+  });
+
   test("a second call naming another process is selector_conflict and projects nothing", async () => {
     const first = replay(happy);
     expect((await create(first.orca, first.log)).ok).toBe(true);
@@ -531,6 +568,9 @@ describeDb("pod run create", () => {
         message: expect.stringContaining("pending"),
       },
     });
+    expect((await runCreateOps()).map((row) => row.status)).toEqual([
+      "unknown",
+    ]);
   });
 
   test("a lost task-create reply moves the Run to hold with a hold event", async () => {
