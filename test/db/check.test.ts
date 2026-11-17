@@ -927,6 +927,7 @@ describeDb("pod check and Gate receipts", () => {
         host: "local",
         hostName: "h1",
         bypassPath,
+        principal: "human",
         command: "pod hqa record story:S-1 --generation 1",
         now: () => new Date(),
       },

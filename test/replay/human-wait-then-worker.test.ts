@@ -64,6 +64,7 @@ describeDb("a worker after a human wait", () => {
       host: "local",
       hostName: "h1",
       bypassPath,
+      principal: "human",
       command: "pod hqa record story:S-1 --generation 1",
       now: () => new Date(),
     });

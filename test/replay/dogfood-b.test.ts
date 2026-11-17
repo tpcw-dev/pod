@@ -195,6 +195,7 @@ describeDb("dogfood-b", () => {
         host,
         hostName: host,
         bypassPath,
+        principal: "keeper",
         command: "pod hqa record",
         now,
       });

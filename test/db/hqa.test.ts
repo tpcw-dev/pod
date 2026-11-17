@@ -62,13 +62,14 @@ describeDb("pod hqa record", () => {
     });
   }
 
-  function record(orca: OrcaPort = noCalls()) {
+  function record(orca: OrcaPort = noCalls(), principal = "human") {
     return recordHqa(conn.db, orca, tracker, receiptLog(conn.db, "local"), {
       story: { provider: "linear", external_id: "S-1" },
       generation: 1,
       host: "local",
       hostName: "h1",
       bypassPath,
+      principal,
       command: "pod hqa record story:S-1 --generation 1",
       now: () => new Date(),
     });
@@ -112,6 +113,27 @@ describeDb("pod hqa record", () => {
       { status: string }[]
     >`select status from ledger.operation where intent = 'task_update'`;
   }
+
+  test("an operator who is not the keeper is refused before the bypass line, and the keeper's receipt event names the person", async () => {
+    await setup();
+    say("pr PASS");
+    expect(await record(noCalls(), "relay")).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "receipt_unverified_source",
+        message:
+          "gate pr is kept by human, and operator relay is not its keeper; the Gate stays waiting",
+      },
+    });
+    expect(await receipts()).toEqual([]);
+    expect(await bypassEvents()).toEqual([]);
+    expect((await record()).ok).toBe(true);
+    expect(
+      (await events(conn, "receipt")).filter(
+        (row) => row.payload["gate"] === "pr",
+      ),
+    ).toMatchObject([{ payload: { actor: "person:human" } }]);
+  });
 
   test("a ready human_wait gate accepts the keeper comment", async () => {
     await setup({ review: "human_wait" });
@@ -345,6 +367,7 @@ describeDb("pod hqa record on a decision step", () => {
         host: "local",
         hostName: "h1",
         bypassPath,
+        principal: "human",
         command: "pod hqa record story:S-9 --generation 1",
         now: () => new Date(),
       },
@@ -374,6 +397,7 @@ describeDb("pod hqa record on a decision step", () => {
       host: "local",
       hostName: "h1",
       bypassPath,
+      principal: "human",
       command: "pod hqa record story:S-9 --generation 1",
       now: () => new Date(),
     };

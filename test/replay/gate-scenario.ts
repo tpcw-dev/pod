@@ -83,6 +83,7 @@ export function hqa(
     host: "rec",
     hostName: "rec",
     bypassPath,
+    principal: "human",
     command: `pod hqa record story:${story.external_id} --generation 1`,
     now: () => new Date(),
   });

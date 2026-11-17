@@ -89,7 +89,10 @@ export function actorOf(identity: Identity): string {
     : `person:${identity.principal}`;
 }
 
-export function needsPerson(identity: Identity, need: PersonNeed): void {
+export function needsPerson(
+  identity: Identity,
+  need: PersonNeed,
+): asserts identity is Extract<Identity, { kind: "person" }> {
   if (identity.kind === "seat")
     throw new PodError(
       "activation_needs_person",
