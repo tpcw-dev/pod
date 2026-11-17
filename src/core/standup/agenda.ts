@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { canonicalJson, sha256Hex } from "../config/canonical-json.ts";
+import type { GroomQueue } from "../plan/candidates.ts";
 
 export const sectionNames = [
   "digest",
@@ -30,9 +31,17 @@ export interface BriefAgendaSlice {
   }[];
   tick: { needs_human: readonly { kind: string; text: string }[] } | null;
   plan: {
-    hosts: readonly { host: string; ranked: readonly { key: string }[] }[];
+    hosts: readonly {
+      host: string;
+      ranked: readonly { key: string }[];
+      published: object | null;
+    }[];
     refused: readonly { host: string; code: string }[];
   };
+  groom: {
+    stories: readonly { project: string; external_id: string; title: string }[];
+  } | null;
+  guardrails: readonly { name: string; sunset_candidate: boolean }[];
 }
 
 function section(name: SectionName, items: string[]): AgendaSection {
@@ -53,14 +62,21 @@ export function agendaOf(source: BriefAgendaSlice): AgendaSection[] {
     needs_human: (source.tick?.needs_human ?? []).map(
       (line) => `${line.kind}: ${line.text}`,
     ),
-    groom: null,
+    groom:
+      source.groom?.stories.map(
+        (story) => `${story.project} ${story.external_id} ${story.title}`,
+      ) ?? null,
     plan: [
       ...source.plan.hosts.flatMap((row) =>
-        row.ranked.map((entry) => `${row.host}: ${entry.key}`),
+        row.published === null
+          ? [`${row.host}: no published plan today`]
+          : row.ranked.map((entry) => `${row.host}: ${entry.key}`),
       ),
       ...source.plan.refused.map((row) => `${row.host}: refused ${row.code}`),
     ],
-    guardrails: null,
+    guardrails: source.guardrails
+      .filter((row) => row.sunset_candidate)
+      .map((row) => `${row.name}: 0 in 30 days`),
   };
   return sectionNames.map((name) => {
     const items = sources[name];
@@ -70,4 +86,30 @@ export function agendaOf(source: BriefAgendaSlice): AgendaSection[] {
 
 export function agendaHash(agenda: readonly AgendaSection[]): string {
   return sha256Hex(canonicalJson(agenda));
+}
+
+export interface StandupView {
+  agenda_hash: string;
+  sections: AgendaSection[];
+  groom: {
+    stories: GroomQueue["stories"];
+    proposals: "unknown";
+    partial: GroomQueue["partial"];
+  };
+}
+
+export function standupOf(
+  slice: Omit<BriefAgendaSlice, "groom">,
+  groom: GroomQueue,
+): StandupView {
+  const sections = agendaOf({ ...slice, groom: groom.known ? groom : null });
+  return {
+    agenda_hash: agendaHash(sections),
+    sections,
+    groom: {
+      stories: groom.stories,
+      proposals: "unknown",
+      partial: groom.partial,
+    },
+  };
 }

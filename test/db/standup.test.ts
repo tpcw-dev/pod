@@ -38,6 +38,8 @@ const source: BriefAgendaSlice = {
   ],
   tick: null,
   plan: { hosts: [], refused: [] },
+  groom: null,
+  guardrails: [{ name: "drained", sunset_candidate: false }],
 };
 
 describeDb("pod standup", () => {
@@ -117,7 +119,7 @@ describeDb("pod standup", () => {
         { name: "needs_human", result: "clear", open: [] },
         { name: "groom", result: "unknown", open: [] },
         { name: "plan", result: "clear", open: [] },
-        { name: "guardrails", result: "unknown", open: [] },
+        { name: "guardrails", result: "clear", open: [] },
       ],
     });
     expect(done.nextSteps).toContain("digest has 1 open item");
@@ -260,7 +262,11 @@ describeDb("pod standup", () => {
         { name: "needs_human" },
         { name: "groom", state: "unknown" },
         { name: "plan" },
-        { name: "guardrails", state: "unknown" },
+        {
+          name: "guardrails",
+          state: "open",
+          items: expect.arrayContaining(["drained: 0 in 30 days"]),
+        },
       ],
     });
     const seat = runCli(["standup", "done"], { POD_SEAT: "TPC-1/lead" });

@@ -11,6 +11,7 @@ import { seatedProjects, type PlanHost, type SeatedProject } from "./host.ts";
 import type { PlanStory } from "./rank.ts";
 
 const launchableStatus = "Todo";
+const groomStatus = "Pending-groom";
 
 export interface PartialRead {
   project: string;
@@ -75,6 +76,53 @@ async function projectStories(
       current: current.current,
     })),
   };
+}
+
+export interface GroomQueue {
+  stories: { project: string; external_id: string; title: string }[];
+  partial: PartialRead[];
+  known: boolean;
+}
+
+export async function groomQueue(input: {
+  repo: Repo;
+  tracker: TrackerPort | null;
+  context: PlanHost;
+  project: string | null;
+}): Promise<GroomQueue> {
+  const queue: GroomQueue = { stories: [], partial: [], known: false };
+  if (input.tracker === null) return queue;
+  const seated = (await seatedProjects(input.repo, input.context)).filter(
+    (each) => input.project === null || each.name === input.project,
+  );
+  for (const project of seated) {
+    if (project.value === null) {
+      queue.partial.push({
+        project: project.name,
+        error: "the project Revision fails its schema",
+      });
+      continue;
+    }
+    const read = await input.tracker.listStories({
+      project: project.value.tracker.project_id,
+      status: groomStatus,
+    });
+    if (!read.ok || read.result === null)
+      queue.partial.push({
+        project: project.name,
+        error: read.error ?? "no result",
+      });
+    else
+      queue.stories.push(
+        ...read.result.map((story) => ({
+          project: project.name,
+          external_id: story.ref.external_id,
+          title: story.title,
+        })),
+      );
+  }
+  queue.known = seated.length === 0 || queue.partial.length < seated.length;
+  return queue;
 }
 
 function providersOf(crew: unknown): string[] {

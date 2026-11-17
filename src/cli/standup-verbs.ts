@@ -1,10 +1,10 @@
 import { writeFileSync } from "node:fs";
 import { z } from "zod";
 import { connect } from "../adapters/postgres/connection.ts";
-import { escapeHtml } from "../core/manifest/html.ts";
+import { renderBriefHtml } from "../core/manifest/html.ts";
 import { planHost } from "../core/plan/host.ts";
 import type { Db } from "../core/ports/db.ts";
-import { AgendaSection, agendaHash, agendaOf } from "../core/standup/agenda.ts";
+import { AgendaSection } from "../core/standup/agenda.ts";
 import {
   recordStandup,
   StandupResult,
@@ -70,18 +70,14 @@ export async function standup(input: StandupInput): Promise<StandupOutput> {
       args: [],
       ...(input.project === undefined ? {} : { project: input.project }),
     });
-    const sections = agendaOf(read);
     const result: StandupOutput = {
       day,
-      agenda_hash: agendaHash(sections),
-      sections,
+      agenda_hash: read.standup.agenda_hash,
+      sections: read.standup.sections,
       ...(read.nextSteps === undefined ? {} : { nextSteps: read.nextSteps }),
     };
     if (input.html !== undefined)
-      writeFileSync(
-        input.html,
-        `<!doctype html><meta charset="utf-8"><title>Standup ${day}</title><pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre>\n`,
-      );
+      writeFileSync(input.html, renderBriefHtml(JSON.stringify(read)));
     return result;
   } finally {
     await connection.close();
@@ -111,7 +107,7 @@ async function record(
       actor: actorOf(identity),
       outcome,
       reason,
-      agenda: agendaOf(read),
+      agenda: read.standup.sections,
       now,
     });
   } finally {

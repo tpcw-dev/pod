@@ -998,6 +998,145 @@ describeDb("pod brief", () => {
       `<td>local</td><td>${day}</td><td>2 (stretched from 1: launch)</td><td>P-1 P-2 of 3</td><td>P-9: waits</td><td>claude reset</td><td>hold P-9; reset claude until ${day}</td>`,
     );
   });
+
+  test("brief carries the window since the last standup, what happened in it, and the guardrail counters with sunset candidates", async () => {
+    const now = Date.now();
+    const ago = (minutes: number) => new Date(now - minutes * 60_000);
+    const append = (
+      type:
+        "close" | "pr" | "deploy" | "receipt" | "hold" | "escalate" | "standup",
+      ts: Date,
+      payload: Json,
+    ) =>
+      conn.db.appendEvent({
+        type,
+        ts,
+        host: "local",
+        run_id: type === "standup" ? null : "run-1",
+        task_id: null,
+        dispatch_id: null,
+        op_key: null,
+        payload,
+        source: { kind: "command", verb: "test" },
+      });
+    const refuse = async (code: string, at: Date) => {
+      const key = `op-refused-${code}`;
+      await conn.db.insertOperation({
+        op_key: key,
+        intent: "dispatch",
+        owner_generation: 1,
+        at,
+      });
+      await conn.db.moveOperation(key, "refused", { code, message: code }, at);
+    };
+    await refuse("drained", ago(60));
+    await refuse("schema_invalid", ago(60));
+
+    const before = runBrief(cwd, ["brief"]);
+    expect(before.status).toBe(0);
+    const first = JSON.parse(before.stdout) as {
+      result: { window: { since: string; until: string } };
+    };
+    const yesterday = new Date(now);
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    expect(first.result.window.since).toBe(
+      `${yesterday.toISOString().slice(0, 10)}T00:00:00.000Z`,
+    );
+
+    await append("standup", ago(120), { day: "d", outcome: "done" });
+    await append("close", ago(100), { op_key: "close:run-1" });
+    await append("pr", ago(90), {
+      number: 7,
+      url: "https://code.example/pr/7",
+      head: "c".repeat(40),
+    });
+    await append("deploy", ago(80), {
+      task_id: "task-1",
+      environment: "staging",
+      deployment_id: "d-1",
+      deployed_revision: "rev-2",
+      source_commit: "d".repeat(40),
+    });
+    await append("receipt", ago(70), {
+      receipt_id: 1,
+      gate: "review",
+      outcome: "PASS",
+    });
+    await append("receipt", ago(65), {
+      receipt_id: 2,
+      gate: "hqa",
+      outcome: "FAIL",
+    });
+    await append("receipt", ago(64), { verb: "issue" });
+    await append("hold", ago(60), { reason: "launch_unknown" });
+    await append("escalate", ago(50), { text: "a p0 leftover" });
+    await append("hold", ago(180), { reason: "before the standup" });
+
+    const html = join(cwd, "sitting.html");
+    const result = runBrief(cwd, ["brief", "--html", html]);
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      result: {
+        window: { since: string; until: string };
+        happened: Record<string, { gate?: string; text?: string | null }[]>;
+        guardrails: {
+          name: string;
+          kind: string;
+          days_7: number;
+          days_30: number;
+          sunset_candidate: boolean;
+        }[];
+        standup: { sections: { name: string; state: string }[] };
+      };
+    };
+    const { window, happened, guardrails, standup } = parsed.result;
+    expect(window.since).toBe(ago(120).toISOString());
+    expect(Date.parse(window.until)).toBeGreaterThanOrEqual(now);
+    expect(happened["closed_runs"]).toMatchObject([{ story: "S-1" }]);
+    expect(happened["prs"]).toMatchObject([{ number: 7 }]);
+    expect(happened["deploys"]).toMatchObject([{ environment: "staging" }]);
+    expect(happened["gates"]?.map((row) => row.gate)).toEqual([
+      "review",
+      "hqa",
+    ]);
+    expect(happened["stops"]?.map((row) => row.text)).toEqual([
+      "launch_unknown",
+      "a p0 leftover",
+    ]);
+    expect(happened).toMatchObject({ velocity: "unknown" });
+    expect(guardrails.find((row) => row.name === "drained")).toEqual({
+      name: "drained",
+      kind: "code",
+      days_7: 1,
+      days_30: 1,
+      sunset_candidate: false,
+    });
+    expect(guardrails.find((row) => row.name === "usage_hold")).toMatchObject({
+      days_30: 0,
+      sunset_candidate: true,
+    });
+    expect(guardrails.find((row) => row.name === "hold")).toMatchObject({
+      days_30: 2,
+      sunset_candidate: false,
+    });
+    expect(guardrails.map((row) => row.name)).not.toContain("schema_invalid");
+    expect(standup.sections.map((section) => section.name)).toEqual([
+      "digest",
+      "needs_human",
+      "groom",
+      "plan",
+      "guardrails",
+    ]);
+    expect(standup.sections[4]).toMatchObject({ state: "open" });
+    const file = readFileSync(html, "utf8");
+    expect(file).toContain(`<p id="window">Since ${window.since} until`);
+    expect(file).toContain("<td>gate</td>");
+    expect(file).toContain("<td>review PASS</td>");
+    expect(file).toContain(
+      "<td>usage_hold</td><td>0</td><td>0</td><td>yes</td>",
+    );
+    expect(file).toContain('<table id="standup">');
+  });
 });
 
 describe("waiting_on", () => {

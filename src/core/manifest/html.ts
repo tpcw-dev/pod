@@ -1,4 +1,10 @@
 import { z } from "zod";
+import { GuardrailRow } from "../brief/guardrails.ts";
+import {
+  BriefSitting as SittingJson,
+  type Happened,
+} from "../brief/happened.ts";
+import { AgendaSection } from "../standup/agenda.ts";
 import { TestResult } from "../domain/ledger.ts";
 import { TickLines } from "../domain/tick.ts";
 import { tokenTotal } from "../usage/rollup.ts";
@@ -567,6 +573,92 @@ function planTable(parsed: unknown): string {
   return `<table id="plan">\n${rows.join("\n")}\n</table>`;
 }
 
+const BriefSitting = SittingJson.extend({
+  guardrails: z.array(GuardrailRow),
+  standup: z.object({ sections: z.array(AgendaSection) }),
+});
+type BriefSitting = z.infer<typeof BriefSitting>;
+
+function happenedRows(happened: Happened): string[][] {
+  const at = (fact: { ts: string; run_id: string | null }) => [
+    fact.ts,
+    fact.run_id ?? "",
+  ];
+  const ticks = happened.ticks.filter(
+    (tick) => tick.result === "failed" || tick.needs_human.length > 0,
+  );
+  return [
+    ...happened.closed_runs.map((fact) => [
+      "closed",
+      ...at(fact),
+      fact.story ?? "",
+    ]),
+    ...happened.prs.map((fact) => [
+      "pr",
+      ...at(fact),
+      `${optional(fact.number)} ${optional(fact.url)}`.trim(),
+    ]),
+    ...happened.deploys.map((fact) => [
+      "deploy",
+      ...at(fact),
+      `${optional(fact.environment)} ${optional(fact.deployed_revision)}`.trim(),
+    ]),
+    ...happened.gates.map((fact) => [
+      "gate",
+      ...at(fact),
+      `${fact.gate} ${fact.outcome}`,
+    ]),
+    ...happened.stops.map((fact) => [
+      fact.type,
+      ...at(fact),
+      optional(fact.text),
+    ]),
+    ...ticks.map((fact) => [
+      "tick",
+      ...at(fact),
+      `${fact.host} ${fact.result}, ${fact.needs_human.length} needs human`,
+    ]),
+  ];
+}
+
+function sittingTables(brief: BriefSitting): string {
+  const { window, happened, guardrails, standup } = brief;
+  return [
+    `<p id="window">Since ${escapeHtml(window.since)} until ${escapeHtml(window.until)}</p>`,
+    `<table id="happened">\n${[
+      row(["happened", "at", "Run", "line"]),
+      ...happenedRows(happened).map(row),
+    ].join("\n")}\n</table>`,
+    `<p id="happened-counts">${happened.ticks.length} ticks; velocity ${happened.velocity}, tokens per point ${happened.tokens_per_point}, minutes per point ${happened.minutes_per_point}</p>`,
+    `<table id="guardrails">\n${[
+      row(["guardrail", "7 days", "30 days", "sunset candidate"]),
+      ...guardrails.map((each) =>
+        row([
+          each.name,
+          String(each.days_7),
+          String(each.days_30),
+          each.sunset_candidate ? "yes" : "",
+        ]),
+      ),
+    ].join("\n")}\n</table>`,
+    `<table id="standup">\n${[
+      row(["standup section", "state", "items"]),
+      ...standup.sections.map((section) =>
+        row([
+          section.name,
+          section.state,
+          section.state === "open" ? section.items.join("; ") : "",
+        ]),
+      ),
+    ].join("\n")}\n</table>`,
+  ].join("\n");
+}
+
+function sittingSection(parsed: unknown): string {
+  const brief = BriefSitting.safeParse(parsed);
+  return brief.success ? sittingTables(brief.data) : "";
+}
+
 function driftTable(parsed: unknown): string {
   const brief = BriefDrift.safeParse(parsed);
   if (!brief.success || brief.data.drift.length === 0) return "";
@@ -582,6 +674,7 @@ function driftTable(parsed: unknown): string {
 export function renderBriefHtml(resultJson: string): string {
   const parsed = parsedJson(resultJson);
   const tables = [
+    sittingSection(parsed),
     pendingTable(parsed),
     digestSections(parsed),
     driftTable(parsed),

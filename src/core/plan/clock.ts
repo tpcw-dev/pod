@@ -52,10 +52,17 @@ export function isDay(text: string): boolean {
   );
 }
 
+function instantOfWall(wall: number, timezone: string): Date {
+  const first = wall - offsetAt(wall, timezone);
+  return new Date(wall - offsetAt(first, timezone));
+}
+
 export function dayEnd(day: string, timezone: string): Date {
   const midnight = new Date(`${day}T00:00:00Z`);
   midnight.setUTCDate(midnight.getUTCDate() + 1);
-  const wall = midnight.getTime();
-  const first = wall - offsetAt(wall, timezone);
-  return new Date(wall - offsetAt(first, timezone));
+  return instantOfWall(midnight.getTime(), timezone);
+}
+
+export function wallInstant(day: string, time: string, timezone: string): Date {
+  return instantOfWall(Date.parse(`${day}T${time}:00Z`), timezone);
 }
