@@ -5,6 +5,7 @@ import { HqaAmbiguous, recordHqa } from "../core/gate/hqa.ts";
 import { postVerdict, VerdictFile } from "../core/gate/verdict.ts";
 import { schemaError, usageError } from "./errors.ts";
 import { credentialStep, podHome } from "./host-profile.ts";
+import { needsPerson, writerOf, type PersonNeed } from "./identity.ts";
 import { Generation, quote, withOrca } from "./run-verbs.ts";
 import { issuesOf, parseYaml, readText } from "./yaml-file.ts";
 
@@ -91,6 +92,13 @@ export const HqaRecordOutput = z.object({
 });
 type HqaRecordOutput = z.infer<typeof HqaRecordOutput>;
 
+const hqaRecording: PersonNeed = {
+  what: "an HQA record",
+  nextSteps: [
+    "the gate's keeper runs pod hqa record from their own shell, with no POD_SEAT and no ORCA_TERMINAL_HANDLE",
+  ],
+};
+
 export async function hqaRecordVerb(
   input: HqaRecordInput,
 ): Promise<HqaRecordOutput> {
@@ -99,6 +107,8 @@ export async function hqaRecordVerb(
   const generation = Number(input.generation);
   const { result, orca } = await withOrca(
     async ({ db, orca: port, tracker, log, host, kinds }) => {
+      const identity = await writerOf(db, host, process.env, hqaRecording);
+      needsPerson(identity, hqaRecording);
       if (tracker === null)
         throw usageError(`pod hqa record needs ${host.trackerTokenEnv}`, [
           credentialStep(host, host.trackerTokenEnv, "tracker token"),
@@ -110,6 +120,7 @@ export async function hqaRecordVerb(
           host: host.hostId,
           hostName: hostname(),
           bypassPath: join(podHome(), "bypass.jsonl"),
+          principal: identity.principal,
           command: `pod hqa record ${story} --generation ${generation}`,
           now: () => new Date(),
         });

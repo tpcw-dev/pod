@@ -443,7 +443,7 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     sideEffect: "tracker",
     cancelBy: ["operator"],
     evidenceRequired: [
-      "a source-verified comment by the human gatekeeper, or by the relay principal with a matching content hash, plus a deploy event for `hqa_after_deploy`",
+      "a source-verified comment by the human gatekeeper, or by the relay principal with a matching content hash, plus a deploy event for `hqa_after_deploy`, run from the operator's shell by the gate's keeper",
     ],
     meta: gateMeta,
   }),

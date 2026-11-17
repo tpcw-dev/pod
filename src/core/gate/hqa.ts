@@ -52,6 +52,7 @@ export interface HqaInput {
   host: string;
   hostName: string;
   bypassPath: string;
+  principal: string;
   command: string;
   now: () => Date;
 }
@@ -263,6 +264,7 @@ async function write(
       gate: waiting.gate,
       outcome: accepted.outcome,
       comment_id: comment.ref.comment_id,
+      actor: `person:${input.principal}`,
     },
     source: { kind: "command", verb: "hqa record" },
   });
@@ -316,6 +318,13 @@ async function accept(
     return null;
   }
   result.gate = gated.gate;
+  const { keeper } = gated.keeper;
+  if (input.principal !== keeper)
+    return refuse(
+      "receipt_unverified_source",
+      `gate ${gated.gate} is kept by ${keeper}, and operator ${input.principal} is not its keeper; the Gate stays waiting`,
+      [`${keeper} runs pod hqa record from their own shell`],
+    );
   const read = await tracker.readback(input.story);
   if (!read.ok || read.result?.kind !== "story")
     return unverified(gated.gate, null, "readback_failed");
