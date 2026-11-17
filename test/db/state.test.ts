@@ -11,6 +11,7 @@ import type {
   Section,
 } from "../../src/core/ports/docs.ts";
 import { policiesSection } from "../../src/core/state/sections.ts";
+import { renderState } from "../../src/core/state/render.ts";
 import { buildState } from "../../src/core/state/view.ts";
 import { parse } from "yaml";
 import { cancelDecision } from "../../src/core/decide/advance.ts";
@@ -261,12 +262,14 @@ describeDb("pod state", () => {
         provider: "claude",
         value: "unknown",
         coverage: "no_source",
+        window: null,
         observed_at: null,
       },
       {
         provider: "codex",
         value: "unknown",
         coverage: "no_source",
+        window: null,
         observed_at: null,
       },
     ]);
@@ -286,12 +289,14 @@ describeDb("pod state", () => {
         provider: "claude",
         value: "12.5",
         coverage: "measured",
+        window: null,
         observed_at: new Date(now.getTime() - 60_000).toISOString(),
       },
       {
         provider: "codex",
         value: "unknown",
         coverage: "no_source",
+        window: null,
         observed_at: null,
       },
     ]);
@@ -310,8 +315,12 @@ describeDb("pod state", () => {
       provider: "claude",
       value: "unknown",
       coverage: "no_source",
+      window: null,
       observed_at: now.toISOString(),
     });
+    expect(renderState(view)).toContain(
+      `claude unknown (no_source) window none observed ${now.toISOString()}`,
+    );
   });
 
   test("needs-human lists the delivered HQA Task with its gate, keeper, and Story", async () => {

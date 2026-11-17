@@ -299,4 +299,5 @@ export interface NewUsageObservation {
 
 export interface UsageObservation extends NewUsageObservation {
   id: number;
+  window: string | null;
 }

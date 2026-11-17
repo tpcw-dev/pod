@@ -105,7 +105,7 @@ export function renderState(view: StateView): string {
       orNone(
         usage.providers.map(
           (row) =>
-            `${row.provider} ${row.value} (${row.coverage}) observed ${row.observed_at ?? "never"}`,
+            `${row.provider} ${row.value} (${row.coverage}) window ${row.window ?? "none"} observed ${row.observed_at ?? "never"}`,
         ),
       ),
     ],

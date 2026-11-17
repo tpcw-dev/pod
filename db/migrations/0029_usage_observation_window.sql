@@ -1,0 +1,2 @@
+ALTER TABLE "ledger"."usage_observation" ADD COLUMN "window" text GENERATED ALWAYS AS (source->>'window') STORED;--> statement-breakpoint
+CREATE INDEX "usage_observation_window_idx" ON "ledger"."usage_observation" USING btree ("provider","window","observed_at");

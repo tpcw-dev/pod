@@ -263,7 +263,7 @@ async function gate(
       message: `usage holds ${held.map((row) => row.provider).join(", ")} for the lead Seat ${lead.seat.id}`,
       nextSteps: held.map(
         (row) =>
-          `provider ${row.provider} reads ${row.value ?? "no value"}, pace ${row.pace ?? "unknown"}`,
+          `provider ${row.provider} window ${row.window ?? "none"} reads ${row.value ?? "no value"}, pace ${row.pace ?? "unknown"}`,
       ),
     };
   return launchSlotRefusal(

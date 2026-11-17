@@ -177,6 +177,7 @@ export interface Repo {
   latestUsageObservations(
     providers: readonly string[],
   ): Promise<UsageObservation[]>;
+  latestUsageWindows(providers: readonly string[]): Promise<UsageObservation[]>;
   insertUsageRecord(row: NewUsageRecord): Promise<UsageRecord>;
   usageWatermark(runtime: string, sessionId: string): Promise<Date | null>;
   listUsageRecords(window: TimeWindow): Promise<UsageRecord[]>;

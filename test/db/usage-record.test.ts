@@ -13,7 +13,7 @@ import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import type { UsageObservation } from "../../src/core/domain/ledger.ts";
 import { parseUsage } from "../../src/core/domain/usage.ts";
-import { pace, readHeadroom } from "../../src/core/usage/pace.ts";
+import { pace, readHeadroom, worstWindow } from "../../src/core/usage/pace.ts";
 import { recordUsage } from "../../src/core/usage/record.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { seatRun } from "./identity-fixture.ts";
@@ -172,6 +172,7 @@ describe("headroom read", () => {
       coverage: "measured",
       observed_at: minutes(-30),
       source: { kind: "usage record", window: "example-window", pace: "avoid" },
+      window: "example-window",
       ...over,
     };
   }
@@ -205,6 +206,68 @@ describe("headroom read", () => {
         now,
       ),
     ).toBe("unknown");
+  });
+});
+
+describe("worst window", () => {
+  function windowRow(
+    id: number,
+    value: string | null,
+    pace: string,
+    observedAt: Date,
+  ): UsageObservation {
+    return {
+      id,
+      provider: runtime,
+      seat: null,
+      window_start: minutes(-300),
+      window_end: minutes(60),
+      value,
+      coverage: value === null ? "no_source" : "measured",
+      observed_at: observedAt,
+      source: { kind: "usage record", window: `w${id}`, pace },
+      window: `w${id}`,
+    };
+  }
+
+  test("a held window decides over a higher known window", () => {
+    const held = windowRow(1, "60", "avoid", minutes(-20));
+    const known = windowRow(2, "90", "ok", minutes(-1));
+    expect(worstWindow([known, held], limits, now)).toEqual({
+      row: held,
+      headroom: { value: "60", pace: "avoid" },
+    });
+  });
+
+  test("among held windows the highest used value decides", () => {
+    const low = windowRow(1, "60", "avoid", minutes(-1));
+    const high = windowRow(2, "100", "ok", minutes(-20));
+    expect(worstWindow([low, high], limits, now).row).toBe(high);
+  });
+
+  test("an unknown window does not make a known provider unknown", () => {
+    const empty = windowRow(1, null, "ok", minutes(-1));
+    const known = windowRow(2, "20", "ok", minutes(-20));
+    expect(worstWindow([empty, known], limits, now)).toEqual({
+      row: known,
+      headroom: { value: "20", pace: "ok" },
+    });
+  });
+
+  test("equal values go to the newer row, and with nothing known the newest row is shown", () => {
+    const older = windowRow(1, "30", "ok", minutes(-20));
+    const newer = windowRow(2, "30", "ok", minutes(-1));
+    expect(worstWindow([older, newer], limits, now).row).toBe(newer);
+    const stale = windowRow(3, "30", "ok", minutes(-40));
+    const empty = windowRow(4, null, "ok", minutes(-35));
+    expect(worstWindow([stale, empty], limits, now)).toEqual({
+      row: empty,
+      headroom: "unknown",
+    });
+    expect(worstWindow([], limits, now)).toEqual({
+      row: undefined,
+      headroom: "unknown",
+    });
   });
 });
 

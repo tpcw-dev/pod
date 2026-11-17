@@ -24,7 +24,7 @@ import { ProcessValue, type Step } from "../process/schema.ts";
 import { waitingOn } from "../process/waiting.ts";
 import { applicableDecisions } from "./decisions.ts";
 import type { UsageLimits } from "../domain/usage.ts";
-import { readHeadroom } from "../usage/pace.ts";
+import { worstWindow } from "../usage/pace.ts";
 
 export interface StateContext {
   repo: Repo;
@@ -333,20 +333,19 @@ export async function usageSection(
   providers: readonly string[],
   limits: UsageLimits,
 ): Promise<UsageSection> {
-  const latest = new Map(
-    (await ctx.repo.latestUsageObservations(providers)).map((row) => [
-      row.provider,
-      row,
-    ]),
-  );
+  const windows = await ctx.repo.latestUsageWindows(providers);
   return {
     providers: providers.map((provider) => {
-      const row = latest.get(provider);
-      const headroom = readHeadroom(row, limits, ctx.now());
+      const { row, headroom } = worstWindow(
+        windows.filter((each) => each.provider === provider),
+        limits,
+        ctx.now(),
+      );
       return {
         provider,
         value: headroom === "unknown" ? "unknown" : headroom.value,
         coverage: row?.coverage ?? "no_source",
+        window: row?.window ?? null,
         observed_at: row?.observed_at.toISOString() ?? null,
       };
     }),
