@@ -26,7 +26,6 @@ import { refuse, type Checked, type Refused } from "../domain/outcome.ts";
 import { capacityMissing } from "../config/host.ts";
 import { hostFreeSlots, openLaunches } from "../dispatch/quota.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
-import { derivedOpKey } from "../ledger/op-key.ts";
 import { moveTask } from "../ledger/move-task.ts";
 import { recordDeliveryTests } from "../manifest/record.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
@@ -56,6 +55,7 @@ import {
 import { reconcileLaunches, type Reconciled } from "./reconcile.ts";
 import { reconcileTakeovers } from "./takeover-reconcile.ts";
 import { recordNoSource } from "./usage.ts";
+import { nextSteps } from "./next-steps.ts";
 import { memoWorkers } from "./workers.ts";
 
 export interface CheckInput {
@@ -82,7 +82,6 @@ export interface CheckResult {
 }
 
 const openTaskStates = ["ready", "dispatched", "delivered"];
-const nextKeyCodes = ["quota_exhausted", "drained"];
 
 function stale(run: Run, generation: number): Refused {
   return refuse(
@@ -113,8 +112,28 @@ export async function checkPass(
   log: ReceiptLog,
   input: CheckInput,
 ): Promise<Checked<CheckResult>> {
+  return (await runPass(db, orca, tracker, log, input)).checked;
+}
+
+interface Pass {
+  checked: Checked<CheckResult>;
+  runnableCount: number;
+}
+
+const settled = (checked: Checked<CheckResult>): Pass => ({
+  checked,
+  runnableCount: 0,
+});
+
+async function runPass(
+  db: Db,
+  orca: OrcaPort,
+  tracker: TrackerPort | null,
+  log: ReceiptLog,
+  input: CheckInput,
+): Promise<Pass> {
   const owned = await ownedRun(db, input.run, input.generation);
-  if ("ok" in owned) return owned;
+  if ("ok" in owned) return settled(owned);
   const { run } = owned;
   const { version } = await orca.version();
   const workers = memoWorkers(orca, run.run_id);
@@ -132,7 +151,7 @@ export async function checkPass(
       now: input.now,
     });
     if (takeover !== null)
-      return {
+      return settled({
         ok: true,
         result: {
           ...result,
@@ -143,7 +162,7 @@ export async function checkPass(
           ],
         },
         orca: version,
-      };
+      });
     const launches = await reconcileLaunches(db, orca, log, {
       run,
       generation: input.generation,
@@ -184,7 +203,7 @@ export async function checkPass(
     }
     result.nextSteps.unshift(...tracked);
     const read = await readDeliveries(db, orca, log, input, result);
-    if (read !== null) return read;
+    if (read !== null) return settled(read);
     result.nextSteps.push(
       ...(await followDecisions(db, orca, log, {
         run,
@@ -232,15 +251,23 @@ export async function checkPass(
     }
   } catch (error) {
     if (error instanceof StaleGeneration)
-      return stale(error.run, input.generation);
+      return settled(stale(error.run, input.generation));
     throw error;
   }
 
   await freeSlots(db, input, result);
-  if (result.free_slots >= 1)
-    result.nextSteps.push(...(await nextKeys(db, run, input.generation)));
+  const next = await nextSteps(db, {
+    run,
+    generation: input.generation,
+    host: input.host,
+    freeSlots: result.free_slots,
+  });
+  result.nextSteps.push(...next.lines);
   result.nextSteps.push(...(await recordNoSource(db, run, input.now())));
-  return { ok: true, result, orca: version };
+  return {
+    checked: { ok: true, result, orca: version },
+    runnableCount: next.runnableCount,
+  };
 }
 
 export interface ObserveInput {
@@ -879,53 +906,6 @@ async function recordUnknownWorkers(
   return { unknown: found, followUps };
 }
 
-const Refusal = z.looseObject({
-  request: z.looseObject({ task_id: z.string(), seat: z.string() }),
-  code: z.string(),
-});
-
-async function nextKeys(
-  db: Db,
-  run: Run,
-  generation: number,
-): Promise<string[]> {
-  if (await drainInForce(db, run.run_id)) return [];
-  const tasks = await db.listTasks(run.run_id);
-  const ready = new Set(
-    tasks.filter((task) => task.state === "ready").map((task) => task.task_id),
-  );
-  const seen = new Set<string>();
-  const steps: string[] = [];
-  for (const operation of await db.listOperations(["dispatch"], ["refused"])) {
-    const ref = Refusal.safeParse(operation.result_ref);
-    if (!ref.success || !nextKeyCodes.includes(ref.data.code)) continue;
-    const { task_id, seat } = ref.data.request;
-    const pair = `${task_id}\n${seat}`;
-    if (!ready.has(task_id) || seen.has(pair)) continue;
-    seen.add(pair);
-    let attempt = 1;
-    let key = derivedOpKey("dispatch", {
-      run_id: run.run_id,
-      task_id,
-      seat,
-      attempt: "1",
-    });
-    while ((await db.getOperation(key)) !== null) {
-      attempt += 1;
-      key = derivedOpKey("dispatch", {
-        run_id: run.run_id,
-        task_id,
-        seat,
-        attempt: String(attempt),
-      });
-    }
-    steps.push(
-      `pod dispatch --task ${task_id} --seat ${seat} --generation ${generation} --op-key ${key}`,
-    );
-  }
-  return steps;
-}
-
 export interface WaitInput extends CheckInput {
   decision: string | null;
   interval: number;
@@ -942,7 +922,13 @@ export async function checkWait(
 ): Promise<Checked<CheckResult>> {
   const start = input.now().getTime();
   for (;;) {
-    const pass = await checkPass(db, orca, tracker, log, input);
+    const { checked: pass, runnableCount } = await runPass(
+      db,
+      orca,
+      tracker,
+      log,
+      input,
+    );
     if (!pass.ok) return pass;
     if (input.decision !== null) {
       const decision = await db.getDecision(input.decision);
@@ -951,14 +937,14 @@ export async function checkWait(
           "pod brief",
         ]);
       if (!openStates.includes(decision.state)) return pass;
-    } else if (pass.result.deliveries.length > 0 || pass.result.free_slots >= 1)
+    } else if (pass.result.deliveries.length > 0 || runnableCount > 0)
       return pass;
     const waited = Math.floor((input.now().getTime() - start) / 1000);
     if (waited >= input.timeout)
       return refuse(
         "failed",
         input.decision === null
-          ? `pod check --wait waited ${waited} seconds with no delivery and no free slot`
+          ? `pod check --wait waited ${waited} seconds with no delivery and nothing to dispatch or verify`
           : `pod check --wait waited ${waited} seconds and Decision ${input.decision} is still open`,
         [
           ...pass.result.nextSteps,

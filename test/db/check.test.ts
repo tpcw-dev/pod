@@ -9,6 +9,8 @@ import {
   type CheckInput,
 } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
+import { dispatch } from "../../src/core/dispatch/dispatch.ts";
+import type { Json } from "../../src/core/domain/json.ts";
 import { recordHqa } from "../../src/core/gate/hqa.ts";
 import { candidateSha } from "../../src/core/gate/receipt.ts";
 import { postVerdict } from "../../src/core/gate/verdict.ts";
@@ -20,8 +22,9 @@ import { OUTBOX_MAX_TRIES } from "../../src/core/tracker/outbox.ts";
 import { noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
 import { fixtures } from "../orca/temp-fixtures.ts";
 import { fakeTracker, trackerStory, type FakeTracker } from "./fake-tracker.ts";
-import { gatedRun, headSha } from "./gate-fixture.ts";
+import { deliver as deliverTo, gatedRun, headSha } from "./gate-fixture.ts";
 import {
+  clearDb,
   dbUrl,
   describeDb,
   openDb,
@@ -31,7 +34,9 @@ import {
 } from "./helpers.ts";
 import {
   batch,
+  createRun,
   dispatched,
+  dispatchInput,
   empty,
   events,
   freshRun,
@@ -40,6 +45,7 @@ import {
   taskState,
   workers,
 } from "./run-fixture.ts";
+import { activeRevision, processValue } from "./seed.ts";
 
 const run = ["--run", "run_1"];
 const ack = (id: string) => ["--run", "run_1", "--ack", id];
@@ -1305,5 +1311,136 @@ describeDb("pod check settles a human wait the ledger settled", () => {
     expect(
       await conn.sql`select status from ledger.operation where intent = 'task_update'`,
     ).toEqual([{ status: "done" }]);
+  });
+});
+
+describeDb("pod check names the coordinator's next step", () => {
+  let conn: Connection;
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  const oneSeatEach = {
+    seats: [
+      { id: "dev-1", roles: ["developer"], runtime: "claude" },
+      { id: "rev-1", roles: ["reviewer"], runtime: "codex" },
+    ],
+  };
+
+  async function oneSeatRun(
+    gates: Json = { pr: { keeper: "rev-1", type: "AQA" } },
+  ) {
+    await clearDb(conn);
+    await activeRevision(conn.db, "policy", "default", { gates });
+    await activeRevision(conn.db, "crew", "default", oneSeatEach);
+    await activeRevision(conn.db, "process", "impl", processValue);
+    await createRun(conn);
+  }
+
+  async function quiet(over: Partial<CheckInput> = {}) {
+    const { orca, log } = replay(conn, [
+      ok("check", empty(), run),
+      ok("worker-list", workers([]), run),
+    ]);
+    const outcome = await checkPass(
+      conn.db,
+      orca,
+      null,
+      log,
+      input({ capacity: 2, ...over }),
+    );
+    orca.assertDone();
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    return outcome.result.nextSteps;
+  }
+
+  const dispatchLine = (task: string, seat: string) =>
+    `pod dispatch --task ${task} --seat ${seat} --generation 1`;
+  const verdictLine = `gate pr (AQA, rev-1) waits on Task task_r at candidate ${headSha}: pod verdict post FILE --generation 1`;
+
+  test("a ready worker Task with no Dispatch names pod dispatch", async () => {
+    await oneSeatRun();
+    expect(await quiet()).toContain(dispatchLine("task_b", "dev-1"));
+  });
+
+  test("a role filled by more than one Seat on this host names the role and pod brief", async () => {
+    await freshRun(conn);
+    expect(await quiet()).toContain(
+      "pod dispatch --task task_b --seat SEAT --generation 1, with a Seat for role developer from pod brief (dev-1, both-1)",
+    );
+  });
+
+  test("a reviewer Seat that built the change is not named for the review", async () => {
+    await freshRun(conn);
+    await dispatched(conn, "ctx_1", { seat: "both-1" });
+    const built = await deliverTo(conn, "ctx_1", "task_b", { head: headSha });
+    expect(built.result.nextSteps).toContain(dispatchLine("task_r", "rev-1"));
+  });
+
+  test("no dispatch line while no slot is free or after a refused dispatch op", async () => {
+    await oneSeatRun();
+    const named = (steps: string[]) =>
+      steps.filter((line) => line.startsWith("pod dispatch"));
+    expect(named(await quiet({ capacity: 0 }))).toEqual([]);
+    const refused = await dispatch(
+      conn.db,
+      noCalls(),
+      replay(conn, []).log,
+      dispatchInput({ seat: "rev-1" }),
+    );
+    expect(refused).toMatchObject({
+      ok: false,
+      refusal: { code: "role_unfilled" },
+    });
+    expect(named(await quiet())).toEqual([]);
+  });
+
+  test("a delivered Task waiting on an AQA gate names pod verdict post in the pass that read it", async () => {
+    await oneSeatRun();
+    await dispatched(conn, "ctx_1", { seat: "dev-1" });
+    const built = await deliverTo(conn, "ctx_1", "task_b", { head: headSha });
+    expect(built.result.nextSteps).toContain(dispatchLine("task_r", "rev-1"));
+    await dispatched(conn, "ctx_2", { task: "task_r", seat: "rev-1" });
+    const reviewed = await deliverTo(conn, "ctx_2", "task_r");
+    expect(reviewed.result.nextSteps).toContain(verdictLine);
+    expect(
+      reviewed.result.nextSteps.filter((line) =>
+        line.startsWith("pod dispatch"),
+      ),
+    ).toEqual([]);
+
+    const posted = await postVerdict(
+      conn.db,
+      noCalls(),
+      receiptLog(conn.db, "local"),
+      {
+        file: {
+          gate: "pr",
+          task: "task_r",
+          head_sha: headSha,
+          reviewer: "rev-1",
+          outcome: "PASS",
+        },
+        generation: 1,
+        host: "local",
+        command: "pod verdict post v.yaml --generation 1",
+        now: () => new Date(),
+      },
+    );
+    expect(posted.ok).toBe(true);
+    expect(await quiet()).not.toContain(verdictLine);
+  });
+
+  test("a Task waiting on an HQA gate names its keeper and pod hqa record", async () => {
+    await gatedRun(conn, {
+      gates: { pr: { keeper: "human", type: "HQA" } },
+      principals: { human: { tracker_account: "keeper-1" } },
+    });
+    expect(await quiet()).toContain(
+      "waiting on pr (human): human runs pod hqa record story:S-1 --generation 1 after the verdict comment",
+    );
   });
 });

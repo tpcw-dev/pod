@@ -5,6 +5,7 @@ import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { dispatch } from "../../src/core/dispatch/dispatch.ts";
 import { derivedOpKey } from "../../src/core/ledger/op-key.ts";
 import { noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
+import { gatedRun, headSha } from "./gate-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
 import {
   batch,
@@ -169,5 +170,80 @@ describeDb("pod check --wait", () => {
       ok: false,
       refusal: { nextSteps: ["pod check --wait"] },
     });
+  });
+
+  test("a free slot with no ready Task does not end the wait", async () => {
+    const { orca, log } = replay(conn, [
+      ...quiet,
+      ...quiet,
+      ...quiet,
+      ...quiet,
+    ]);
+    const outcome = await checkWait(
+      conn.db,
+      orca,
+      null,
+      log,
+      input({ capacity: 2 }),
+    );
+    orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "failed",
+        message:
+          "pod check --wait waited 30 seconds with no delivery and nothing to dispatch or verify",
+      },
+    });
+    expect(slept).toEqual([10, 10, 10]);
+  });
+
+  test("a ready Task with a free slot ends the wait on the pass that names its dispatch", async () => {
+    await conn.sql`update ledger.task set state = 'ready', deps = '[]' where task_id = 'task_r'`;
+    const { orca, log } = replay(conn, quiet);
+    const outcome = await checkWait(
+      conn.db,
+      orca,
+      null,
+      log,
+      input({ capacity: 2 }),
+    );
+    orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        deliveries: [],
+        nextSteps: expect.arrayContaining([
+          "pod dispatch --task task_r --seat SEAT --generation 1, with a Seat for role reviewer from pod brief (rev-1, both-1)",
+        ]),
+      },
+    });
+    expect(slept).toEqual([]);
+  });
+
+  test("an owed verdict ends the wait on the first pass", async () => {
+    await gatedRun(conn, { gates: { pr: { keeper: "rev-1", type: "AQA" } } });
+    const { orca, log } = replay(conn, [
+      ok("check", empty(), run),
+      ok("worker-list", workers([]), run),
+    ]);
+    const outcome = await checkWait(
+      conn.db,
+      orca,
+      null,
+      log,
+      input({ capacity: 2 }),
+    );
+    orca.assertDone();
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        deliveries: [],
+        nextSteps: expect.arrayContaining([
+          `gate pr (AQA, rev-1) waits on Task task_r at candidate ${headSha}: pod verdict post FILE --generation 1`,
+        ]),
+      },
+    });
+    expect(slept).toEqual([]);
   });
 });
