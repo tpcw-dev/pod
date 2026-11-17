@@ -6,6 +6,7 @@ export interface OrcaPort {
   runUse(req: RunUseRequest): Promise<Receipt<RunUseResult>>
   runShow(req: RunShowRequest): Promise<Receipt<RunShowResult>>
   taskCreate(req: TaskCreateRequest): Promise<Receipt<TaskCreateResult>>
+  taskUpdate(req: TaskUpdateRequest): Promise<Receipt<SendResult>>
   workerStart(req: WorkerStartRequest): Promise<Receipt<WorkerStartResult>>
   workerStop(req: WorkerStopRequest): Promise<Receipt<WorkerStopResult>>
   workerRelease(req: WorkerReleaseRequest): Promise<Receipt<WorkerReleaseResult>>
@@ -104,6 +105,15 @@ export interface TaskCreateRequest {
   run?: string;
   deps?: readonly string[];
   taskTitle?: string;
+  from?: string;
+  retryRequest?: string;
+}
+
+export interface TaskUpdateRequest {
+  task: string;
+  status: string;
+  run?: string;
+  result?: string;
   from?: string;
   retryRequest?: string;
 }

@@ -305,7 +305,7 @@ describeDb("dogfood-b", () => {
       }),
     );
 
-    const deployed = await recordDeploy(conn.db, {
+    const deployed = await recordDeploy(conn.db, orca, log, {
       story: { provider: "linear", external_id: story },
       generation: 1,
       line: {

@@ -23,6 +23,7 @@ export const DeployRecordOutput = z.object({
   deployed_revision: z.string(),
   op_key: z.string(),
   replayed: z.boolean(),
+  nextSteps: z.array(z.string()).optional(),
   owner_generation: z.int(),
 });
 type DeployRecordOutput = z.infer<typeof DeployRecordOutput>;
@@ -65,8 +66,8 @@ export async function deployRecordVerb(
   const [story, path] = input.args;
   const line = readLine(path, input.stdin === true);
   const generation = Number(input.generation);
-  const { result } = await withOrca(({ db, host, kinds }) =>
-    recordDeploy(db, {
+  const { result } = await withOrca(({ db, orca, log, host, kinds }) =>
+    recordDeploy(db, orca, log, {
       story: {
         provider: kinds.trackerKind,
         external_id: story.slice("story:".length),

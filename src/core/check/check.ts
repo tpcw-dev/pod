@@ -34,6 +34,7 @@ import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaMessage, OrcaPort, WorkerRow } from "../ports/orca.ts";
 import { followReworks } from "../process/follow-rework.ts";
 import { recordDelivery } from "../process/project.ts";
+import { settleRun } from "../process/settle.ts";
 import type { TrackerPort } from "../ports/tracker.ts";
 import { drainOutbox } from "../tracker/outbox.ts";
 import { syncStory } from "../tracker/sync.ts";
@@ -208,6 +209,9 @@ export async function checkPass(
         host: input.host,
         now: input.now,
       })),
+    );
+    result.nextSteps.push(
+      ...(await settleRun({ db, orca, log, now: input.now }, run)),
     );
     const rows = await workers();
     if (rows === null)

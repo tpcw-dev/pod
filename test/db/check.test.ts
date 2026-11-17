@@ -13,7 +13,9 @@ import { recordHqa } from "../../src/core/gate/hqa.ts";
 import { candidateSha } from "../../src/core/gate/receipt.ts";
 import { postVerdict } from "../../src/core/gate/verdict.ts";
 import { runBlocked } from "../../src/core/ledger/run-blocked.ts";
+import { moveTask } from "../../src/core/ledger/move-task.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
+import { recordOutcome } from "../../src/core/process/project.ts";
 import { OUTBOX_MAX_TRIES } from "../../src/core/tracker/outbox.ts";
 import { noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
 import { fixtures } from "../orca/temp-fixtures.ts";
@@ -1236,5 +1238,71 @@ describeDb("pod check usage observations", () => {
     const outcome = await quiet(start);
     expect(await observations()).toEqual([]);
     expect(outcome.ok && outcome.result.nextSteps).not.toContain(line);
+  });
+});
+
+describeDb("pod check settles a human wait the ledger settled", () => {
+  let conn: Connection;
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  async function pass(entries: readonly TempEntry[]) {
+    const { orca, log } = replay(conn, [
+      ok("check", empty(null), run),
+      ...entries,
+      ok("worker-list", workers([]), run),
+    ]);
+    const outcome = await checkPass(
+      conn.db,
+      orca,
+      null,
+      log,
+      input({ capacity: 2 }),
+    );
+    orca.assertDone();
+    return outcome;
+  }
+
+  test("one pass sends the missing task-update once and a second pass sends nothing", async () => {
+    await gatedRun(conn, {
+      gates: { pr: { keeper: "human", type: "HQA" } },
+      principals: { human: { tracker_account: "keeper-1" } },
+      review: "human_wait",
+    });
+    await conn.db.transaction(async (tx) => {
+      await moveTask(tx, "task_r", "delivered");
+      await recordOutcome(tx, {
+        task: "task_r",
+        outcome: "PASS",
+        at: new Date(),
+        host: "local",
+        source: { kind: "command", verb: "hqa record" },
+      });
+    });
+    expect(await taskState(conn, "task_r")).toBe("done");
+    expect(await taskState(conn, "task_s")).toBe("ready");
+
+    const first = await pass([
+      ok("task-update", {}, [
+        "--id",
+        "task_r",
+        "--status",
+        "completed",
+        "--run",
+        "run_1",
+        "--from",
+        "session-1",
+      ]),
+    ]);
+    expect(first.ok).toBe(true);
+    const second = await pass([]);
+    expect(second.ok).toBe(true);
+    expect(
+      await conn.sql`select status from ledger.operation where intent = 'task_update'`,
+    ).toEqual([{ status: "done" }]);
   });
 });

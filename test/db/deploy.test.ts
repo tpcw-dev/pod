@@ -8,10 +8,10 @@ import type { Deploy } from "../../src/core/domain/delivery.ts";
 import { recordHqa } from "../../src/core/gate/hqa.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { runCreate } from "../../src/core/run/create.ts";
-import { noCalls, ok } from "../orca/temp-fixtures.ts";
+import { fixtures, ok, type TempEntry } from "../orca/temp-fixtures.ts";
 import { fakeTracker } from "./fake-tracker.ts";
 import { deliver, headSha } from "./gate-fixture.ts";
-import { clearDb, describeDb, openDb, resetDb } from "./helpers.ts";
+import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { dispatched, events, replay, taskState } from "./run-fixture.ts";
 import { activeRevision, crewValue, processValue } from "./seed.ts";
 
@@ -107,8 +107,25 @@ describeDb("pod deploy record", () => {
     await deliver(conn, "ctx_1", "task_b", { head: headSha });
   });
 
-  function record(deploy: Deploy, generation = 1) {
-    return recordDeploy(conn.db, {
+  const settleArgv = [
+    "--id",
+    "task_d",
+    "--status",
+    "completed",
+    "--run",
+    "run_1",
+    "--from",
+    "session-1",
+  ];
+  const settled = ok("task-update", { task: { id: "task_d" } }, settleArgv);
+
+  function record(
+    deploy: Deploy,
+    generation = 1,
+    entries: readonly TempEntry[] = [settled],
+  ) {
+    const { orca, log } = replay(conn, entries);
+    return recordDeploy(conn.db, orca, log, {
       story: { provider: "linear", external_id: "S-1" },
       generation,
       line: deploy,
@@ -117,6 +134,53 @@ describeDb("pod deploy record", () => {
       now: () => new Date(),
     });
   }
+
+  test("a recorded deploy settles the external_action task in the runtime", async () => {
+    const { orca, log } = replay(conn, [settled]);
+    const recorded = await recordDeploy(conn.db, orca, log, {
+      story: { provider: "linear", external_id: "S-1" },
+      generation: 1,
+      line: line(headSha),
+      host: "local",
+      treeOf: (sha) => Promise.resolve(trees[sha] ?? null),
+      now: () => new Date(),
+    });
+    expect(recorded).toMatchObject({ ok: true, result: { state: "done" } });
+    expect(recorded.ok && recorded.result.nextSteps).toBeFalsy();
+    orca.assertDone();
+    expect(
+      await conn.sql`select status from ledger.operation where intent = 'task_update'`,
+    ).toEqual([{ status: "done" }]);
+  });
+
+  test("a failed runtime update keeps the deploy and the CLI names pod check", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "pod-deploy-")), "line.json");
+    writeFileSync(file, `${JSON.stringify(line(headSha))}\n`);
+    const recorded = runCli(
+      ["deploy", "record", "story:S-1", file, "--generation", "1"],
+      {
+        POD_ORCA_FIXTURES: fixtures([
+          {
+            verb: "task-update",
+            argv: settleArgv,
+            exitCode: 1,
+            stdout: JSON.stringify({
+              ok: false,
+              error: { code: "task_not_found", message: "no task" },
+            }),
+          },
+        ]),
+      },
+    );
+    expect(recorded.status, JSON.stringify(recorded.json)).toBe(0);
+    expect(recorded.json.result).toMatchObject({
+      task_id: "task_d",
+      state: "done",
+      nextSteps: expect.arrayContaining([
+        "pod check --run run_1 --generation 1",
+      ]),
+    });
+  });
 
   test("the deploy Task waits ready after the build", async () => {
     expect(await taskState(conn, "task_d")).toBe("ready");
@@ -158,7 +222,9 @@ describeDb("pod deploy record", () => {
     expect(
       await recordHqa(
         conn.db,
-        noCalls(),
+        replay(conn, [
+          ok("task-update", {}, ["--id", "task_h", "--status", "completed"]),
+        ]).orca,
         tracker,
         receiptLog(conn.db, "local"),
         {
@@ -234,8 +300,9 @@ describeDb("pod deploy record", () => {
   });
 
   test("an unknown story refuses story_not_found", async () => {
+    const { orca, log } = replay(conn, []);
     expect(
-      await recordDeploy(conn.db, {
+      await recordDeploy(conn.db, orca, log, {
         story: { provider: "linear", external_id: "S-9" },
         generation: 1,
         line: line(headSha),

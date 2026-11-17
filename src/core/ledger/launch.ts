@@ -17,7 +17,7 @@ const unknownCodes = [
   "invalid_runtime_response",
 ];
 
-const Envelope = z.looseObject({
+export const Envelope = z.looseObject({
   ok: z.boolean().optional(),
   result: z
     .looseObject({
@@ -44,19 +44,31 @@ export function failure(verb: string, raw: unknown, exitCode: number): Json {
   return { outcome: "failed", verb, exitCode, raw: Json.parse(raw ?? null) };
 }
 
-export function launchOutcome(receipt: Receipt<unknown>): LaunchOutcome {
+type Unknown = Extract<LaunchOutcome, { kind: "unknown" }>;
+
+function requestIdOf({ result, error }: z.infer<typeof Envelope>) {
+  return error?.data?.orchestrationRequestId ?? result?.requestId ?? null;
+}
+
+export function unknownReply(receipt: Receipt<unknown>): Unknown | null {
   const envelope = Envelope.safeParse(receipt.raw);
   if (!envelope.success) return { kind: "unknown", requestId: null };
   const { result, error } = envelope.data;
-  const requestId =
-    error?.data?.orchestrationRequestId ?? result?.requestId ?? null;
+  const requestId = requestIdOf(envelope.data);
   const unknown =
     (receipt.exitCode !== 0 && receipt.exitCode !== 1) ||
     result?.state === "outcome_unknown" ||
     error?.data?.recovery?.disposition === "outcome_unknown" ||
     unknownCodes.includes(error?.code ?? "");
-  if (unknown) return { kind: "unknown", requestId };
-  const state = result?.state;
+  return unknown ? { kind: "unknown", requestId } : null;
+}
+
+export function launchOutcome(receipt: Receipt<unknown>): LaunchOutcome {
+  const unknown = unknownReply(receipt);
+  if (unknown !== null) return unknown;
+  const envelope = Envelope.parse(receipt.raw);
+  const requestId = requestIdOf(envelope);
+  const state = envelope.result?.state;
   if (
     receipt.exitCode === 0 &&
     receipt.result !== null &&

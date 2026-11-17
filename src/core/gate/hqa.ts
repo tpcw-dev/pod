@@ -21,6 +21,7 @@ import {
   type OutcomeResult,
   type Recorded,
 } from "../process/project.ts";
+import { settleRuntime } from "../process/settle.ts";
 import { readBypass, type BypassResult } from "./bypass.ts";
 import {
   candidateSha,
@@ -405,6 +406,13 @@ export async function recordHqa(
   if (accepted === null) return { ok: true, orca: version, result };
   if ("ok" in accepted) return accepted;
   const written = await db.transaction((tx) => write(tx, input, accepted));
+  result.nextSteps.push(
+    ...(await settleRuntime(
+      { db, orca, log, now: input.now },
+      run,
+      accepted.waiting.task.task_id,
+    )),
+  );
   const followed = await followOutcome(db, orca, log, written.recorded, {
     task: accepted.waiting.task.task_id,
     outcome: accepted.outcome,

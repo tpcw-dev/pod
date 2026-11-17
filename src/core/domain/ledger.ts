@@ -61,6 +61,7 @@ export const intents = [
   "plan",
   "tick",
   "standup",
+  "task_update",
 ] as const;
 export const Intent = z.enum(intents);
 export type Intent = z.infer<typeof Intent>;
