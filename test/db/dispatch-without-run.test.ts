@@ -1,6 +1,3 @@
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { migrate } from "../../src/adapters/postgres/migrate.ts";
@@ -16,7 +13,14 @@ import { usageCost } from "../../src/core/usage/cost.ts";
 import { usageFacts } from "../../src/core/usage/facts.ts";
 import { dayWindow, usageDay } from "../../src/core/usage/rollup.ts";
 import { noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
-import { dbUrl, describeDb, openDb, resetDb } from "./helpers.ts";
+import {
+  dbUrl,
+  describeDb,
+  entriesAfter,
+  journalThrough,
+  openDb,
+  resetDb,
+} from "./helpers.ts";
 import { openLaunch, seatRun } from "./identity-fixture.ts";
 import { freshRun, replay, workers } from "./run-fixture.ts";
 import { activeRevision } from "./seed.ts";
@@ -397,19 +401,6 @@ describeDb("a Dispatch with no Run", () => {
   });
 });
 
-function journalThrough(tag: string): string {
-  const folder = mkdtempSync(join(tmpdir(), "pod-migrations-"));
-  cpSync("db/migrations", folder, { recursive: true });
-  const path = join(folder, "meta", "_journal.json");
-  const journal = JSON.parse(readFileSync(path, "utf8")) as {
-    entries: { tag: string }[];
-  };
-  const end = journal.entries.findIndex((entry) => entry.tag === tag);
-  journal.entries = journal.entries.slice(0, end + 1);
-  writeFileSync(path, JSON.stringify(journal));
-  return folder;
-}
-
 describeDb("migration 0027", () => {
   beforeAll(resetDb);
 
@@ -433,7 +424,7 @@ describeDb("migration 0027", () => {
       }
       expect(await migrate(dbUrl(), "db/migrations")).toMatchObject({
         kind: "ok",
-        applied: 3,
+        applied: entriesAfter("0026_learning_reporter_digest"),
       });
       expect(
         await conn.sql`select dispatch_id, owner_host from ledger.dispatch order by dispatch_id`,

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -128,4 +128,39 @@ export async function clearDb(connection: Connection): Promise<void> {
   await connection.sql.unsafe(
     `truncate ${tables.map((table) => table.name).join(", ")} cascade`,
   );
+}
+
+interface Journal {
+  entries: { tag: string }[];
+}
+
+function readJournal(folder: string): Journal {
+  return JSON.parse(
+    readFileSync(join(folder, "meta", "_journal.json"), "utf8"),
+  ) as Journal;
+}
+
+function journalEnd(tag: string): number {
+  const end = readJournal(migrationsFolder()).entries.findIndex(
+    (entry) => entry.tag === tag,
+  );
+  if (end === -1) throw new Error(`no migration tagged ${tag}`);
+  return end + 1;
+}
+
+export function journalLength(): number {
+  return readJournal(migrationsFolder()).entries.length;
+}
+
+export function entriesAfter(tag: string): number {
+  return journalLength() - journalEnd(tag);
+}
+
+export function journalThrough(tag: string): string {
+  const folder = mkdtempSync(join(tmpdir(), "pod-migrations-"));
+  cpSync(migrationsFolder(), folder, { recursive: true });
+  const journal = readJournal(folder);
+  journal.entries = journal.entries.slice(0, journalEnd(tag));
+  writeFileSync(join(folder, "meta", "_journal.json"), JSON.stringify(journal));
+  return folder;
 }

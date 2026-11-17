@@ -1,23 +1,19 @@
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, expect, test } from "vitest";
 import { migrate } from "../../src/adapters/postgres/migrate.ts";
 import { openStates } from "../../src/core/domain/decision.ts";
-import { dbUrl, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
-
-function journalThrough(tag: string): string {
-  const folder = mkdtempSync(join(tmpdir(), "pod-migrations-"));
-  cpSync("db/migrations", folder, { recursive: true });
-  const path = join(folder, "meta", "_journal.json");
-  const journal = JSON.parse(readFileSync(path, "utf8")) as {
-    entries: { tag: string }[];
-  };
-  const end = journal.entries.findIndex((entry) => entry.tag === tag);
-  journal.entries = journal.entries.slice(0, end + 1);
-  writeFileSync(path, JSON.stringify(journal));
-  return folder;
-}
+import {
+  dbUrl,
+  describeDb,
+  entriesAfter,
+  journalLength,
+  journalThrough,
+  openDb,
+  resetDb,
+  runCli,
+} from "./helpers.ts";
 
 describeDb("pod db migrate", () => {
   beforeAll(resetDb);
@@ -25,7 +21,7 @@ describeDb("pod db migrate", () => {
   test("a run after the reset's migrate applies nothing", () => {
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 0 } },
+      json: { ok: true, result: { journal: journalLength(), applied: 0 } },
     });
   });
 
@@ -34,13 +30,17 @@ describeDb("pod db migrate", () => {
     await db.sql`set client_min_messages = warning`;
     await db.sql`drop schema if exists config, ledger, drizzle cascade`;
     await db.close();
+    expect(journalLength()).toBe(
+      readdirSync("db/migrations").filter((name) => name.endsWith(".sql"))
+        .length,
+    );
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 30, applied: 30 },
+      result: { journal: journalLength(), applied: journalLength() },
     });
     expect(runCli(["db", "migrate"]).json).toMatchObject({
       ok: true,
-      result: { journal: 30, applied: 0 },
+      result: { journal: journalLength(), applied: 0 },
     });
   });
 
@@ -56,7 +56,13 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 26 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0003_learning"),
+        },
+      },
     });
   });
 
@@ -74,7 +80,13 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 22 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0007_usage_observation"),
+        },
+      },
     });
   });
 
@@ -90,7 +102,13 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 21 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0008_brief_tests"),
+        },
+      },
     });
   });
 
@@ -106,7 +124,13 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 20 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0009_decision"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -169,7 +193,13 @@ describeDb("pod db migrate", () => {
     ).toEqual({ kind: "ok", journal: 11, applied: 11 });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 19 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0010_decision_states"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -197,7 +227,13 @@ describeDb("pod db migrate", () => {
     ).toEqual({ kind: "ok", journal: 12, applied: 12 });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 18 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0011_coordinator_dispatch"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -220,7 +256,13 @@ describeDb("pod db migrate", () => {
     );
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 17 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0012_prompt_bytes"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -251,7 +293,13 @@ describeDb("pod db migrate", () => {
     ).toEqual({ kind: "ok", journal: 15, applied: 15 });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 15 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0014_revision_ticket"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -282,7 +330,13 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 14 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0015_close"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -312,7 +366,13 @@ describeDb("pod db migrate", () => {
     ).toEqual({ kind: "ok", journal: 17, applied: 17 });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 13 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0016_config_activate"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -337,7 +397,13 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 9 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0020_digest"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -377,7 +443,13 @@ describeDb("pod db migrate", () => {
             '2026-10-01T10:00:00Z')`;
       expect(runCli(["db", "migrate"])).toMatchObject({
         status: 0,
-        json: { ok: true, result: { journal: 30, applied: 12 } },
+        json: {
+          ok: true,
+          result: {
+            journal: journalLength(),
+            applied: entriesAfter("0017_host_kind"),
+          },
+        },
       });
       const found = await conn.sql<
         {
@@ -438,7 +510,13 @@ describeDb("pod db migrate", () => {
     ).toEqual({ kind: "ok", journal: 19, applied: 19 });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 11 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0018_learning_kind"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -465,7 +543,13 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 10 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0019_retro"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -529,7 +613,13 @@ describeDb("pod db migrate", () => {
     );
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 8 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0021_project_kind"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -558,7 +648,13 @@ describeDb("pod db migrate", () => {
     );
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 7 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0022_usage_record"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -588,7 +684,13 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 6 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0023_rate_kind"),
+        },
+      },
     });
     const conn = openDb();
     try {
@@ -619,7 +721,13 @@ describeDb("pod db migrate", () => {
     });
     expect(runCli(["db", "migrate"])).toMatchObject({
       status: 0,
-      json: { ok: true, result: { journal: 30, applied: 5 } },
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0024_plan"),
+        },
+      },
     });
     const conn = openDb();
     try {
