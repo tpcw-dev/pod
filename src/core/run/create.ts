@@ -13,7 +13,7 @@ import type {
 } from "../domain/ledger.ts";
 import { refuse, type Outcome, type Refused } from "../domain/outcome.ts";
 import { failure, launchOutcome, stopOnOpen } from "../ledger/launch.ts";
-import { derivedOpKey } from "../ledger/op-key.ts";
+import { derivedOpKey, newestAttempt, nextAttempt } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import { recordRunManifest } from "../manifest/run-manifest.ts";
 import type { Db } from "../ports/db.ts";
@@ -264,10 +264,13 @@ export async function runCreate(
   const projectRef = input.project ?? null;
   const { version } = await orca.version();
   const ctx: Context = { db, orca, log, input, process, steps, size };
-  const opKey = derivedOpKey("run_create", {
-    provider: input.provider,
-    external_id: input.story,
-  });
+  const opKey = await attemptOf(
+    db,
+    derivedOpKey("run_create", {
+      provider: input.provider,
+      external_id: input.story,
+    }),
+  );
   const now = input.now();
   const first = await db.transaction(async (tx) => {
     const inserted = await tx.insertOperation({
@@ -317,7 +320,10 @@ export async function runCreate(
       failure("run-create", receipt.raw, receipt.exitCode),
       input.now(),
     );
-    return refuse("failed", `run-create for ${story} failed`, ["pod check"]);
+    return refuse("failed", `run-create for ${story} failed`, [
+      input.command,
+      "pod check",
+    ]);
   }
   const runId = receipt.result.run.id;
   const hash = snapshotHash(
@@ -373,6 +379,26 @@ export async function runCreate(
     );
   });
   return project(ctx, runId, opKey, version);
+}
+
+function failedAttempt(operation: Operation | null): boolean {
+  return (
+    operation?.status === "done" &&
+    !RunRef.safeParse(operation.result_ref).success &&
+    FailedRef.safeParse(operation.result_ref).success
+  );
+}
+
+/**
+ * The op key this call works under: the newest attempt, or the next one when
+ * the newest ended in a failed run-create. An attempt that is open or holds a
+ * Run is never followed, so a Story gets at most one Run.
+ */
+async function attemptOf(db: Db, base: string): Promise<string> {
+  const newest = await newestAttempt(db, base);
+  return failedAttempt(newest.operation)
+    ? nextAttempt(base, newest).opKey
+    : newest.opKey;
 }
 
 async function recorded(

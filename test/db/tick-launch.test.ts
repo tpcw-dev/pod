@@ -20,11 +20,16 @@ import { envelope, storeRevision } from "./fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb } from "./helpers.ts";
 import {
   attention,
+  createRunEntries,
+  createWorktree,
   fullLaunch,
   lateEvening,
   morning,
+  noSender,
   publishPlan,
   seedLaunch,
+  startLead,
+  worktree,
   type Seed,
 } from "./launch-fixture.ts";
 import { replay, started } from "./run-fixture.ts";
@@ -190,6 +195,27 @@ describeDb("the tick's launch step", () => {
     });
     const launched = await tick(later, fullLaunch);
     expect(launched.launch).toMatchObject([{ story: "S-1" }]);
+  });
+
+  test("a failed run-create is held for hold_minutes, then the tick relaunches it as the next attempt", async () => {
+    await seed();
+    const failed = await tick(morning, [
+      ...createWorktree,
+      noSender("run-create"),
+    ]);
+    expect(failed.refuse).toMatchObject([{ story: "S-1", code: "failed" }]);
+    const skipped = await tick(minutes(morning, 30));
+    expect(skipped.refuse).toEqual([]);
+    expect(skipped.launch).toEqual([]);
+    const relaunched = await tick(minutes(morning, 61), [
+      ok("worktree-show", { worktree }, ["--worktree", "name:s-1"]),
+      ...createRunEntries,
+      startLead,
+    ]);
+    expect(relaunched.launch).toMatchObject([
+      { story: "S-1", run_id: "run_1", op_key: expect.stringMatching(/:2$/) },
+    ]);
+    expect(await runs()).toBe(1);
   });
 
   test("past pause_at the tick records the host drain and launches nothing, again on the next tick, until a person's go", async () => {

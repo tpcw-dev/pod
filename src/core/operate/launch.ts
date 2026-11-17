@@ -5,7 +5,7 @@ import { planHost } from "../plan/host.ts";
 import { inForce, newestPublished } from "../plan/overrides.ts";
 import type { Repo } from "../ports/db.ts";
 import { recordAttentionDrains } from "../run/attention-pause.ts";
-import { launchOpKey, runLaunch } from "../run/launch.ts";
+import { launchAttempt, runLaunch } from "../run/launch.ts";
 import type { OperatePorts } from "./ports.ts";
 import type { StepContext, StepResult } from "./tick.ts";
 import { tickEvents } from "./triggers.ts";
@@ -68,8 +68,11 @@ export async function launchStep(
   for (const entry of published.ranked) {
     if (holds.has(entry.key) || held.has(entry.key)) continue;
     const subject = String(published.event_id);
-    const prior = await db.getOperation(
-      launchOpKey(ctx.host, subject, entry.key),
+    const { operation: prior } = await launchAttempt(
+      db,
+      ctx.host,
+      subject,
+      entry.key,
     );
     if (prior !== null && prior.status !== "pending") continue;
     const story = await db.getStory(ports.provider, entry.key);
