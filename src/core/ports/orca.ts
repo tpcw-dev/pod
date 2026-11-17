@@ -61,6 +61,7 @@ export class OrcaVersionUnsupported extends Error {
 
 export interface RunCreateRequest {
   objective: string;
+  from?: string;
   retryRequest?: string;
 }
 
@@ -103,6 +104,7 @@ export interface TaskCreateRequest {
   run?: string;
   deps?: readonly string[];
   taskTitle?: string;
+  from?: string;
   retryRequest?: string;
 }
 
@@ -116,6 +118,7 @@ export interface WorkerStartRequest {
   worktree?: string;
   deps?: readonly string[];
   retryOf?: string;
+  from?: string;
   retryRequest?: string;
 }
 

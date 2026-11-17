@@ -179,7 +179,7 @@ export async function runCreateVerb(
   const coordinator = process.env["POD_COORDINATOR"];
   if (coordinator === undefined || coordinator === "")
     throw usageError("POD_COORDINATOR is not set", [
-      "set POD_COORDINATOR to the coordinator session id",
+      "set POD_COORDINATOR to the coordinator's Orca terminal handle",
     ]);
   const [story] = input.args;
   const ref = processRef(input.process);
@@ -235,7 +235,7 @@ export async function runLaunchVerb(
   const coordinator = process.env["POD_COORDINATOR"];
   if (coordinator === undefined || coordinator === "")
     throw usageError("POD_COORDINATOR is not set", [
-      "set POD_COORDINATOR to the coordinator session id",
+      "set POD_COORDINATOR to the coordinator's Orca terminal handle",
     ]);
   const [story] = input.args;
   const [role, model] = input.seat?.split("=") ?? [];

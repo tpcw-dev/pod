@@ -52,6 +52,7 @@ export const argvFor = {
   runCreate: (req: RunCreateRequest) =>
     flags("run-create", [
       ["--objective", req.objective],
+      ["--from", req.from || undefined],
       ["--retry-request", req.retryRequest],
     ]),
   runUse: (req: RunUseRequest) =>
@@ -67,6 +68,7 @@ export const argvFor = {
       ["--run", req.run],
       ["--deps", req.deps],
       ["--task-title", req.taskTitle],
+      ["--from", req.from || undefined],
       ["--retry-request", req.retryRequest],
     ]),
   workerStart: (req: WorkerStartRequest) =>
@@ -80,6 +82,7 @@ export const argvFor = {
       ["--worktree", req.worktree],
       ["--deps", req.deps],
       ["--retry-of", req.retryOf],
+      ["--from", req.from || undefined],
       ["--retry-request", req.retryRequest],
     ]),
   workerStop: (req: WorkerStopRequest) =>

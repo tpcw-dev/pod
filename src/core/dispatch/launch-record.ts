@@ -12,7 +12,10 @@ import type {
 import { handoffOf, returnSlot } from "./handoff.ts";
 import { withTranscript } from "./transcript.ts";
 
-export type LaunchArgs = Omit<WorkerStartRequest, "task" | "spec" | "run">;
+export type LaunchArgs = Omit<
+  WorkerStartRequest,
+  "task" | "spec" | "run" | "from"
+>;
 
 export const LaunchArgs = z.looseObject({
   agent: z.string().min(1),

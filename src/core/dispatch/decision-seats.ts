@@ -422,6 +422,7 @@ async function launchSeat(
     spec: input.spec,
     run: run.run_id,
     taskTitle: `decision ${input.role}`,
+    from: run.coordinator,
   });
   const orcaTask =
     launchOutcome(created).kind === "ok"
@@ -440,6 +441,7 @@ async function launchSeat(
     task: orcaTask,
     run: run.run_id,
     ...launch,
+    from: run.coordinator,
   });
   const outcome = launchOutcome(receipt);
   const launched =

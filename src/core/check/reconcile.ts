@@ -152,6 +152,7 @@ async function reconcileSeat(
     run: input.run.run_id,
     task: ref.orca_task,
     ...LaunchArgs.parse(ref.launch),
+    from: input.run.coordinator,
     retryRequest: ref.requestId,
   });
   const launched =
@@ -205,6 +206,7 @@ async function reconcileOne(
         task: request.task_id,
         run: runId,
         ...launch,
+        from: input.run.coordinator,
         retryRequest: ref.requestId,
       });
       const launched =

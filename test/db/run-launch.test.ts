@@ -133,6 +133,36 @@ describeDb("pod run launch", () => {
     });
   });
 
+  test("a launch from a shell with no terminal handle passes the coordinator as --from on run-create, task-create, and the lead worker-start", async () => {
+    await seed();
+    const from = ["--from", "term_coord"];
+    const launched = await launch(
+      [
+        ...createWorktree,
+        ok("run-create", { run: { id: "run_1" } }, from),
+        ok("task-create", { task: { id: "task_b", status: "ready" } }, from),
+        ok("task-create", { task: { id: "task_r", status: "pending" } }, from),
+        ok("worker-start", started("ctx_1"), ["--task", "task_b", ...from]),
+      ],
+      { coordinator: "term_coord" },
+    );
+    expect(launched).toMatchObject({ ok: true, result: { run_id: "run_1" } });
+    const sent = await conn.sql<{ verb: string; argv: string[] }[]>`
+      select payload->>'verb' as verb, payload->'argv' as argv
+      from ledger.event where type = 'receipt' order by id`;
+    const orchestration = sent.filter((row) =>
+      ["run-create", "task-create", "worker-start"].includes(row.verb),
+    );
+    expect(orchestration.map((row) => row.verb)).toEqual([
+      "run-create",
+      "task-create",
+      "task-create",
+      "worker-start",
+    ]);
+    for (const row of orchestration)
+      expect(row.argv.join(" ")).toContain("--from term_coord");
+  });
+
   test("a second launch of a Story that has a Run refuses duplicate_op with no Orca call and no op", async () => {
     await seed();
     await launch(fullLaunch);

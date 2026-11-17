@@ -6,6 +6,7 @@ import { makeReplayOrca } from "../../src/adapters/orca/replay.ts";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
+import { dispatch } from "../../src/core/dispatch/dispatch.ts";
 import type { Revision } from "../../src/core/domain/config.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
@@ -28,10 +29,12 @@ import { describeDb, openDb, podHome, resetDb, runCli } from "./helpers.ts";
 import { residentSeat } from "./resident-fixture.ts";
 import {
   dispatched,
+  dispatchInput,
   empty,
   events,
   freshRun,
   replay,
+  started,
   workers,
 } from "./run-fixture.ts";
 
@@ -226,6 +229,28 @@ describeDb("pod takeover", () => {
     expect(rows.map((row) => row.status)).toEqual(["refused", "done"]);
     expect(rows[0]?.op_key).not.toBe(rows[1]?.op_key);
     expect(await owner()).toEqual({ generation: 2, coordinator: newHandle });
+  });
+
+  test("after a takeover, a Task's worker-start passes the new coordinator as --from", async () => {
+    expect(await run([...stopped(), runUse()])).toMatchObject({ ok: true });
+    await conn.sql`update ledger.task set state = 'done' where task_id = 'task_b'`;
+    await conn.sql`update ledger.task set state = 'ready' where task_id = 'task_r'`;
+    const { orca, log } = replay(conn, [
+      ok("worker-start", started("ctx_2", "task_r"), [
+        "--task",
+        "task_r",
+        "--from",
+        newHandle,
+      ]),
+    ]);
+    const outcome = await dispatch(
+      conn.db,
+      orca,
+      log,
+      dispatchInput({ task: "task_r", seat: "rev-1", generation: 2 }),
+    );
+    orca.assertDone();
+    expect(outcome).toMatchObject({ ok: true });
   });
 
   test("the takeover event names both handles and generations, the view, and the manifest", async () => {
