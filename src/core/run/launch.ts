@@ -4,7 +4,11 @@ import { dispatch } from "../dispatch/dispatch.ts";
 import { openLaunches } from "../dispatch/quota.ts";
 import { readSeats, SeatsInvalid, type Seat } from "../dispatch/seats.ts";
 import { Json } from "../domain/json.ts";
-import type { Operation } from "../domain/ledger.ts";
+import {
+  operationStatuses,
+  type Operation,
+  type Run,
+} from "../domain/ledger.ts";
 import {
   refuse,
   RefusalCode,
@@ -97,6 +101,20 @@ export function launchOpKey(
   story: string,
 ): string {
   return derivedOpKey("tick", { host, step: "launch", subject, story });
+}
+
+export async function launchedWorktrees(db: Repo, run: Run): Promise<string[]> {
+  const selectors = new Set<string>();
+  for (const row of await db.listOperations(["tick"], operationStatuses)) {
+    const recorded = Recorded.safeParse(row.result_ref).data;
+    if (
+      recorded?.run_id === run.run_id &&
+      recorded.request.host === run.host &&
+      recorded.worktree !== undefined
+    )
+      selectors.add(`id:${recorded.worktree.id}`);
+  }
+  return [...selectors];
 }
 
 export function worktreeName(story: string): string {

@@ -22,7 +22,7 @@ import {
   type Story,
 } from "../domain/ledger.ts";
 import { refuse, type Refusal, type Refused } from "../domain/outcome.ts";
-import { dispatchWorktree } from "../dispatch/retry.ts";
+import { dispatchSelector, dispatchWorktree } from "../dispatch/retry.ts";
 import { gateOf } from "../gate/receipt.ts";
 import { writeLearning } from "../learning/add.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
@@ -60,6 +60,7 @@ import {
   learningIds,
   worktreeOutcomes,
 } from "./close-record.ts";
+import { launchedWorktrees } from "./launch.ts";
 import { coordinatorStopped } from "./takeover.ts";
 
 export interface CloseInput {
@@ -116,6 +117,7 @@ interface Context {
   archive: Archive;
   snapshot: Snapshot;
   status: string | null;
+  own: string[];
 }
 
 class StepRefused extends Error {
@@ -280,7 +282,7 @@ const closeSteps: readonly CloseStep[] = [
   },
   {
     name: "worktree",
-    async effect({ db, run, input, orca }) {
+    async effect({ db, run, input, orca, own }) {
       const record = await archivedRecord(db, run.run_id);
       const reviewed = new Set(
         record.keep_files_reviewed?.worktrees.map((row) => row.path) ?? [],
@@ -288,6 +290,7 @@ const closeSteps: readonly CloseStep[] = [
       const removed = await removeWorktrees(
         orca,
         record.worktrees,
+        own,
         reviewed,
         againCommand(input),
       );
@@ -297,7 +300,7 @@ const closeSteps: readonly CloseStep[] = [
   },
   {
     name: "branches",
-    async effect({ db, run, input, dispatches }, partial, save) {
+    async effect({ db, run, input, dispatches, own }, partial, save) {
       const record = await archivedRecord(db, run.run_id);
       const reads = await readPrs(
         await db.listEvents(run.run_id, "pr"),
@@ -308,7 +311,7 @@ const closeSteps: readonly CloseStep[] = [
       const branches = await removeBranches(
         input.git,
         input.codeHost,
-        record.worktrees,
+        record.worktrees.filter((row) => own.includes(row.selector)),
         reads,
         BranchesPartial.safeParse(partial).data?.partial ?? [],
         (outcomes) => save({ partial: Json.parse(outcomes) }),
@@ -432,12 +435,14 @@ async function unansweredQuestion(
 async function worktreePaths(
   db: Repo,
   dispatches: readonly Dispatch[],
+  own: readonly string[],
   host: string,
 ): Promise<string[]> {
   const paths: string[] = [];
   for (const row of dispatches) {
     const path = dispatchWorktree(row);
     if (path === null || paths.includes(path)) continue;
+    if (!own.includes(dispatchSelector(row) ?? "")) continue;
     if ((await db.dispatchEvent(row.dispatch_id, "start"))?.host !== host)
       continue;
     paths.push(path);
@@ -897,9 +902,10 @@ export async function closeRun(
   const asked = await unansweredQuestion(orca, run, dispatches);
   if (asked !== null) return { ok: false, refusal: asked };
 
+  const own = await launchedWorktrees(db, run);
   const gone: string[] = [];
   const flagged: ReviewedWorktree[] = [];
-  for (const path of await worktreePaths(db, dispatches, input.host)) {
+  for (const path of await worktreePaths(db, dispatches, own, input.host)) {
     const status = input.worktreeStatus(path);
     if (status === null) gone.push(path);
     else if (status.files.length > 0 || status.ahead > 0)
@@ -959,6 +965,7 @@ export async function closeRun(
     dispatches,
     log,
     snapshot,
+    own,
     status:
       names === null
         ? null
