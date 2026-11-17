@@ -30,7 +30,7 @@ import {
 import { returnSlot, yieldDispatch } from "./handoff.ts";
 import { drainRefusal, slotRefusal } from "./launch-gate.ts";
 import { openLaunches } from "./quota.ts";
-import { runWorktree } from "./run-worktree.ts";
+import { callerWorktree, runWorktree } from "./run-worktree.ts";
 import { readSeats, SeatsInvalid, type Seat } from "./seats.ts";
 
 export interface DispatchInput {
@@ -180,7 +180,7 @@ function refusal(
   return { code, message, nextSteps };
 }
 
-export function seatLaunch(seat: Seat, worktree = "current"): LaunchArgs {
+export function seatLaunch(seat: Seat, worktree = callerWorktree): LaunchArgs {
   return {
     agent: seat.runtime,
     ...(seat.model === undefined ? {} : { model: seat.model }),

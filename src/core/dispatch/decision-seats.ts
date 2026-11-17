@@ -8,7 +8,6 @@ import type { ReceiptLog } from "../ledger/receipts.ts";
 import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort } from "../ports/orca.ts";
 import { seatLaunch } from "./dispatch.ts";
-import { runWorktree } from "./run-worktree.ts";
 import { returnSlot, yieldDispatch } from "./handoff.ts";
 import { drainRefusal, slotRefusal } from "./launch-gate.ts";
 import {
@@ -20,6 +19,7 @@ import {
   type Launched,
 } from "./launch-record.ts";
 import { openLaunches } from "./quota.ts";
+import { runWorktree } from "./run-worktree.ts";
 import { readSeats, SeatsInvalid, type Seat } from "./seats.ts";
 
 export type { ReceiptLog } from "../ledger/receipts.ts";

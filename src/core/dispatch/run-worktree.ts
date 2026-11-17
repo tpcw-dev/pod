@@ -17,6 +17,8 @@ export const LaunchWorktree = z.object({
   branch: z.string(),
 });
 
+export const callerWorktree = "current";
+
 const Launched = z.object({
   request: LaunchRequest,
   run_id: z.string(),
@@ -37,7 +39,6 @@ export async function launchedWorktrees(
   return [...selectors];
 }
 
-/** The worktree a later Dispatch of the Run on `host` starts in: its launch's, else the caller's. */
 export async function runWorktree(
   db: Repo,
   run: Run,
@@ -48,5 +49,5 @@ export async function runWorktree(
     throw new Error(
       `Run ${run.run_id} has ${own.length} launch worktrees on host ${host}`,
     );
-  return own[0] ?? "current";
+  return own[0] ?? callerWorktree;
 }
