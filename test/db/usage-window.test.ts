@@ -1,6 +1,3 @@
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { migrate } from "../../src/adapters/postgres/migrate.ts";
@@ -11,28 +8,21 @@ import { runLaunch } from "../../src/core/run/launch.ts";
 import { usageSection } from "../../src/core/state/sections.ts";
 import { noCalls } from "../orca/temp-fixtures.ts";
 import { fakeTracker } from "./fake-tracker.ts";
-import { clearDb, dbUrl, describeDb, openDb, resetDb } from "./helpers.ts";
+import {
+  clearDb,
+  dbUrl,
+  describeDb,
+  entriesAfter,
+  journalThrough,
+  openDb,
+  resetDb,
+} from "./helpers.ts";
 import { morning, seedLaunch } from "./launch-fixture.ts";
 import { crewValue } from "./seed.ts";
 
 const provider = "runtime-a";
 const minute = 60_000;
 const limits = { floor_percent: 50, stale_minutes: 30 };
-
-function migrationsBefore(tag: string): string {
-  const folder = mkdtempSync(join(tmpdir(), "pod-migrations-"));
-  cpSync("db/migrations", folder, { recursive: true });
-  const path = join(folder, "meta", "_journal.json");
-  const journal = JSON.parse(readFileSync(path, "utf8")) as {
-    entries: { tag: string }[];
-  };
-  journal.entries = journal.entries.slice(
-    0,
-    journal.entries.findIndex((entry) => entry.tag === tag),
-  );
-  writeFileSync(path, JSON.stringify(journal));
-  return folder;
-}
 
 describeDb("usage observation windows", () => {
   let conn: Connection;
@@ -85,7 +75,7 @@ describeDb("usage observation windows", () => {
   test("a migrated database gives an existing row its window from source.window, and a no_source row none", async () => {
     await conn.sql`set client_min_messages = warning`;
     await conn.sql`drop schema if exists config, ledger, drizzle cascade`;
-    await migrate(dbUrl(), migrationsBefore("0029_usage_observation_window"));
+    await migrate(dbUrl(), journalThrough("0028_standup"));
     const at = morning.toISOString();
     await conn.sql`
       insert into ledger.usage_observation
@@ -97,7 +87,7 @@ describeDb("usage observation windows", () => {
          ${JSON.stringify({ kind: "none" })}::jsonb)`;
     expect(await migrate(dbUrl(), "db/migrations")).toMatchObject({
       kind: "ok",
-      applied: 1,
+      applied: entriesAfter("0028_standup"),
     });
     const rows = await conn.db.latestUsageWindows([provider]);
     expect(rows.map((row) => row.window).sort()).toEqual(["long", null]);
