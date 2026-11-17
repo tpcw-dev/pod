@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { GuardrailRow } from "../brief/guardrails.ts";
-import { Happened } from "../brief/happened.ts";
+import {
+  BriefSitting as SittingJson,
+  type Happened,
+} from "../brief/happened.ts";
 import { AgendaSection } from "../standup/agenda.ts";
 import { TestResult } from "../domain/ledger.ts";
 import { TickLines } from "../domain/tick.ts";
@@ -570,9 +573,7 @@ function planTable(parsed: unknown): string {
   return `<table id="plan">\n${rows.join("\n")}\n</table>`;
 }
 
-const BriefSitting = z.object({
-  window: z.object({ since: z.string(), until: z.string() }),
-  happened: Happened,
+const BriefSitting = SittingJson.extend({
   guardrails: z.array(GuardrailRow),
   standup: z.object({ sections: z.array(AgendaSection) }),
 });

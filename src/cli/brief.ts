@@ -8,7 +8,11 @@ import {
 } from "../core/brief/profiles.ts";
 import { newestTickLines } from "../core/brief/counters.ts";
 import { GuardrailRow, readGuardrails } from "../core/brief/guardrails.ts";
-import { Happened, readHappened, windowSince } from "../core/brief/happened.ts";
+import {
+  BriefSitting,
+  readHappened,
+  windowSince,
+} from "../core/brief/happened.ts";
 import { singleActive } from "../core/config/active.ts";
 import { attentionOf } from "../core/config/limits.ts";
 import { serviceKinds } from "../core/config/service-kinds.ts";
@@ -270,8 +274,7 @@ export const BriefOutput = z.object({
   yesterday: LogDayJson,
   tick: TickLines.nullable(),
   plan: PlanJson,
-  window: z.object({ since: z.string(), until: z.string() }),
-  happened: Happened,
+  ...BriefSitting.shape,
   guardrails: z.array(GuardrailRow),
   standup: StandupJson,
   nextSteps: z.array(z.string()).optional(),

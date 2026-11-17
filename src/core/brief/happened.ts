@@ -11,39 +11,45 @@ const Fact = z.object({
   run_id: z.string().nullable(),
 });
 
-export const Happened = z.object({
-  closed_runs: z.array(Fact.extend({ story: z.string().nullable() })),
-  prs: z.array(
-    Fact.extend({ number: z.number().nullable(), url: z.string().nullable() }),
-  ),
-  deploys: z.array(
-    Fact.extend({
-      environment: z.string().nullable(),
-      deployed_revision: z.string().nullable(),
-    }),
-  ),
-  gates: z.array(
-    Fact.extend({ gate: z.string(), outcome: z.enum(["PASS", "FAIL"]) }),
-  ),
-  stops: z.array(
-    Fact.extend({
-      type: z.enum(["hold", "escalate"]),
-      text: z.string().nullable(),
-    }),
-  ),
-  ticks: z.array(
-    Fact.extend({
-      host: z.string(),
-      tick_id: z.string(),
-      result: z.enum(["ok", "failed"]),
-      needs_human: z.array(NeedsHumanLine),
-    }),
-  ),
-  velocity: z.literal("unknown"),
-  tokens_per_point: z.literal("unknown"),
-  minutes_per_point: z.literal("unknown"),
+export const BriefSitting = z.object({
+  window: z.object({ since: z.string(), until: z.string() }),
+  happened: z.object({
+    closed_runs: z.array(Fact.extend({ story: z.string().nullable() })),
+    prs: z.array(
+      Fact.extend({
+        number: z.number().nullable(),
+        url: z.string().nullable(),
+      }),
+    ),
+    deploys: z.array(
+      Fact.extend({
+        environment: z.string().nullable(),
+        deployed_revision: z.string().nullable(),
+      }),
+    ),
+    gates: z.array(
+      Fact.extend({ gate: z.string(), outcome: z.enum(["PASS", "FAIL"]) }),
+    ),
+    stops: z.array(
+      Fact.extend({
+        type: z.enum(["hold", "escalate"]),
+        text: z.string().nullable(),
+      }),
+    ),
+    ticks: z.array(
+      Fact.extend({
+        host: z.string(),
+        tick_id: z.string(),
+        result: z.enum(["ok", "failed"]),
+        needs_human: z.array(NeedsHumanLine),
+      }),
+    ),
+    velocity: z.literal("unknown"),
+    tokens_per_point: z.literal("unknown"),
+    minutes_per_point: z.literal("unknown"),
+  }),
 });
-export type Happened = z.infer<typeof Happened>;
+export type Happened = z.infer<typeof BriefSitting>["happened"];
 
 const Fields = z.record(z.string(), z.unknown());
 const GateReceipt = z.looseObject({
