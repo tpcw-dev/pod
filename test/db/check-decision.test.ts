@@ -365,6 +365,8 @@ describeDb("pod check advances a Decision", () => {
       ok("worker-start", seatStarted(decider), [
         "--task",
         "orca_decider",
+        "--from",
+        "session-1",
         "--retry-request",
         "req_seat",
       ]),

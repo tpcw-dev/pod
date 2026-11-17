@@ -628,6 +628,9 @@ describeDb("pod run launch", () => {
       POD_COORDINATOR: "",
     });
     expect(bare.status).toBe(2);
+    expect(bare.json.error?.nextSteps).toEqual([
+      "set POD_COORDINATOR to the coordinator's Orca terminal handle",
+    ]);
     const missing = runCli(["run", "launch", "story:S-404"], {
       POD_COORDINATOR: "session-1",
     });
