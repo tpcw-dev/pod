@@ -7,6 +7,15 @@ import {
   type ProjectProfile,
 } from "../core/brief/profiles.ts";
 import { newestTickLines } from "../core/brief/counters.ts";
+import { GuardrailRow, readGuardrails } from "../core/brief/guardrails.ts";
+import { Happened, readHappened, windowSince } from "../core/brief/happened.ts";
+import { singleActive } from "../core/config/active.ts";
+import { attentionOf } from "../core/config/limits.ts";
+import { serviceKinds } from "../core/config/service-kinds.ts";
+import { receiptLog } from "../core/ledger/receipts.ts";
+import { groomQueue, type GroomQueue } from "../core/plan/candidates.ts";
+import { planHost } from "../core/plan/host.ts";
+import { AgendaSection, standupOf } from "../core/standup/agenda.ts";
 import { TickLines } from "../core/domain/tick.ts";
 import { pendingActivations, revisionRef } from "../core/config/apply.ts";
 import { revisionId } from "../core/config/canonical-json.ts";
@@ -18,7 +27,7 @@ import {
   type BriefTree,
   type DigestBrief,
 } from "../core/domain/brief.ts";
-import type { Repo } from "../core/ports/db.ts";
+import type { Db, Repo } from "../core/ports/db.ts";
 import { RevisionEnvelope, type Revision } from "../core/domain/config.ts";
 import { Json } from "../core/domain/json.ts";
 import { runLifetime } from "../core/usage/facts.ts";
@@ -28,11 +37,12 @@ import { readLog } from "../core/operate/log.ts";
 import { planDigest } from "../core/plan/plan.ts";
 import { Held, Ranked } from "../core/domain/plan.ts";
 import { waitingOn } from "../core/process/waiting.ts";
-import { PodError } from "./errors.ts";
+import { guardrailCodes, PodError, throwRecordRefusal } from "./errors.ts";
 import {
   databaseUrl,
   readCredentials,
   readHostProfile,
+  type HostSettings,
 } from "./host-profile.ts";
 import {
   hostZone,
@@ -48,6 +58,7 @@ import {
   ResetInForce,
   UsageGateJson,
 } from "./plan-verbs.ts";
+import { trackerFor } from "./tracker.ts";
 import { parseYaml } from "./yaml-file.ts";
 
 const storyArg = z.string().regex(/^story:.+$/);
@@ -172,6 +183,22 @@ const PlanJson = z.object({
 });
 type PlanJson = z.infer<typeof PlanJson>;
 
+const StandupJson = z.object({
+  agenda_hash: z.string(),
+  sections: z.array(AgendaSection),
+  groom: z.object({
+    stories: z.array(
+      z.object({
+        project: z.string(),
+        external_id: z.string(),
+        title: z.string(),
+      }),
+    ),
+    proposals: z.literal("unknown"),
+    partial: z.array(z.object({ project: z.string(), error: z.string() })),
+  }),
+});
+
 export const BriefOutput = z.object({
   pending_requests: z.array(PendingRequestJson),
   projects: z.array(
@@ -243,6 +270,10 @@ export const BriefOutput = z.object({
   yesterday: LogDayJson,
   tick: TickLines.nullable(),
   plan: PlanJson,
+  window: z.object({ since: z.string(), until: z.string() }),
+  happened: Happened,
+  guardrails: z.array(GuardrailRow),
+  standup: StandupJson,
   nextSteps: z.array(z.string()).optional(),
 });
 type BriefResult = z.infer<typeof BriefOutput>;
@@ -402,6 +433,42 @@ async function planSection(repo: Repo, now: Date): Promise<PlanJson> {
   return section;
 }
 
+async function briefWindow(repo: Repo, zone: string, now: Date): Promise<Date> {
+  const standup = await repo.latestEventWith("standup", {});
+  const policy = await singleActive(repo, "policy", "global", "");
+  return windowSince({
+    standup: standup?.ts ?? null,
+    pauseAt: attentionOf(policy?.value)?.pause_at ?? null,
+    now,
+    zone,
+  });
+}
+
+async function readGroom(
+  db: Db,
+  host: HostSettings,
+  project: string | null,
+  now: Date,
+): Promise<GroomQueue> {
+  const unread: GroomQueue = { stories: [], partial: [], known: false };
+  const context = await planHost(db, host.hostId, now);
+  if (!context.ok) return unread;
+  const tracker = await trackerFor(
+    receiptLog(db, host.hostId).trackerSink,
+    host,
+    (await serviceKinds(db)).estimateScale,
+  );
+  if (tracker === null) return unread;
+  const queue = await groomQueue({
+    repo: db,
+    tracker: tracker.port,
+    context,
+    project,
+  });
+  throwRecordRefusal(tracker.recordRefusals());
+  return queue;
+}
+
 function toBriefResult(
   tree: BriefTree,
   projects: readonly (ProjectProfile & { digest: DigestBrief })[],
@@ -410,7 +477,10 @@ function toBriefResult(
   usages: ReadonlyMap<string, RunUsage>,
   usage: BriefResult["usage"],
   plan: PlanJson,
-): Omit<BriefResult, "yesterday" | "tick"> {
+): Omit<
+  BriefResult,
+  "yesterday" | "tick" | "window" | "happened" | "guardrails" | "standup"
+> {
   const current = new Map(projects.map((row) => [row.project, row.profile]));
   return {
     pending_requests: pending,
@@ -510,35 +580,42 @@ export async function brief(input: BriefInput): Promise<BriefResult> {
         ["pod brief"],
       );
     const tree = forProject(read, project);
-    const result = BriefOutput.parse({
-      ...toBriefResult(
-        tree,
-        await withDigests(
-          connection.db,
-          (await projectProfiles(connection.db, tree)).filter(
-            (row) => project === null || row.project === project,
-          ),
+    const now = new Date();
+    const since = await briefWindow(connection.db, zone.zone, now);
+    const guardrails = await readGuardrails(connection.db, guardrailCodes, now);
+    const tick = await newestTickLines(connection.db, host.hostId);
+    const base = toBriefResult(
+      tree,
+      await withDigests(
+        connection.db,
+        (await projectProfiles(connection.db, tree)).filter(
+          (row) => project === null || row.project === project,
         ),
-        await pendingRequests(connection.db),
-        drift,
-        await runUsages(connection.db, tree),
-        await readUsageDay(
-          connection.db,
-          zone.zone,
-          todayView(zone.zone),
-          null,
-        ),
-        await planSection(connection.db, new Date()),
       ),
+      await pendingRequests(connection.db),
+      drift,
+      await runUsages(connection.db, tree),
+      await readUsageDay(connection.db, zone.zone, todayView(zone.zone), null),
+      await planSection(connection.db, now),
+    );
+    const result = BriefOutput.parse({
+      ...base,
       yesterday: logJson(
         await readLog(
           connection.db,
           host.hostId,
-          yesterdayOf(dayOf(new Date(), zone.zone)),
+          yesterdayOf(dayOf(now, zone.zone)),
           zone.zone,
         ),
       ),
-      tick: await newestTickLines(connection.db, host.hostId),
+      tick,
+      window: { since: iso(since), until: iso(now) },
+      happened: await readHappened(connection.db, since, now),
+      guardrails,
+      standup: standupOf(
+        { projects: base.projects, tick, plan: base.plan, guardrails },
+        await readGroom(connection.db, host, project, now),
+      ),
       ...(nextSteps.length === 0 ? {} : { nextSteps }),
     });
     if (input.html !== undefined)
