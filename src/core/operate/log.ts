@@ -1,5 +1,10 @@
+import type { z } from "zod";
 import type { Json } from "../domain/json.ts";
-import type { Event, EventType } from "../domain/ledger.ts";
+import {
+  GateReceiptPayload,
+  type Event,
+  type EventType,
+} from "../domain/ledger.ts";
 import {
   MetaTickPayload,
   TickPayload,
@@ -53,10 +58,12 @@ const shownFields = [
   "step",
   "kind",
   "key",
+  "gate",
   "outcome",
   "reason",
   "text",
   "decision_id",
+  "receipt_id",
 ] as const;
 
 function record(payload: Json): Record<string, Json> | null {
@@ -76,7 +83,8 @@ function described(event: Event, fields: Record<string, Json>): string {
   if (event.run_id !== null) parts.push(`run ${event.run_id}`);
   for (const field of shownFields) {
     const value = fields[field];
-    if (typeof value === "string") parts.push(`${field}=${value}`);
+    if (typeof value === "string" || typeof value === "number")
+      parts.push(`${field}=${value}`);
   }
   return cut(parts.join(" "));
 }
@@ -87,8 +95,9 @@ function unreadable(event: Event): Entry[] {
 
 type Place = (event: Event) => Entry[];
 
-function under(heading: LogHeading): Place {
+function under(heading: LogHeading, only?: z.ZodType): Place {
   return (event) => {
+    if (only !== undefined && !only.safeParse(event.payload).success) return [];
     const fields = record(event.payload);
     return fields === null
       ? unreadable(event)
@@ -157,7 +166,7 @@ const placement: Record<EventType, Place> = {
   unknown_launch: under("Errors"),
   tick,
   delivery: quiet,
-  receipt: quiet,
+  receipt: under("Decided", GateReceiptPayload),
   activation: quiet,
   push: quiet,
   pr: quiet,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { yesterdayOf } from "../domain/brief.ts";
-import type { Event } from "../domain/ledger.ts";
+import { GateReceiptPayload, type Event } from "../domain/ledger.ts";
 import { NeedsHumanLine, TickPayload } from "../domain/tick.ts";
 import { hostDay, wallInstant } from "../plan/clock.ts";
 import type { Repo } from "../ports/db.ts";
@@ -52,11 +52,6 @@ export const BriefSitting = z.object({
 export type Happened = z.infer<typeof BriefSitting>["happened"];
 
 const Fields = z.record(z.string(), z.unknown());
-const GateReceipt = z.looseObject({
-  receipt_id: z.number(),
-  gate: z.string(),
-  outcome: z.enum(["PASS", "FAIL"]),
-});
 
 function text(payload: unknown, field: string): string | null {
   const value = Fields.safeParse(payload).data?.[field];
@@ -124,7 +119,7 @@ export function happenedOf(
         });
         break;
       case "receipt": {
-        const receipt = GateReceipt.safeParse(payload);
+        const receipt = GateReceiptPayload.safeParse(payload);
         if (receipt.success)
           happened.gates.push({
             ...fact,

@@ -40,6 +40,7 @@ function view(
           run_id: "run_1",
           story: "S-1",
           state: "active",
+          owner_generation: 1,
           source_revision: "process-rev",
           waiting_on: ["gate review keeper reviewer-seat"],
         },

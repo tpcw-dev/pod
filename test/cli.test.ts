@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { usageFor, verbs } from "../src/cli/verbs.ts";
 
 function run(
   args: string[],
@@ -164,6 +165,45 @@ test("an unknown verb is usage", () => {
     ok: false,
     error: { code: "usage", nextSteps: ["pod --help"] },
   });
+});
+
+test("a verb's usage error names the flags its input takes", () => {
+  for (const args of [
+    ["brief", "story:X", "--bogus"],
+    ["brief", "story:X", "--json"],
+    ["brief", "story:X", "extra"],
+  ]) {
+    const result = run(args);
+    expect(result.status, args.join(" ")).toBe(2);
+    expect(JSON.parse(result.stdout), args.join(" ")).toMatchObject({
+      ok: false,
+      error: {
+        code: "usage",
+        message: "usage: brief",
+        nextSteps: ["pod brief [--project] [--html]", "pod --help"],
+      },
+    });
+  }
+});
+
+test("every verb's usage error lists its input's flags before pod --help", () => {
+  const synopsis = new Map(
+    verbs.map((verb) => {
+      const error = usageFor(verb);
+      expect(error.code).toBe("usage");
+      expect(error.message).toBe(`usage: ${verb.name}`);
+      expect(error.nextSteps).toHaveLength(2);
+      expect(error.nextSteps[1]).toBe("pod --help");
+      return [verb.name, error.nextSteps[0]];
+    }),
+  );
+  expect(synopsis.get("db migrate")).toBe("pod db migrate");
+  expect(synopsis.get("decide cancel")).toBe(
+    "pod decide cancel [--generation]",
+  );
+  expect(synopsis.get("config activate")).toBe(
+    "pod config activate [--scope] [--expected-revision] [--op-key] [--reason]",
+  );
 });
 
 test("a launch lease that is not a positive whole number is usage", () => {

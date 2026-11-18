@@ -241,6 +241,7 @@ export async function runsSection(
         run_id: run.run.run_id,
         story: story.story.external_id,
         state: run.run.state,
+        owner_generation: run.run.owner_generation,
         source_revision: run.snapshot?.process_revision_id ?? null,
         waiting_on,
       });

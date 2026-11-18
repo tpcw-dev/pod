@@ -1,4 +1,4 @@
-import type { ZodType } from "zod";
+import { ZodObject, type ZodType } from "zod";
 import {
   ConfigApplyInput,
   ConfigApplyOutput,
@@ -18,6 +18,7 @@ import {
   ConfigSetInput,
 } from "./config-verbs.ts";
 import { BriefInput, BriefOutput, brief } from "./brief.ts";
+import { type PodError, usageError } from "./errors.ts";
 import { LogInput, LogOutput, logVerb, renderLog } from "./log-verbs.ts";
 import {
   PlanHoldInput,
@@ -198,6 +199,16 @@ function row<I, O>(verb: VerbRow<I, O>): VerbRow<unknown, unknown> {
       ? {}
       : { render: (output: unknown) => render(verb.output.parse(output)) }),
   };
+}
+
+export function usageFor(verb: VerbRow<unknown, unknown>): PodError {
+  const keys =
+    verb.input instanceof ZodObject ? Object.keys(verb.input.shape) : [];
+  const flags = keys.filter((key) => key !== "args").map((key) => `[--${key}]`);
+  return usageError(`usage: ${verb.name}`, [
+    ["pod", verb.name, ...flags].join(" "),
+    "pod --help",
+  ]);
 }
 
 export const verbs: readonly VerbRow<unknown, unknown>[] = [

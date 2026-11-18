@@ -1,7 +1,7 @@
-import { parseArgs } from "node:util";
+import { type ParseArgsOptionsConfig, parseArgs } from "node:util";
 import pkg from "../../package.json" with { type: "json" };
 import { PodError, usageError } from "./errors.ts";
-import { verbs } from "./verbs.ts";
+import { usageFor, verbs } from "./verbs.ts";
 
 function write(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -50,76 +50,81 @@ function verbFrom(
   return undefined;
 }
 
+const options = {
+  help: { type: "boolean" },
+  activate: { type: "boolean" },
+  accept: { type: "boolean" },
+  reject: { type: "boolean" },
+  scope: { type: "string" },
+  "expected-revision": { type: "string" },
+  "op-key": { type: "string" },
+  reason: { type: "string" },
+  unset: { type: "string", multiple: true },
+  from: { type: "string" },
+  ticket: { type: "string" },
+  string: { type: "boolean" },
+  out: { type: "string" },
+  all: { type: "boolean" },
+  prune: { type: "boolean" },
+  html: { type: "string" },
+  process: { type: "string" },
+  size: { type: "string" },
+  stage: { type: "string" },
+  task: { type: "string" },
+  seat: { type: "string" },
+  generation: { type: "string" },
+  run: { type: "string" },
+  day: { type: "string" },
+  date: { type: "string" },
+  wait: { type: "boolean" },
+  interval: { type: "string" },
+  timeout: { type: "string" },
+  resume: { type: "boolean" },
+  observe: { type: "boolean" },
+  dispatch: { type: "string" },
+  retain: { type: "boolean" },
+  end: { type: "boolean" },
+  "keep-files-reviewed": { type: "boolean" },
+  area: { type: "string" },
+  kind: { type: "string" },
+  reporter: { type: "string" },
+  expected: { type: "string" },
+  "repeat-of": { type: "string" },
+  project: { type: "string" },
+  story: { type: "string" },
+  adoption: { type: "string" },
+  text: { type: "string" },
+  category: { type: "string" },
+  effect: { type: "string" },
+  decision: { type: "string" },
+  note: { type: "string" },
+  supersedes: { type: "string" },
+  page: { type: "string" },
+  heading: { type: "string" },
+  json: { type: "boolean" },
+  stdin: { type: "boolean" },
+  host: { type: "string" },
+  publish: { type: "boolean" },
+  until: { type: "string" },
+  trigger: { type: "string", multiple: true },
+  "dry-run": { type: "boolean" },
+  agenda: { type: "string" },
+  slot: { type: "string" },
+} satisfies ParseArgsOptionsConfig;
+
 function parse() {
+  const args = process.argv.slice(2);
   try {
-    return parseArgs({
-      args: process.argv.slice(2),
-      options: {
-        help: { type: "boolean" },
-        activate: { type: "boolean" },
-        accept: { type: "boolean" },
-        reject: { type: "boolean" },
-        scope: { type: "string" },
-        "expected-revision": { type: "string" },
-        "op-key": { type: "string" },
-        reason: { type: "string" },
-        unset: { type: "string", multiple: true },
-        from: { type: "string" },
-        ticket: { type: "string" },
-        string: { type: "boolean" },
-        out: { type: "string" },
-        all: { type: "boolean" },
-        prune: { type: "boolean" },
-        html: { type: "string" },
-        process: { type: "string" },
-        size: { type: "string" },
-        stage: { type: "string" },
-        task: { type: "string" },
-        seat: { type: "string" },
-        generation: { type: "string" },
-        run: { type: "string" },
-        day: { type: "string" },
-        date: { type: "string" },
-        wait: { type: "boolean" },
-        interval: { type: "string" },
-        timeout: { type: "string" },
-        resume: { type: "boolean" },
-        observe: { type: "boolean" },
-        dispatch: { type: "string" },
-        retain: { type: "boolean" },
-        end: { type: "boolean" },
-        "keep-files-reviewed": { type: "boolean" },
-        area: { type: "string" },
-        kind: { type: "string" },
-        reporter: { type: "string" },
-        expected: { type: "string" },
-        "repeat-of": { type: "string" },
-        project: { type: "string" },
-        story: { type: "string" },
-        adoption: { type: "string" },
-        text: { type: "string" },
-        category: { type: "string" },
-        effect: { type: "string" },
-        decision: { type: "string" },
-        note: { type: "string" },
-        supersedes: { type: "string" },
-        page: { type: "string" },
-        heading: { type: "string" },
-        json: { type: "boolean" },
-        stdin: { type: "boolean" },
-        host: { type: "string" },
-        publish: { type: "boolean" },
-        until: { type: "string" },
-        trigger: { type: "string", multiple: true },
-        "dry-run": { type: "boolean" },
-        agenda: { type: "string" },
-        slot: { type: "string" },
-      },
-      strict: true,
+    return parseArgs({ args, options, strict: true, allowPositionals: true });
+  } catch {
+    const { positionals } = parseArgs({
+      args,
+      options,
+      strict: false,
       allowPositionals: true,
     });
-  } catch {
-    throw usageError("usage");
+    const found = verbFrom(positionals);
+    throw found === undefined ? usageError("usage") : usageFor(found.verb);
   }
 }
 
@@ -141,7 +146,7 @@ async function main(): Promise<void> {
   if (found === undefined) throw usageError("usage");
   const { verb, args } = found;
   const input = verb.input.safeParse({ args, ...flags });
-  if (!input.success) throw usageError(`usage: ${verb.name}`, ["pod --help"]);
+  if (!input.success) throw usageFor(verb);
   const result = verb.output.parse(await verb.handler(input.data, {}));
   if (verb.render !== undefined && flags.json !== true) {
     process.stdout.write(`${verb.render(result)}\n`);
