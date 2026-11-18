@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ReceiptOutcome, RunState } from "./ledger.ts";
 import { TickLines } from "./tick.ts";
 
 export interface StateScope {
@@ -42,6 +43,44 @@ export const RunsSection = z.object({
   ),
 });
 export type RunsSection = z.infer<typeof RunsSection>;
+
+const GateRun = {
+  ...stamp,
+  run_id: z.string(),
+  run_state: RunState,
+};
+
+export const GatesSection = z.discriminatedUnion("status", [
+  z.object({
+    ...GateRun,
+    status: z.literal("ok"),
+    items: z.array(
+      z.object({
+        gate: z.string(),
+        step: z.string(),
+        type: z.enum(["AQA", "HQA"]).nullable(),
+        keeper: z.string().nullable(),
+        task_id: z.string().nullable(),
+        task_state: z.string().nullable(),
+        receipt: z
+          .object({
+            receipt_id: z.int(),
+            outcome: ReceiptOutcome,
+            candidate_sha: z.string(),
+            deployed_revision: z.string().nullable(),
+            created_at: z.string(),
+          })
+          .nullable(),
+      }),
+    ),
+  }),
+  z.object({
+    ...GateRun,
+    status: z.literal("process_unreadable"),
+    detail: z.string(),
+  }),
+]);
+export type GatesSection = z.infer<typeof GatesSection>;
 
 const RevisionRef = z.object({
   id: z.string(),
@@ -135,6 +174,7 @@ export const StateView = z.object({
   }),
   roadmap: RoadmapSection,
   runs: RunsSection,
+  gates: GatesSection.nullable(),
   policies: PoliciesSection,
   decisions: DecisionsSection,
   usage: UsageSection,

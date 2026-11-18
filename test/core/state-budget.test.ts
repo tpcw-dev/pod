@@ -13,6 +13,7 @@ function view(
     learnings?: number;
     closed?: number;
     reserved?: number;
+    gates?: number;
   } = {},
 ): StateView {
   return {
@@ -43,6 +44,22 @@ function view(
           waiting_on: ["gate review keeper reviewer-seat"],
         },
       ],
+    },
+    gates: {
+      source_revision: "process-rev",
+      observed_at,
+      run_id: "run_1",
+      run_state: "active",
+      status: "ok",
+      items: Array.from({ length: sizes.gates ?? 2 }, (_, i) => ({
+        gate: `gate${i}`,
+        step: `step${i} ${words(4, "g")}`,
+        type: "AQA" as const,
+        keeper: "rev-1",
+        task_id: `task_${i}`,
+        task_state: "done",
+        receipt: null,
+      })),
     },
     policies: {
       source_revision: "policy-rev",
@@ -139,6 +156,7 @@ function count(state: StateView): number {
 function protectedParts(state: StateView) {
   return {
     runs: state.runs,
+    gates: state.gates,
     policies: state.policies,
     decisions: state.decisions,
     open: state.needs_human.items.filter((item) => item.open),
@@ -200,6 +218,14 @@ test("a view over the budget from protected sections alone keeps every one of th
   const big = view({ milestones: 0, learnings: 0, closed: 0, reserved: 4000 });
   const fitted = fitBudget(big, 3000);
   expect(count(fitted)).toBeGreaterThan(3000);
+  expect(fitted).toEqual(big);
+});
+
+test("a view over the budget from its gates alone keeps every gate", () => {
+  const big = view({ milestones: 0, learnings: 0, closed: 0, gates: 600 });
+  const fitted = fitBudget(big, 3000);
+  expect(count(fitted)).toBeGreaterThan(3000);
+  expect(fitted.gates).toEqual(big.gates);
   expect(fitted).toEqual(big);
 });
 

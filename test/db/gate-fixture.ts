@@ -52,6 +52,12 @@ export const gateProcess = (
     { from: "review", on: hold, to: "hold" },
     { from: "ship", on: "done", to: "done" },
     { from: "ship", on: hold, to: "hold" },
+    ...(shipGate === undefined
+      ? []
+      : [
+          { from: "ship", on: "PASS", to: "done" },
+          { from: "ship", on: "FAIL", to: "hold" },
+        ]),
   ],
 });
 
