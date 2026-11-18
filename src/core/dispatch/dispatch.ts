@@ -7,7 +7,7 @@ import {
   type Outcome,
   type Refusal,
 } from "../domain/outcome.ts";
-import { stopOnOpen } from "../ledger/launch.ts";
+import { runtimeError, stopOnOpen } from "../ledger/launch.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
 import { runBlocked } from "../ledger/run-blocked.ts";
@@ -28,6 +28,7 @@ import {
   type LaunchArgs,
 } from "./launch-record.ts";
 import { returnSlot, yieldDispatch } from "./handoff.ts";
+import { nextDispatchCommand } from "./next-command.ts";
 import { drainRefusal, slotRefusal } from "./launch-gate.ts";
 import { openLaunches } from "./quota.ts";
 import { callerWorktree, runWorktree } from "./run-worktree.ts";
@@ -57,7 +58,13 @@ const Recorded = z.looseObject({
   code: RefusalCode.optional(),
   message: z.string().optional(),
   nextSteps: z.array(z.string()).optional(),
+  raw: z.unknown().optional(),
 });
+
+function failedWith(message: string, raw: unknown): string {
+  const error = runtimeError(raw);
+  return error === null ? message : `${message}: ${error}`;
+}
 
 type Gate =
   | { kind: "refused"; refusal: Refusal }
@@ -230,6 +237,13 @@ export async function dispatch(
       attempt: "1",
     });
   const request = { task_id: task.task_id, seat: input.seat, host: input.host };
+  const retry = () =>
+    nextDispatchCommand(db, {
+      run_id: task.run_id,
+      task_id: task.task_id,
+      seat: input.seat,
+      generation: input.generation,
+    });
   const now = input.now();
 
   const gate = await db.transaction(async (tx): Promise<Gate> => {
@@ -334,6 +348,7 @@ export async function dispatch(
       runId: task.run_id,
       request,
       command: input.command(opKey),
+      retry,
       opKey,
       version,
     });
@@ -361,10 +376,11 @@ export async function dispatch(
   if (recorded.kind === "started")
     return { ok: true, result: recorded.done, opKey, orca: version };
   if (recorded.kind === "failed")
-    return refuse("failed", `worker-start for Task ${task.task_id} failed`, [
-      ...(receipt.result?.lastError == null ? [] : [receipt.result.lastError]),
-      "pod check",
-    ]);
+    return refuse(
+      "failed",
+      failedWith(`worker-start for Task ${task.task_id} failed`, receipt.raw),
+      [await retry(), "pod check"],
+    );
   return refuse(
     "launch_unknown",
     `worker-start for Task ${task.task_id} has no known outcome`,
@@ -378,6 +394,7 @@ export interface Replay {
   runId: string;
   request: { task_id: string; seat: string; host: string };
   command: string;
+  retry?: () => Promise<string>;
   opKey: string;
   version: string;
 }
@@ -385,7 +402,7 @@ export interface Replay {
 export async function replayed(
   operation: Operation,
   intent: "dispatch" | "retry",
-  { orca, log, runId, request, command, opKey, version }: Replay,
+  { orca, log, runId, request, command, retry, opKey, version }: Replay,
 ): Promise<Outcome<DispatchResult>> {
   const ref = Recorded.safeParse(operation.result_ref);
   if (
@@ -428,8 +445,11 @@ export async function replayed(
   if (!done.success)
     return refuse(
       "failed",
-      `worker-start under op key ${opKey} failed before`,
-      ["pod check"],
+      failedWith(
+        `worker-start under op key ${opKey} failed before`,
+        ref.data.raw,
+      ),
+      [...(retry === undefined ? [] : [await retry()]), "pod check"],
     );
   return { ok: true, result: done.data, opKey, orca: version };
 }

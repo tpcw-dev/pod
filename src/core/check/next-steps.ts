@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { operationStatuses, type Run, type Task } from "../domain/ledger.ts";
+import { nextDispatchCommand } from "../dispatch/next-command.ts";
 import { openLaunches } from "../dispatch/quota.ts";
 import { readSeats, SeatsInvalid, type Seat } from "../dispatch/seats.ts";
 import { candidateSha, gateOf, pinnedConfig } from "../gate/receipt.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
-import { derivedOpKey } from "../ledger/op-key.ts";
 import type { Db } from "../ports/db.ts";
 import { readProcess } from "../process/project.ts";
 import { afterClose, type Step } from "../process/schema.ts";
@@ -25,12 +25,14 @@ interface Context {
   host: string;
 }
 
-const nextKeyCodes = ["quota_exhausted", "drained"];
+const nextKeyCodes = ["quota_exhausted", "drained"] as const;
 
-const Refusal = z.looseObject({
-  request: z.looseObject({ task_id: z.string(), seat: z.string() }),
-  code: z.string(),
-});
+const Request = z.looseObject({ task_id: z.string(), seat: z.string() });
+
+const Retryable = z.union([
+  z.looseObject({ request: Request, code: z.enum(nextKeyCodes) }),
+  z.looseObject({ request: Request, outcome: z.literal("failed") }),
+]);
 
 const DispatchRequest = z.looseObject({
   request: z.looseObject({ task_id: z.string() }),
@@ -72,32 +74,24 @@ async function nextKeys(
   const seen = new Set<string>();
   const named = new Set<string>();
   const lines: string[] = [];
-  for (const operation of await db.listOperations(["dispatch"], ["refused"])) {
-    const ref = Refusal.safeParse(operation.result_ref);
-    if (!ref.success || !nextKeyCodes.includes(ref.data.code)) continue;
+  for (const operation of await db.listOperations(
+    ["dispatch"],
+    ["refused", "done"],
+  )) {
+    const ref = Retryable.safeParse(operation.result_ref);
+    if (!ref.success) continue;
     const { task_id, seat } = ref.data.request;
     const pair = `${task_id}\n${seat}`;
     if (!ready.has(task_id) || seen.has(pair)) continue;
     seen.add(pair);
     named.add(task_id);
-    let attempt = 1;
-    let key = derivedOpKey("dispatch", {
-      run_id: run.run_id,
-      task_id,
-      seat,
-      attempt: "1",
-    });
-    while ((await db.getOperation(key)) !== null) {
-      attempt += 1;
-      key = derivedOpKey("dispatch", {
+    lines.push(
+      await nextDispatchCommand(db, {
         run_id: run.run_id,
         task_id,
         seat,
-        attempt: String(attempt),
-      });
-    }
-    lines.push(
-      `pod dispatch --task ${task_id} --seat ${seat} --generation ${generation} --op-key ${key}`,
+        generation,
+      }),
     );
   }
   return { lines, tasks: named };
