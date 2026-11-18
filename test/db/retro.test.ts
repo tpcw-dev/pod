@@ -23,6 +23,7 @@ import {
   unknownReply,
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
+import { launchedRun } from "./close-ports.ts";
 import { envelope, storeRevision } from "./fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb } from "./helpers.ts";
 import {
@@ -31,6 +32,7 @@ import {
   events,
   replay,
   started,
+  worktreeId,
 } from "./run-fixture.ts";
 import { activeRevision, crewValue, processValue } from "./seed.ts";
 
@@ -486,6 +488,46 @@ describeDb("pod retro", () => {
       });
       const tasks = await conn.db.listTasks("run_1");
       expect(tasks.filter((task) => task.step_id === "retro")).toHaveLength(1);
+    });
+
+    test("a retro after close starts in the caller's checkout, not the launch worktree close removed", async () => {
+      await launchedRun(conn);
+      const outcome = await runRetro([
+        ok("task-create", { task: { id: "task_retro", status: "ready" } }),
+        ok("worker-start", started("ctx_retro", "task_retro"), [
+          "--worktree",
+          "current",
+        ]),
+      ]);
+      expect(outcome).toMatchObject({
+        ok: true,
+        result: { dispatch_id: "ctx_retro" },
+      });
+    });
+
+    test("a Dispatch of a step that is not after close still starts in the launch worktree", async () => {
+      await launchedRun(conn);
+      await conn.db.setRunState("run_1", "active");
+      await conn.db.setTaskState("task_b", "ready");
+      const { orca, log } = replay(conn, [
+        ok("worker-start", started("ctx_dev2", "task_b"), [
+          "--worktree",
+          `id:${worktreeId}`,
+        ]),
+      ]);
+      const outcome = await dispatch(
+        conn.db,
+        orca,
+        log,
+        dispatchInput({
+          task: "task_b",
+          seat: "dev-1",
+          opKey: "k-before",
+          capacity: 10,
+        }),
+      );
+      expect(outcome).toMatchObject({ ok: true });
+      orca.assertDone();
     });
 
     test("an active Run's retro Task is refused task_not_ready", async () => {

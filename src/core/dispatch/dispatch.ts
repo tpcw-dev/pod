@@ -280,7 +280,8 @@ export async function dispatch(
     }
     const launch = seatLaunch(
       found.seat,
-      input.worktree ?? (await runWorktree(tx, run, input.host)),
+      input.worktree ??
+        (postClose ? callerWorktree : await runWorktree(tx, run, input.host)),
     );
     const story = await tx.getStory(run.story_provider, run.story_external_id);
     const process = await tx.getRevision(snapshot.process_revision_id);
