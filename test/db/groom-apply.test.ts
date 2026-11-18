@@ -1,7 +1,8 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { parse, stringify } from "yaml";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { clearDb, describeDb, openDb, resetDb, runCli } from "./helpers.ts";
 import { createRun } from "./run-fixture.ts";
@@ -49,6 +50,21 @@ describeDb("groom kind", () => {
     expect(
       runCli(["config", "get", "groom.default"]).json.result,
     ).toMatchObject({ value: { split_at: 8 } });
+  });
+
+  test("config apply refuses a groom value missing a stage, naming the path", () => {
+    const envelope = parse(readFileSync(seedPath, "utf8")) as {
+      value: { rubric: Record<string, unknown> };
+    };
+    delete envelope.value.rubric["design"];
+    const path = join(dir, "no-design.yaml");
+    writeFileSync(path, stringify(envelope));
+    const result = runCli(["config", "apply", path, ...activate]);
+    expect(result.status).toBe(2);
+    expect(result.json.error).toMatchObject({
+      code: "schema_invalid",
+      nextSteps: ["rubric.design"],
+    });
   });
 
   test("a Seat's apply waits as a pending request until a person activates it", () => {

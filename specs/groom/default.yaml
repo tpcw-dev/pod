@@ -12,9 +12,9 @@ value:
     - 5
     - 8
   tiers:
-    "1": lean
-    "2": lean
-    "3": lean
+    "1": impl-small
+    "2": impl-small
+    "3": impl-medium
     "5": never_launched
     "8": never_launched
   proves:

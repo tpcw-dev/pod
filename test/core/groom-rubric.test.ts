@@ -145,6 +145,23 @@ test("another scope or name is schema_invalid naming the field", () => {
   ]);
 });
 
+test("each seed tier that launches names a shipped impl process for that point's size", () => {
+  const groom = parseGroom(seed.value);
+  const launched = Object.entries(groom.tiers).filter(
+    ([, tier]) => tier !== "never_launched",
+  );
+  expect(launched.length).toBeGreaterThan(0);
+  for (const [point, tier] of launched) {
+    const spec = parse(readFileSync(`specs/process/${tier}.yaml`, "utf8")) as {
+      name: string;
+      value: { selector: { stage: string; size?: string[] } };
+    };
+    expect(spec.name).toBe(tier);
+    expect(spec.value.selector.stage).toBe("impl");
+    expect(spec.value.selector.size).toContain(groom.points_to_size[point]);
+  }
+});
+
 test("the seed names no adopter", () => {
   expect(readFileSync(seedPath, "utf8")).not.toMatch(
     /jerry|tpcw|lance|argus|jako|ellie|linear/i,
