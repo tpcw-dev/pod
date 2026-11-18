@@ -138,6 +138,9 @@ describeDb("config activate requests", () => {
     ]);
   }
 
+  const readyBuild =
+    "pod dispatch --task task_b --seat SEAT --generation 1, with a Seat for role developer from pod brief (dev-1, both-1)";
+
   async function check(): Promise<string[]> {
     const { orca, log } = replay(conn, [
       ok("check", empty(null), ["--run", "run_1"]),
@@ -252,7 +255,7 @@ describeDb("config activate requests", () => {
   test("a keeper comment on the ticket activates once as the person", async () => {
     const written = agentSet("m-2");
     say("TRK-9", "c-1", `config activate ${written.id}\nlooks right`);
-    expect(await check()).toEqual([]);
+    expect(await check()).toEqual([readyBuild]);
     expect(await activeCrew()).toBe(written.id);
     expect(await status(written.pending?.op_key ?? "")).toBe("done");
     const [row] = await conn.sql<{ activated_by: string }[]>`
@@ -342,7 +345,7 @@ describeDb("config activate requests", () => {
     expect(fresh.id).toBe(stale.id);
     expect(fresh.pending?.op_key).not.toBe(stale.pending?.op_key);
     say("TRK-9", "c-1", `config activate ${stale.id}`);
-    expect(await check()).toEqual([]);
+    expect(await check()).toEqual([readyBuild]);
     expect(await activeCrew()).toBe(stale.id);
     expect(await status(stale.pending?.op_key ?? "")).toBe("done");
     expect(await status(fresh.pending?.op_key ?? "")).toBe("done");
@@ -354,7 +357,7 @@ describeDb("config activate requests", () => {
     expect(second.id).toBe(first.id);
     expect(second.pending?.op_key).not.toBe(first.pending?.op_key);
     say("TRK-10", "c-1", `config activate ${first.id}`);
-    expect(await check()).toEqual([]);
+    expect(await check()).toEqual([readyBuild]);
     expect(await activeCrew()).toBe(first.id);
     expect(await status(first.pending?.op_key ?? "")).toBe("done");
     expect(await status(second.pending?.op_key ?? "")).toBe("done");
@@ -401,7 +404,7 @@ describeDb("config activate requests", () => {
       },
     });
     say("S-1", "c-1", comment);
-    expect(await check()).toEqual([]);
+    expect(await check()).toEqual([readyBuild]);
     expect(await activeCrew()).toBe(revision.id);
     expect(await status(opKey)).toBe("done");
   });
@@ -426,7 +429,7 @@ describeDb("config activate requests", () => {
     });
     const before = await activeCrew();
     say("TRK-9", "c-old", `config activate ${written.id}`);
-    expect(await check()).toEqual([]);
+    expect(await check()).toEqual([readyBuild]);
     expect(await status(written.pending?.op_key ?? "")).toBe("pending");
     expect(await activeCrew()).toBe(before);
   });
