@@ -754,4 +754,35 @@ describeDb("pod db migrate", () => {
       await conn.close();
     }
   });
+
+  test("a database at 0030 applies 0031, which admits the groom kind", async () => {
+    const db = openDb();
+    await db.sql`set client_min_messages = warning`;
+    await db.sql`drop schema if exists config, ledger, drizzle cascade`;
+    await db.close();
+    expect(await migrate(dbUrl(), journalThrough("0030_task_update"))).toEqual({
+      kind: "ok",
+      journal: 31,
+      applied: 31,
+    });
+    expect(runCli(["db", "migrate"])).toMatchObject({
+      status: 0,
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0030_task_update"),
+        },
+      },
+    });
+    const conn = openDb();
+    try {
+      const [check] = await conn.sql<{ definition: string }[]>`
+        select pg_get_constraintdef(oid) as definition
+        from pg_constraint where conname = 'revision_kind_check'`;
+      expect(check?.definition).toContain("'groom'");
+    } finally {
+      await conn.close();
+    }
+  });
 });

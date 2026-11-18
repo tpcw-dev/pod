@@ -1,0 +1,68 @@
+kind: groom
+name: default
+schema_version: 1
+scope: global
+scope_ref: ""
+parent: null
+value:
+  scale:
+    - 1
+    - 2
+    - 3
+    - 5
+    - 8
+  tiers:
+    "1": impl-small
+    "2": impl-small
+    "3": impl-medium
+    "5": never_launched
+    "8": never_launched
+  proves:
+    under:
+      - src
+      - test
+      - scripts
+  rubric:
+    prd:
+      "1": One audience named in the intake, one user story, and the requirements
+        already decided.
+      "2": One audience named in the intake, a few user stories, and little left to
+        decide.
+      "3": One audience and several user stories, an audience assumed from the intake,
+        or one open product question.
+      "5": Several audiences, or several open product questions.
+      "8": Several audiences on new product ground, with research needed before the
+        requirements.
+    impl:
+      "1": One file, and the change is obvious.
+      "2": A few files, with no design choice.
+      "3": One design choice, or one new view or endpoint.
+      "5": Several checkpoints, or a change to shared code.
+      "8": Many checkpoints, or new architecture.
+    design:
+      "1": One view, inside an existing pattern.
+      "2": A few views in existing patterns, with no new visual decision.
+      "3": One new view, or one new pattern or component.
+      "5": Several new views, or a flow across views.
+      "8": A new visual language, or many views with generated assets.
+  split_at: 8
+  child_max: 3
+  default_points:
+    - points: 1
+      max_paths: 1
+      max_callers: 2
+    - points: 2
+      max_paths: 3
+      max_callers: 5
+    - points: 3
+      max_paths: 6
+      max_callers: 10
+    - points: 5
+      max_paths: 12
+      max_callers: 25
+  points_to_size:
+    "1": xs
+    "2": s
+    "3": m
+    "5": l
+    "8": xl

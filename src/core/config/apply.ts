@@ -13,6 +13,7 @@ import { validateDecisionTemplates } from "../decide/templates.ts";
 import { fallbackProblem } from "../dispatch/seats.ts";
 import { validateProcess } from "../process/validate.ts";
 import { noSingleActive, singleActive } from "./active.ts";
+import { groomRefusal } from "./groom.ts";
 import { hostRefusal } from "./host.ts";
 import { projectRefusal } from "./project.ts";
 import { rateRefusal } from "./rate.ts";
@@ -194,6 +195,7 @@ async function processRefusal(
   if (envelope.kind === "project") return projectRefusal(envelope);
   if (envelope.kind === "rate") return rateRefusal(envelope);
   if (envelope.kind === "schedule") return scheduleRefusal(envelope);
+  if (envelope.kind === "groom") return groomRefusal(envelope);
   if (envelope.kind !== "process") return null;
   const { scope, scope_ref } = envelope;
   const crew = await singleActive(tx, "crew", scope, scope_ref);
