@@ -1,17 +1,8 @@
 import { z } from "zod";
 import { Json } from "./json.ts";
 
-export const kinds = [
-  "crew",
-  "process",
-  "policy",
-  "task",
-  "decision",
-  "host",
-  "project",
-  "rate",
-  "schedule",
-] as const;
+// prettier-ignore
+export const kinds = ["crew", "process", "policy", "task", "decision", "host", "project", "rate", "schedule", "groom"] as const;
 export const scopes = ["global", "project", "host", "run"] as const;
 
 export const Kind = z.enum(kinds);

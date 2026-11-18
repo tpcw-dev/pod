@@ -99,7 +99,7 @@ const profileKeys = [
 ];
 const deploySettings = ["needs_human", "agent"];
 const agentKinds = ["crew", "decision"];
-const personKinds = ["policy", "process"];
+const personKinds = ["policy", "process", "groom"];
 
 function agentActivatesProblem(
   name: string,

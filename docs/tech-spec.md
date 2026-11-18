@@ -113,13 +113,13 @@ A Snapshot hash is the sha256 of the canonical JSON of the three Revision ids pl
 
 #### Config tables
 
-`config.revision` holds one immutable version of a crew, process, policy, decision, host, project, or rate spec, or a Task spec.
+`config.revision` holds one immutable version of a crew, process, policy, decision, host, project, rate, schedule, or groom spec, or a Task spec.
 
 ```sql
 create table config.revision (
   id              text primary key,            -- sha256 of canonical JSON
   parent          text null references config.revision(id),
-  kind            text not null check (kind in ('crew', 'process', 'policy', 'task', 'decision', 'host', 'project', 'rate')),
+  kind            text not null check (kind in ('crew', 'process', 'policy', 'task', 'decision', 'host', 'project', 'rate', 'schedule', 'groom')),
   name            text not null,
   schema_version  int  not null,
   rev             int  not null,
@@ -155,6 +155,8 @@ create table config.activation (
 An apply that activates carries `expected_revision`. The current row's `revision_id` must equal it, or Pod refuses the apply with `revision_conflict`. `--expected-revision none` is the sentinel for a first activation. It succeeds only when no activation row exists for that scope, kind, and name, and otherwise Pod refuses it with `revision_conflict`. A bundle activates several rows in one transaction and stamps them with one `bundle_id`. A project activation overrides a global one. Every activation change also records an `activation` event, so the activation history survives the row replacement.
 
 Spec clarification: TPC-1479. A Revision that an agent Seat writes waits as a pending request until a person activates it. This adds no column to `config.revision` or `config.activation`. `pod config apply` or `pod config set` without `--activate` from a Seat stores the Revision. It then writes a `ledger.operation` row with intent `config_activate` and status `pending`, and an `activation_requested` event. The row's `result_ref.pending` carries the scope, kind, name, revision id, the expected Revision, the tracker ticket, and the actor. The expected Revision is the one active at the scope when the request was written: for `config set`, the Revision it derived from. The rule covers `crew`, `process`, `policy`, `decision`, `host`, `project`, `rate`, and `schedule`. A run-scope `task` Revision, such as one that `pod decide --effect change_spec` writes, never waits. A person's activation runs the same CAS as `--activate`, through `pod config activate` or a verified tracker comment that `pod check` reads back. It records the `activation` event with `activated_by` set to `person:<principal>`. A Seat write of the Revision already active at its scope writes no request.
+
+Spec clarification: S20a. The `groom` kind holds the grooming rubric that `pod groom` reads. One Revision, `groom.default` at global scope, is the rubric; any other scope or name is refused `schema_invalid`. Its value holds `scale`, the ascending story points; `points_to_size`, a Story size for every point; `rubric`, one table for each of the stages `impl`, `prd`, and `design` with a meaning for every point; `tiers`, the kickoff process name or `never_launched` for every point; `split_at`, the scale point at or above which a proposal is refused `split_required`; `child_max`, the largest point a child of a split takes, a scale point below `split_at`; `default_points`, rows of `points`, `max_paths`, and `max_callers` ascending by points, where the first row whose limits hold gives the points when the caller gives none, and no row holding gives `split_at`; and `proves.under`, the relative directories the proof counters search. Point-keyed maps use the point as a string key. A value missing a stage, a point, or a size is refused `schema_invalid` naming the path, such as `rubric.prd` or `points_to_size.8`. The TPC-1479 pending rule covers `groom`, and `agent_activates` refuses it as it refuses `policy` and `process`, because the rubric decides how much review a ticket gets. A Run's Snapshot pins no groom Revision: grooming happens before a Run. `specs/groom/default.yaml` is the seed, in the bytes `pod config export groom.default@1` prints.
 
 `config.snapshot` pins the three Revision ids a Run uses and the gate map they resolve to.
 

@@ -96,7 +96,8 @@ export function revisionReference(revision: Revision): ManifestReference {
     revision.kind === "host" ||
     revision.kind === "project" ||
     revision.kind === "rate" ||
-    revision.kind === "schedule"
+    revision.kind === "schedule" ||
+    revision.kind === "groom"
   )
     throw new TypeError(
       `a ${revision.kind} Revision is not an S4 revision reference`,

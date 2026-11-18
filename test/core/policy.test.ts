@@ -297,8 +297,8 @@ test.each([[[]], [["crew"]], [["crew", "decision"]]])(
   },
 );
 
-test.each([[["policy"]], [["process"]], [["crew", "process"]]])(
-  "agent_activates %j is schema_invalid: an agent never activates policy or process",
+test.each([[["policy"]], [["process"]], [["groom"]], [["crew", "process"]]])(
+  "agent_activates %j is schema_invalid: an agent never activates policy, process, or groom",
   (kinds) => {
     const refusal = validatePolicy(
       { profiles: { p: { agent_activates: kinds } } },
