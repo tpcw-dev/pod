@@ -1,4 +1,4 @@
-import type { StateView } from "../domain/state.ts";
+import type { GatesSection, StateView } from "../domain/state.ts";
 import type { TickLines } from "../domain/tick.ts";
 
 interface Stamp {
@@ -49,10 +49,34 @@ function tickLines(tick: TickLines | null): string[] {
   );
 }
 
+function gateLines(gates: GatesSection): string[] {
+  const head = `run ${gates.run_id} ${gates.run_state}`;
+  if (gates.status === "process_unreadable")
+    return [head, `status process_unreadable: ${gates.detail}`];
+  if (gates.items.length === 0) return [head, "no gated steps"];
+  return [
+    head,
+    ...gates.items.map((item) => {
+      const receipt = item.receipt;
+      const outcome =
+        receipt === null
+          ? "no receipt"
+          : `${receipt.outcome} ${receipt.candidate_sha} deployed ${receipt.deployed_revision ?? "none"} at ${receipt.created_at}`;
+      return `${item.gate} step ${item.step} ${item.type ?? "untyped"} keeper ${item.keeper ?? "none"} task ${item.task_id ?? "none"} ${item.task_state ?? "none"}: ${outcome}`;
+    }),
+  ];
+}
+
+function gatesEntry(view: StateView): [string, Stamp | null, string[]][] {
+  if (view.scope.story === null) return [];
+  if (view.gates === null) return [["Gates", null, ["none"]]];
+  return [["Gates", view.gates, gateLines(view.gates)]];
+}
+
 export function renderState(view: StateView): string {
   const { roadmap, runs, policies, decisions, usage, needs_human, learnings } =
     view;
-  const sections: [string, Stamp, string[]][] = [
+  const sections: [string, Stamp | null, string[]][] = [
     ["Roadmap", roadmap, roadmapLines(view)],
     [
       "Active Runs",
@@ -68,6 +92,7 @@ export function renderState(view: StateView): string {
         ),
       ),
     ],
+    ...gatesEntry(view),
     [
       "Policies in force and Reserved categories",
       policies,
@@ -132,7 +157,7 @@ export function renderState(view: StateView): string {
   ];
   const lines = sections.flatMap(([heading, stamp, body]) => [
     `## ${heading}`,
-    stampLine(stamp),
+    ...(stamp === null ? [] : [stampLine(stamp)]),
     ...body,
     "",
   ]);

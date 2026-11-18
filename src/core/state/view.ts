@@ -13,6 +13,7 @@ import { seatProviders, SeatsInvalid } from "../dispatch/seats.ts";
 import { fitBudget } from "./budget.ts";
 import {
   decisionsSection,
+  gatesSection,
   learningsSection,
   needsHumanSection,
   policiesSection,
@@ -90,6 +91,7 @@ export async function buildState(
     scope,
     roadmap: roadmap.section,
     runs: await runsSection(ctx, tree),
+    gates: await gatesSection(ctx, tree, scope),
     policies: policiesSection(
       ctx,
       policy,

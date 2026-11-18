@@ -8,6 +8,7 @@ import type { GateReceipt, Task } from "../domain/ledger.ts";
 import { HoldPayload } from "../domain/hold.ts";
 import type {
   DecisionsSection,
+  GatesSection,
   LearningsSection,
   NeedsHumanSection,
   PoliciesSection,
@@ -245,6 +246,88 @@ export async function runsSection(
       });
     }
   return { runs, source_revision: null, observed_at: observed(ctx) };
+}
+
+function newestTask(tasks: readonly Task[], stepId: string): Task | null {
+  const step = tasks.filter((row) => row.step_id === stepId);
+  return (
+    step
+      .filter((row) => step.every((other) => other.rework_of !== row.task_id))
+      .at(-1) ?? null
+  );
+}
+
+export function runGates(
+  run: Pick<BriefRun, "run" | "snapshot" | "tasks">,
+  receipts: readonly GateReceipt[],
+  observed_at: string,
+): GatesSection {
+  const base = {
+    run_id: run.run.run_id,
+    run_state: run.run.state,
+    source_revision: run.snapshot?.process_revision_id ?? null,
+    observed_at,
+  };
+  const process = run.snapshot?.process ?? null;
+  if (process === null)
+    return {
+      ...base,
+      status: "process_unreadable",
+      detail: "no pinned process",
+    };
+  const parsed = ProcessValue.safeParse(process.value);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return {
+      ...base,
+      status: "process_unreadable",
+      detail: `${issue?.path.join(".") ?? ""}: ${issue?.message ?? "invalid"}`,
+    };
+  }
+  const policy = run.snapshot?.policy?.value;
+  const items: Extract<GatesSection, { status: "ok" }>["items"] = [];
+  for (const step of parsed.data.steps) {
+    if (step.gate === undefined) continue;
+    const keeper = gateOf(policy, step.gate);
+    const task = newestTask(run.tasks, step.id);
+    const receipt =
+      task === null ? null : liveReceipt(receipts, task, step.gate);
+    items.push({
+      gate: step.gate,
+      step: step.id,
+      type: keeper?.type ?? null,
+      keeper: keeper?.keeper ?? null,
+      task_id: task?.task_id ?? null,
+      task_state: task?.state ?? null,
+      receipt:
+        receipt === null
+          ? null
+          : {
+              receipt_id: receipt.id,
+              outcome: receipt.outcome,
+              candidate_sha: receipt.candidate_sha,
+              deployed_revision: receipt.deployed_revision,
+              created_at: receipt.created_at.toISOString(),
+            },
+    });
+  }
+  return { ...base, status: "ok", items };
+}
+
+export async function gatesSection(
+  ctx: StateContext,
+  tree: BriefTree,
+  scope: StateScope,
+): Promise<GatesSection | null> {
+  if (scope.story === null) return null;
+  const story = tree.stories[0];
+  const run = story?.runs.find((row) => row.run.run_id === story.story.run_id);
+  if (run === undefined) return null;
+  return runGates(
+    run,
+    await ctx.repo.listGateReceipts(run.run.run_id),
+    observed(ctx),
+  );
 }
 
 function strings(value: unknown): string[] {
