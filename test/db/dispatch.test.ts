@@ -7,6 +7,7 @@ import {
 } from "../../src/core/dispatch/dispatch.ts";
 import { reconcileLaunches } from "../../src/core/check/reconcile.ts";
 import { launchIntents } from "../../src/core/dispatch/quota.ts";
+import { derivedOpKey } from "../../src/core/ledger/op-key.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import { runCreate } from "../../src/core/run/create.ts";
@@ -425,12 +426,64 @@ describeDb("pod dispatch", () => {
       },
     ]);
     const outcome = await dispatch(conn.db, orca, log, input({ opKey: "f-1" }));
-    expect(outcome).toMatchObject({ ok: false, refusal: { code: "failed" } });
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "failed",
+        message: "worker-start for Task task_b failed: no agent",
+      },
+    });
     expect((await conn.db.getTask("task_b"))?.state).toBe("ready");
     expect(await operation("f-1")).toEqual({
       status: "done",
       intent: "dispatch",
     });
+  });
+
+  test("a failed worker-start names the runtime error and the next op key", async () => {
+    const { orca, log } = replay([
+      {
+        verb: "worker-start",
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          error: {
+            code: "dependency_not_ready",
+            message: "dependency task_a is ready",
+          },
+        }),
+      },
+    ]);
+    const outcome = await dispatch(conn.db, orca, log, input());
+    orca.assertDone();
+    const next = `pod dispatch --task task_b --seat dev-1 --generation 1 --op-key ${derivedOpKey(
+      "dispatch",
+      { run_id: "run_1", task_id: "task_b", seat: "dev-1", attempt: "2" },
+    )}`;
+    expect(outcome).toMatchObject({
+      ok: false,
+      refusal: { code: "failed", nextSteps: [next, "pod check"] },
+    });
+    if (outcome.ok) throw new Error("dispatch started");
+    expect(outcome.refusal.message).toContain("dependency_not_ready");
+    expect(outcome.refusal.message).toContain("dependency task_a is ready");
+
+    const again = await run(noCalls());
+    expect(again).toMatchObject({
+      ok: false,
+      refusal: { code: "failed", nextSteps: [next, "pod check"] },
+    });
+    if (again.ok) throw new Error("replay started");
+    expect(again.refusal.message).toContain("failed before");
+    expect(again.refusal.message).toContain("dependency_not_ready");
+
+    const retried = replay([
+      ok("worker-start", started("ctx_2", "m-1"), devArgv),
+    ]);
+    const opKey = next.split(" ").at(-1) ?? null;
+    expect(
+      await dispatch(conn.db, retried.orca, retried.log, input({ opKey })),
+    ).toMatchObject({ ok: true, opKey, result: { dispatch_id: "ctx_2" } });
   });
 
   async function residentDecider() {

@@ -14,6 +14,7 @@ import type { Json } from "../../src/core/domain/json.ts";
 import { recordHqa } from "../../src/core/gate/hqa.ts";
 import { candidateSha } from "../../src/core/gate/receipt.ts";
 import { postVerdict } from "../../src/core/gate/verdict.ts";
+import { derivedOpKey } from "../../src/core/ledger/op-key.ts";
 import { runBlocked } from "../../src/core/ledger/run-blocked.ts";
 import { moveTask } from "../../src/core/ledger/move-task.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
@@ -1395,6 +1396,40 @@ describeDb("pod check names the coordinator's next step", () => {
       ok: false,
       refusal: { code: "role_unfilled" },
     });
+    expect(named(await quiet())).toEqual([]);
+  });
+
+  test("a failed dispatch op of a ready Task names the next op key until the Task has an open Dispatch", async () => {
+    await oneSeatRun();
+    const failed = replay(conn, [
+      {
+        verb: "worker-start",
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          error: { code: "dependency_not_ready", message: "not yet" },
+        }),
+      },
+    ]);
+    const refused = await dispatch(
+      conn.db,
+      failed.orca,
+      failed.log,
+      dispatchInput(),
+    );
+    expect(refused).toMatchObject({ ok: false, refusal: { code: "failed" } });
+    const key = derivedOpKey("dispatch", {
+      run_id: "run_1",
+      task_id: "task_b",
+      seat: "dev-1",
+      attempt: "2",
+    });
+    const named = (steps: string[]) =>
+      steps.filter((line) => line.startsWith("pod dispatch"));
+    expect(named(await quiet())).toEqual([
+      `${dispatchLine("task_b", "dev-1")} --op-key ${key}`,
+    ]);
+    await dispatched(conn, "ctx_1", { opKey: key });
     expect(named(await quiet())).toEqual([]);
   });
 

@@ -44,6 +44,24 @@ export function failure(verb: string, raw: unknown, exitCode: number): Json {
   return { outcome: "failed", verb, exitCode, raw: Json.parse(raw ?? null) };
 }
 
+const ErrorReply = z.looseObject({
+  result: z.looseObject({ lastError: z.string().nullish() }).nullish(),
+  error: z
+    .looseObject({
+      code: z.string().optional(),
+      message: z.string().optional(),
+    })
+    .nullish(),
+});
+
+export function runtimeError(raw: unknown): string | null {
+  const { result, error } = ErrorReply.safeParse(raw).data ?? {};
+  const named = [error?.code, error?.message].filter(
+    (part) => part !== undefined,
+  );
+  return named.length > 0 ? named.join(": ") : (result?.lastError ?? null);
+}
+
 type Unknown = Extract<LaunchOutcome, { kind: "unknown" }>;
 
 function requestIdOf({ result, error }: z.infer<typeof Envelope>) {

@@ -680,9 +680,13 @@ describeDb("pod run launch", () => {
       },
     ]);
     expect(refused).toMatchObject({ ok: false, refusal: { code: "failed" } });
-    expect(refused.ok ? [] : refused.refusal.nextSteps).toContain(
+    expect(refused.ok ? [] : refused.refusal.nextSteps).toEqual([
+      expect.stringMatching(
+        /^pod dispatch --task task_b --seat dev-1 --generation 1 --op-key dispatch:[0-9a-f]+$/,
+      ),
+      "pod check",
       "pod dispatch --task task_b --seat dev-1 --generation 1 --op-key <new>",
-    );
+    ]);
     expect(await operation()).toMatchObject({
       status: "done",
       result_ref: { run_id: "run_1", dispatch: { code: "failed" } },
