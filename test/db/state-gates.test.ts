@@ -225,6 +225,14 @@ describeDb("pod state story:<id> gates", () => {
     });
   });
 
+  test("when two Tasks of a step are newest, the last by task_id is listed", async () => {
+    await gated();
+    await conn.sql`insert into ledger.task (task_id, run_id, step_id, lineage_id, role, deps, spec_revision_id, state, rework_of, created_at)
+      select 'task_rx', run_id, step_id, lineage_id, role, deps, spec_revision_id, 'pending', null, now()
+      from ledger.task where task_id = 'task_r'`;
+    expect(items(await state())[0]?.task_id).toBe("task_rx");
+  });
+
   test("a process with no gated step lists no items, and an unreadable process says so", async () => {
     await gated();
     const tree = await conn.db.readBrief("S-1");
