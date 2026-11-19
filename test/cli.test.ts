@@ -187,6 +187,18 @@ test("a verb's usage error names the flags its input takes", () => {
   }
 });
 
+test("state --section is usage without a Story, with an unknown name, or with --html", () => {
+  for (const args of [
+    ["state", "--section", "gates"],
+    ["state", "story:X", "--section", "bogus"],
+    ["state", "story:X", "--section", "gates", "--html", "f"],
+  ]) {
+    const result = run(args, { POD_HOME: "/nonexistent" });
+    expect(result.status, args.join(" ")).toBe(2);
+    expect(JSON.parse(result.stdout).error.code, args.join(" ")).toBe("usage");
+  }
+});
+
 test("every verb's usage error lists its input's flags before pod --help", () => {
   const synopsis = new Map(
     verbs.map((verb) => {

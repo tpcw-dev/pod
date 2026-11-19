@@ -1,4 +1,8 @@
-import type { GatesSection, StateView } from "../domain/state.ts";
+import type {
+  GatesSection,
+  StateGatesView,
+  StateView,
+} from "../domain/state.ts";
 import type { TickLines } from "../domain/tick.ts";
 
 interface Stamp {
@@ -67,31 +71,51 @@ function gateLines(gates: GatesSection): string[] {
   ];
 }
 
-function gatesEntry(view: StateView): [string, Stamp | null, string[]][] {
+type Entry = [string, Stamp | null, string[]];
+
+function runsEntry({ runs }: StateGatesView): Entry {
+  return [
+    "Active Runs",
+    runs,
+    orNone(
+      runs.runs.map(
+        (run) =>
+          `${run.run_id} story ${run.story} ${run.state} generation ${run.owner_generation} process ${run.source_revision ?? "none"}: ${
+            run.waiting_on.length === 0
+              ? "waiting on nothing"
+              : run.waiting_on.join("; ")
+          }`,
+      ),
+    ),
+  ];
+}
+
+function gatesEntry(view: StateGatesView): Entry[] {
   if (view.scope.story === null) return [];
   if (view.gates === null) return [["Gates", null, ["none"]]];
   return [["Gates", view.gates, gateLines(view.gates)]];
 }
 
+function sectionLines(sections: Entry[]): string[] {
+  return sections.flatMap(([heading, stamp, body]) => [
+    `## ${heading}`,
+    ...(stamp === null ? [] : [stampLine(stamp)]),
+    ...body,
+    "",
+  ]);
+}
+
+export function renderStateGates(view: StateGatesView): string {
+  return sectionLines([runsEntry(view), ...gatesEntry(view)])
+    .join("\n")
+    .trimEnd();
+}
+
 export function renderState(view: StateView): string {
-  const { roadmap, runs, policies, decisions, usage, needs_human, learnings } =
-    view;
-  const sections: [string, Stamp | null, string[]][] = [
+  const { roadmap, policies, decisions, usage, needs_human, learnings } = view;
+  const sections: Entry[] = [
     ["Roadmap", roadmap, roadmapLines(view)],
-    [
-      "Active Runs",
-      runs,
-      orNone(
-        runs.runs.map(
-          (run) =>
-            `${run.run_id} story ${run.story} ${run.state} generation ${run.owner_generation} process ${run.source_revision ?? "none"}: ${
-              run.waiting_on.length === 0
-                ? "waiting on nothing"
-                : run.waiting_on.join("; ")
-            }`,
-        ),
-      ),
-    ],
+    runsEntry(view),
     ...gatesEntry(view),
     [
       "Policies in force and Reserved categories",
@@ -155,12 +179,7 @@ export function renderState(view: StateView): string {
       ),
     ],
   ];
-  const lines = sections.flatMap(([heading, stamp, body]) => [
-    `## ${heading}`,
-    ...(stamp === null ? [] : [stampLine(stamp)]),
-    ...body,
-    "",
-  ]);
+  const lines = sectionLines(sections);
   if (view.truncated) lines.push("truncated");
   lines.push(...view.routing.map((line) => `routing: ${line}`));
   return lines.join("\n").trimEnd();

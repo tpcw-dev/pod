@@ -5,6 +5,7 @@ import type { Revision, Scope } from "../domain/config.ts";
 import { refuse, type Refused } from "../domain/outcome.ts";
 import type {
   PoliciesSection,
+  StateGatesView,
   StateScope,
   StateView,
 } from "../domain/state.ts";
@@ -69,17 +70,25 @@ function pinnedCrews(tree: BriefTree): (Revision | null)[] {
   );
 }
 
+async function readTree(
+  ctx: StateContext,
+  story: string | null,
+): Promise<{ ok: true; tree: BriefTree } | Refused> {
+  const tree = await ctx.repo.readBrief(story);
+  if (story !== null && tree.stories.length === 0)
+    return refuse("story_not_found", `no Story has external_id ${story}`, [
+      "pod brief",
+    ]);
+  return { ok: true, tree };
+}
+
 export async function buildState(
   ctx: StateContext,
   scope: StateScope,
 ): Promise<{ ok: true; view: StateView } | Refused> {
-  const tree = await ctx.repo.readBrief(scope.story);
-  if (scope.story !== null && tree.stories.length === 0)
-    return refuse(
-      "story_not_found",
-      `no Story has external_id ${scope.story}`,
-      ["pod brief"],
-    );
+  const read = await readTree(ctx, scope.story);
+  if (!read.ok) return read;
+  const { tree } = read;
   const [level, ref] =
     scope.project === null
       ? (["global", ""] as const)
@@ -110,4 +119,20 @@ export async function buildState(
     routing: roadmap.routing,
   };
   return { ok: true, view: fitBudget(view, stateBudget) };
+}
+
+export async function buildStateGates(
+  ctx: StateContext,
+  scope: StateScope & { story: string },
+): Promise<{ ok: true; view: StateGatesView } | Refused> {
+  const read = await readTree(ctx, scope.story);
+  if (!read.ok) return read;
+  return {
+    ok: true,
+    view: {
+      scope,
+      runs: await runsSection(ctx, read.tree),
+      gates: await gatesSection(ctx, read.tree, scope),
+    },
+  };
 }

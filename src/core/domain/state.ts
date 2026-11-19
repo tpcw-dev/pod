@@ -168,11 +168,13 @@ export const LearningsSection = z.object({
 });
 export type LearningsSection = z.infer<typeof LearningsSection>;
 
+const Scope = z.object({
+  story: z.string().nullable(),
+  project: z.string().nullable(),
+});
+
 export const StateView = z.object({
-  scope: z.object({
-    story: z.string().nullable(),
-    project: z.string().nullable(),
-  }),
+  scope: Scope,
   roadmap: RoadmapSection,
   runs: RunsSection,
   gates: GatesSection.nullable(),
@@ -185,3 +187,10 @@ export const StateView = z.object({
   routing: z.array(z.string()),
 });
 export type StateView = z.infer<typeof StateView>;
+
+export const StateGatesView = z.strictObject({
+  scope: Scope,
+  runs: RunsSection,
+  gates: GatesSection.nullable(),
+});
+export type StateGatesView = z.infer<typeof StateGatesView>;
