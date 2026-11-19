@@ -41,7 +41,12 @@ import { readLog } from "../core/operate/log.ts";
 import { planDigest } from "../core/plan/plan.ts";
 import { Held, Ranked } from "../core/domain/plan.ts";
 import { waitingOn } from "../core/process/waiting.ts";
-import { guardrailCodes, PodError, throwRecordRefusal } from "./errors.ts";
+import {
+  guardrailCodes,
+  PodError,
+  throwRecordRefusal,
+  usageError,
+} from "./errors.ts";
 import {
   databaseUrl,
   readCredentials,
@@ -67,10 +72,27 @@ import { parseYaml } from "./yaml-file.ts";
 
 const storyArg = z.string().regex(/^story:.+$/);
 
+export const briefSections = [
+  "pending_requests",
+  "projects",
+  "stories",
+  "drift",
+  "usage",
+  "yesterday",
+  "tick",
+  "plan",
+  "happened",
+  "guardrails",
+  "standup",
+] as const;
+const BriefSectionName = z.enum(briefSections);
+type BriefSection = z.infer<typeof BriefSectionName>;
+
 export const BriefInput = z.strictObject({
   args: z.union([z.tuple([]), z.tuple([storyArg])]),
   project: z.string().min(1).optional(),
   html: z.string().min(1).optional(),
+  section: z.array(z.string()).optional(),
 });
 type BriefInput = z.infer<typeof BriefInput>;
 
@@ -282,6 +304,9 @@ export const BriefOutput = z.object({
 });
 type BriefResult = z.infer<typeof BriefOutput>;
 
+export const BriefPart = BriefOutput.partial().required({ window: true });
+type BriefPart = z.infer<typeof BriefPart>;
+
 function forProject(tree: BriefTree, project: string | null): BriefTree {
   if (project === null) return tree;
   return {
@@ -473,160 +498,208 @@ async function readGroom(
   return queue;
 }
 
-function toBriefResult(
+function storiesJson(
   tree: BriefTree,
-  projects: readonly (ProjectProfile & { digest: DigestBrief })[],
-  pending: BriefResult["pending_requests"],
-  drift: BriefResult["drift"],
+  profiles: readonly ProjectProfile[],
   usages: ReadonlyMap<string, RunUsage>,
-  usage: BriefResult["usage"],
-  plan: PlanJson,
-): Omit<
-  BriefResult,
-  "yesterday" | "tick" | "window" | "happened" | "guardrails" | "standup"
-> {
-  const current = new Map(projects.map((row) => [row.project, row.profile]));
-  return {
-    pending_requests: pending,
-    projects: [...projects],
-    stories: tree.stories.map((item) => ({
-      provider: item.story.provider,
-      external_id: item.story.external_id,
-      size: item.story.size,
-      stage: item.story.stage,
-      run_id: item.story.run_id,
-      dependencies: item.story.dependencies,
-      synced_at: iso(item.story.synced_at),
-      counters: item.counters,
-      runs: item.runs.map((run) => ({
-        run_id: run.run.run_id,
-        state: run.run.state,
-        owner_generation: run.run.owner_generation,
-        created_at: iso(run.run.created_at),
-        profile: run.snapshot?.profile ?? null,
-        profile_stale:
-          run.snapshot !== null &&
-          run.snapshot.profile !==
-            (current.get(run.snapshot.project ?? globalProject) ?? null),
-        snapshot:
-          run.snapshot === null
-            ? null
-            : {
-                hash: run.snapshot.hash,
-                pinned_at: iso(run.snapshot.pinned_at),
-                crew: revisionJson(run.snapshot.crew),
-                process: revisionJson(run.snapshot.process),
-                policy: revisionJson(run.snapshot.policy),
-              },
-        tasks: run.tasks.map((task) => ({
-          task_id: task.task_id,
-          state: task.state,
-          step_id: task.step_id,
-          role: task.role,
-          created_at: iso(task.created_at),
-          waiting_on: waitingOn(
-            run.snapshot?.process ?? null,
-            task,
-            run.decisions.find((row) => row.task_id === task.task_id),
-          ),
-        })),
-        dispatches: run.dispatches.map((dispatch) => ({
-          dispatch_id: dispatch.dispatch_id,
-          task_id: dispatch.task_id,
-          seat: dispatch.seat,
-          note:
-            dispatch.fallback_of === null
-              ? null
-              : `fallback of ${dispatch.fallback_of}`,
-          manifest_id: dispatch.manifest_id,
-          activity: dispatch.activity,
-          settlement: dispatch.settlement,
-          created_at: iso(dispatch.created_at),
-          tests: dispatch.tests.map((row) => ({
-            command: row.command,
-            exit_code: row.exit_code,
-            seconds: row.seconds,
-            timeout_seconds: row.timeout_seconds,
-          })),
-        })),
-        counters: run.counters,
-        measurement: {
-          ...run.measurement,
-          usage: usageOf(usages, run.run.run_id),
-        },
+): BriefResult["stories"] {
+  const current = new Map(profiles.map((row) => [row.project, row.profile]));
+  return tree.stories.map((item) => ({
+    provider: item.story.provider,
+    external_id: item.story.external_id,
+    size: item.story.size,
+    stage: item.story.stage,
+    run_id: item.story.run_id,
+    dependencies: item.story.dependencies,
+    synced_at: iso(item.story.synced_at),
+    counters: item.counters,
+    runs: item.runs.map((run) => ({
+      run_id: run.run.run_id,
+      state: run.run.state,
+      owner_generation: run.run.owner_generation,
+      created_at: iso(run.run.created_at),
+      profile: run.snapshot?.profile ?? null,
+      profile_stale:
+        run.snapshot !== null &&
+        run.snapshot.profile !==
+          (current.get(run.snapshot.project ?? globalProject) ?? null),
+      snapshot:
+        run.snapshot === null
+          ? null
+          : {
+              hash: run.snapshot.hash,
+              pinned_at: iso(run.snapshot.pinned_at),
+              crew: revisionJson(run.snapshot.crew),
+              process: revisionJson(run.snapshot.process),
+              policy: revisionJson(run.snapshot.policy),
+            },
+      tasks: run.tasks.map((task) => ({
+        task_id: task.task_id,
+        state: task.state,
+        step_id: task.step_id,
+        role: task.role,
+        created_at: iso(task.created_at),
+        waiting_on: waitingOn(
+          run.snapshot?.process ?? null,
+          task,
+          run.decisions.find((row) => row.task_id === task.task_id),
+        ),
       })),
+      dispatches: run.dispatches.map((dispatch) => ({
+        dispatch_id: dispatch.dispatch_id,
+        task_id: dispatch.task_id,
+        seat: dispatch.seat,
+        note:
+          dispatch.fallback_of === null
+            ? null
+            : `fallback of ${dispatch.fallback_of}`,
+        manifest_id: dispatch.manifest_id,
+        activity: dispatch.activity,
+        settlement: dispatch.settlement,
+        created_at: iso(dispatch.created_at),
+        tests: dispatch.tests.map((row) => ({
+          command: row.command,
+          exit_code: row.exit_code,
+          seconds: row.seconds,
+          timeout_seconds: row.timeout_seconds,
+        })),
+      })),
+      counters: run.counters,
+      measurement: {
+        ...run.measurement,
+        usage: usageOf(usages, run.run.run_id),
+      },
     })),
-    drift,
-    usage,
-    plan,
-  };
+  }));
 }
 
-export async function brief(input: BriefInput): Promise<BriefResult> {
+function once<T>(read: () => Promise<T>): () => Promise<T> {
+  let value: Promise<T> | undefined;
+  return () => (value ??= read());
+}
+
+async function readBriefParts(
+  input: BriefInput,
+  wanted: ReadonlySet<string>,
+): Promise<Record<string, unknown>> {
   const arg = input.args[0];
   const externalId = arg === undefined ? null : arg.slice("story:".length);
+  const project = input.project ?? null;
   const host = readHostProfile();
   const connection = connect(databaseUrl(host));
+  const db = connection.db;
   try {
-    const drift = await mirrorDrift(connection.db, host.mirrorDir);
-    const zone = await hostZone(connection.db, host.hostId);
+    const drift = wanted.has("drift")
+      ? await mirrorDrift(db, host.mirrorDir)
+      : null;
+    const zone = await hostZone(db, host.hostId);
+    const tree = once(async () => {
+      const read = await db.readBrief(externalId);
+      if (externalId !== null && read.stories.length === 0)
+        throw new PodError(
+          "story_not_found",
+          3,
+          `no Story has external_id ${externalId}`,
+          ["pod brief"],
+        );
+      return forProject(read, project);
+    });
+    if (
+      externalId !== null ||
+      ["projects", "stories", "standup"].some((name) => wanted.has(name))
+    )
+      await tree();
+    const now = new Date();
+    const since = await briefWindow(db, zone.zone, now);
+    const guardrails = once(() => readGuardrails(db, guardrailCodes, now));
+    const tick = once(() => newestTickLines(db, host.hostId));
+    const profiles = once(async () =>
+      (await projectProfiles(db, await tree())).filter(
+        (row) => project === null || row.project === project,
+      ),
+    );
+    const projects = once(async () => withDigests(db, await profiles()));
+    const plan = once(() => planSection(db, now));
+    const reads: Record<BriefSection, () => Promise<unknown>> = {
+      drift: async () => drift,
+      guardrails,
+      tick,
+      projects,
+      pending_requests: () => pendingRequests(db),
+      stories: async () =>
+        storiesJson(
+          await tree(),
+          await profiles(),
+          await runUsages(db, await tree()),
+        ),
+      usage: () => readUsageDay(db, zone.zone, todayView(zone.zone), null),
+      plan,
+      yesterday: async () =>
+        logJson(
+          await readLog(
+            db,
+            host.hostId,
+            yesterdayOf(dayOf(now, zone.zone)),
+            zone.zone,
+          ),
+        ),
+      happened: () => readHappened(db, since, now),
+      standup: async () =>
+        standupOf(
+          {
+            projects: await projects(),
+            tick: await tick(),
+            plan: await plan(),
+            guardrails: await guardrails(),
+          },
+          await readGroom(db, host, project, now),
+        ),
+    };
+    const parts: Record<string, unknown> = {};
+    for (const [name, read] of Object.entries(reads))
+      if (wanted.has(name)) parts[name] = await read();
     const nextSteps = [
       ...readCredentials(host).warnings(),
-      ...(drift.length === 0 ? [] : ["pod config export --all"]),
+      ...(drift === null || drift.length === 0
+        ? []
+        : ["pod config export --all"]),
       ...zone.nextSteps,
     ];
-    const project = input.project ?? null;
-    const read = await connection.db.readBrief(externalId);
-    if (externalId !== null && read.stories.length === 0)
-      throw new PodError(
-        "story_not_found",
-        3,
-        `no Story has external_id ${externalId}`,
-        ["pod brief"],
-      );
-    const tree = forProject(read, project);
-    const now = new Date();
-    const since = await briefWindow(connection.db, zone.zone, now);
-    const guardrails = await readGuardrails(connection.db, guardrailCodes, now);
-    const tick = await newestTickLines(connection.db, host.hostId);
-    const base = toBriefResult(
-      tree,
-      await withDigests(
-        connection.db,
-        (await projectProfiles(connection.db, tree)).filter(
-          (row) => project === null || row.project === project,
-        ),
-      ),
-      await pendingRequests(connection.db),
-      drift,
-      await runUsages(connection.db, tree),
-      await readUsageDay(connection.db, zone.zone, todayView(zone.zone), null),
-      await planSection(connection.db, now),
-    );
-    const result = BriefOutput.parse({
-      ...base,
-      yesterday: logJson(
-        await readLog(
-          connection.db,
-          host.hostId,
-          yesterdayOf(dayOf(now, zone.zone)),
-          zone.zone,
-        ),
-      ),
-      tick,
+    return {
+      ...parts,
       window: { since: iso(since), until: iso(now) },
-      happened: await readHappened(connection.db, since, now),
-      guardrails,
-      standup: standupOf(
-        { projects: base.projects, tick, plan: base.plan, guardrails },
-        await readGroom(connection.db, host, project, now),
-      ),
       ...(nextSteps.length === 0 ? {} : { nextSteps }),
-    });
-    if (input.html !== undefined)
-      writeFileSync(input.html, renderBriefHtml(JSON.stringify(result)));
-    return result;
+    };
   } finally {
     await connection.close();
   }
+}
+
+export async function brief(input: BriefInput): Promise<BriefResult> {
+  const result = BriefOutput.parse(
+    await readBriefParts(input, new Set(briefSections)),
+  );
+  if (input.html !== undefined)
+    writeFileSync(input.html, renderBriefHtml(JSON.stringify(result)));
+  return result;
+}
+
+export async function briefVerb(input: BriefInput): Promise<BriefPart> {
+  if (input.section === undefined) return brief(input);
+  const wanted = new Set<string>();
+  for (const name of input.section) {
+    const section = BriefSectionName.safeParse(name);
+    if (!section.success)
+      throw usageError(
+        `usage: brief --section ${name} is not a section`,
+        briefSections.map((each) => `pod brief --section ${each}`),
+      );
+    wanted.add(section.data);
+  }
+  if (input.html !== undefined)
+    throw usageError(
+      "usage: brief --section takes no --html; the HTML page renders the whole brief",
+      ["pod brief --html FILE"],
+    );
+  return BriefPart.parse(await readBriefParts(input, wanted));
 }

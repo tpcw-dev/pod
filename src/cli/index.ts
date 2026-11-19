@@ -107,6 +107,7 @@ const options = {
   publish: { type: "boolean" },
   until: { type: "string" },
   trigger: { type: "string", multiple: true },
+  section: { type: "string", multiple: true },
   "dry-run": { type: "boolean" },
   agenda: { type: "string" },
   slot: { type: "string" },
