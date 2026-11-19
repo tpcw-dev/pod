@@ -3,7 +3,7 @@ import {
   deliveryOutcome,
   type DeliveryMatch,
 } from "../../src/core/domain/delivery.ts";
-import type { OrcaMessage } from "../../src/core/ports/orca.ts";
+import { OrcaMessage } from "../../src/core/ports/orca.ts";
 
 function message(
   type: string,
@@ -99,4 +99,28 @@ test("a settled or superseded Dispatch is ignored before the type table", () => 
         kind: "ignored",
         reason: "settled_dispatch",
       });
+});
+
+test("a payload names stopReason and reason as strings, and drops any other value", () => {
+  const parse = (payload: object) =>
+    OrcaMessage.parse({
+      id: "msg_1",
+      type: "escalation",
+      payload: JSON.stringify(payload),
+    }).payload;
+  expect(parse({ dispatchId: "ctx_1", stopReason: "finished" })).toMatchObject({
+    dispatchId: "ctx_1",
+    stopReason: "finished",
+  });
+  expect(parse({ dispatchId: "ctx_1", reason: "timeout" })).toMatchObject({
+    reason: "timeout",
+  });
+  expect(parse({ dispatchId: "ctx_1", taskId: "task_1" })).toEqual({
+    dispatchId: "ctx_1",
+    taskId: "task_1",
+  });
+  const odd = parse({ dispatchId: "ctx_1", stopReason: 1, reason: {} });
+  expect(odd.dispatchId).toBe("ctx_1");
+  expect(odd.stopReason).toBeUndefined();
+  expect(odd.reason).toBeUndefined();
 });

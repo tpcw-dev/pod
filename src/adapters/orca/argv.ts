@@ -3,6 +3,7 @@ import type {
   RequestShowRequest,
   RunCreateRequest,
   RunShowRequest,
+  ReplyRequest,
   RunUseRequest,
   SendRequest,
   TaskCreateRequest,
@@ -119,6 +120,15 @@ export const argvFor = {
       ["--subject", req.subject],
       ["--body", req.body],
       ["--run", req.run],
+      ["--thread-id", req.threadId],
+      ["--from", req.from || undefined],
+      ["--retry-request", req.retryRequest],
+    ]),
+  reply: (req: ReplyRequest) =>
+    flags("reply", [
+      ["--id", req.id],
+      ["--body", req.body],
+      ["--from", req.from || undefined],
       ["--retry-request", req.retryRequest],
     ]),
   requestShow: (req: RequestShowRequest) =>

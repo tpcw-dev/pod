@@ -172,6 +172,7 @@ const placement: Record<EventType, Place> = {
   pr: quiet,
   deploy: quiet,
   release: quiet,
+  reply: under("Decided"),
   takeover: quiet,
   resume: quiet,
   learning: quiet,

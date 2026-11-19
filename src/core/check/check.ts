@@ -53,6 +53,7 @@ import {
   type FollowUp,
 } from "./follow-up.ts";
 import { reconcileLaunches, type Reconciled } from "./reconcile.ts";
+import { cut, type Question } from "./reply.ts";
 import { reconcileTakeovers } from "./takeover-reconcile.ts";
 import { recordNoSource } from "./usage.ts";
 import { nextSteps } from "./next-steps.ts";
@@ -79,6 +80,7 @@ export interface CheckResult {
   unknown_workers: string[];
   free_slots: number;
   nextSteps: string[];
+  questions: Question[];
 }
 
 const openTaskStates = ["ready", "dispatched", "delivered"];
@@ -263,6 +265,7 @@ async function runPass(
     freeSlots: result.free_slots,
   });
   result.nextSteps.push(...next.lines);
+  result.questions = next.questions;
   result.nextSteps.push(...(await recordNoSource(db, run, input.now())));
   return {
     checked: { ok: true, result, orca: version },
@@ -349,6 +352,7 @@ function emptyResult(runId: string): CheckResult {
     unknown_workers: [],
     free_slots: 0,
     nextSteps: [],
+    questions: [],
   };
 }
 
@@ -529,6 +533,15 @@ async function matchOf(tx: Repo, run: Run, dispatch: Dispatch | null) {
   };
 }
 
+function waitingFields(message: OrcaMessage) {
+  const reason = message.payload.stopReason ?? message.payload.reason ?? null;
+  return {
+    ...cut(message.body),
+    notice: reason !== null,
+    notice_reason: reason,
+  };
+}
+
 async function recordMessage(
   tx: Repo,
   run: Run,
@@ -638,6 +651,7 @@ async function recordMessage(
       ...said,
       outcome: row.outcome,
       subject: message.subject ?? null,
+      ...(row.outcome === "waiting" ? waitingFields(message) : {}),
       ...decision,
       ...(report.kind === "report" ? report.fields : {}),
     }),

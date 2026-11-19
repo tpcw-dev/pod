@@ -83,6 +83,7 @@ export function noCalls(): OrcaPort {
     workerRelease: refuse,
     check: refuse,
     send: refuse,
+    reply: refuse,
     requestShow: refuse,
     workerList: refuse,
     terminalShow: refuse,

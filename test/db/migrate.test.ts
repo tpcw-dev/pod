@@ -785,4 +785,39 @@ describeDb("pod db migrate", () => {
       await conn.close();
     }
   });
+
+  test("a database at 0031 applies 0032, which admits the reply event and intent", async () => {
+    const db = openDb();
+    await db.sql`set client_min_messages = warning`;
+    await db.sql`drop schema if exists config, ledger, drizzle cascade`;
+    await db.close();
+    expect(await migrate(dbUrl(), journalThrough("0031_groom_kind"))).toEqual({
+      kind: "ok",
+      journal: 32,
+      applied: 32,
+    });
+    expect(runCli(["db", "migrate"])).toMatchObject({
+      status: 0,
+      json: {
+        ok: true,
+        result: {
+          journal: journalLength(),
+          applied: entriesAfter("0031_groom_kind"),
+        },
+      },
+    });
+    const conn = openDb();
+    try {
+      const defs = await conn.sql<{ name: string; def: string }[]>`
+        select conname as name, pg_get_constraintdef(oid) as def from pg_constraint
+        where conname in ('event_type_check', 'operation_intent_check')
+        order by conname`;
+      for (const name of ["event_type_check", "operation_intent_check"])
+        expect(defs.find((each) => each.name === name)?.def).toContain(
+          "'reply'::text",
+        );
+    } finally {
+      await conn.close();
+    }
+  });
 });

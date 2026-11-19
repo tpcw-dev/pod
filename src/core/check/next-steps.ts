@@ -8,6 +8,7 @@ import { drainInForce } from "../ledger/drain-in-force.ts";
 import type { Db } from "../ports/db.ts";
 import { readProcess } from "../process/project.ts";
 import { afterClose, type Step } from "../process/schema.ts";
+import { openQuestions, questionLine, type Question } from "./reply.ts";
 
 export interface NextSteps {
   lines: string[];
@@ -41,7 +42,7 @@ const DispatchRequest = z.looseObject({
 export async function nextSteps(
   db: Db,
   input: Context & { freeSlots: number },
-): Promise<NextSteps> {
+): Promise<NextSteps & { questions: Question[] }> {
   const run = (await db.getRun(input.run.run_id)) ?? input.run;
   const context = { ...input, run };
   const tasks = await db.listTasks(run.run_id);
@@ -60,7 +61,15 @@ export async function nextSteps(
   }
   const gated = await gateLines(db, context, open, pinned?.policy);
   lines.push(...gated.lines);
-  return { lines, runnableCount: runnableCount + gated.runnableCount };
+  const questions = await openQuestions(db, run);
+  lines.push(
+    ...questions.map((question) => questionLine(question, input.generation)),
+  );
+  return {
+    lines,
+    runnableCount: runnableCount + gated.runnableCount + questions.length,
+    questions,
+  };
 }
 
 async function nextKeys(
