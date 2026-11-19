@@ -255,6 +255,43 @@ describe("groupLog", () => {
     ).flatMap((group) => group.lines);
     expect(line?.text).toHaveLength(160);
   });
+
+  test("a gate receipt is a Decided line with its gate, outcome, and receipt id; an adapter receipt is quiet", () => {
+    const receipt = (id: number, payload: Json): Event => ({
+      ...events[0]!,
+      ...row("receipt", "2026-11-15T12:00:00.000Z", payload, {
+        run_id: "run-1",
+      }),
+      id,
+    });
+    const groups = groupLog(
+      [
+        receipt(41, {
+          receipt_id: 7,
+          gate: "pr",
+          outcome: "PASS",
+          candidate_sha: "abc123",
+        }),
+        receipt(42, {
+          receipt_id: 8,
+          gate: "hqa",
+          outcome: "FAIL",
+          comment_id: "c-1",
+          actor: "person:human",
+        }),
+        receipt(43, { verb: "tracker.comment", endedAt: "x", ok: true }),
+      ],
+      "local",
+    );
+    expect(
+      groups.flatMap((group) =>
+        group.lines.map((line) => `${group.heading}: ${line.text}`),
+      ),
+    ).toEqual([
+      "Decided: receipt run run-1 gate=pr outcome=PASS receipt_id=7",
+      "Decided: receipt run run-1 gate=hqa outcome=FAIL receipt_id=8",
+    ]);
+  });
 });
 
 describeDb("pod log", () => {

@@ -37,6 +37,7 @@ export const RunsSection = z.object({
       run_id: z.string(),
       story: z.string(),
       state: z.string(),
+      owner_generation: z.int(),
       source_revision: z.string().nullable(),
       waiting_on: z.array(z.string()),
     }),

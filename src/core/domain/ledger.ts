@@ -91,6 +91,12 @@ export function statusesMovingTo(to: OperationStatus): OperationStatus[] {
 export const Size = z.enum(["xs", "s", "m", "l", "xl"]);
 export type Size = z.infer<typeof Size>;
 
+export const GateReceiptPayload = z.looseObject({
+  receipt_id: z.number(),
+  gate: z.string(),
+  outcome: z.enum(["PASS", "FAIL"]),
+});
+
 export const RunState = z.enum(["active", "hold", "drained", "done"]);
 export type RunState = z.infer<typeof RunState>;
 

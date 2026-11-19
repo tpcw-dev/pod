@@ -228,6 +228,7 @@ export const BriefOutput = z.object({
         z.object({
           run_id: z.string(),
           state: z.string(),
+          owner_generation: z.int(),
           created_at: z.string(),
           profile: z.string().nullable(),
           profile_stale: z.boolean(),
@@ -500,6 +501,7 @@ function toBriefResult(
       runs: item.runs.map((run) => ({
         run_id: run.run.run_id,
         state: run.run.state,
+        owner_generation: run.run.owner_generation,
         created_at: iso(run.run.created_at),
         profile: run.snapshot?.profile ?? null,
         profile_stale:

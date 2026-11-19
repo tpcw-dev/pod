@@ -84,7 +84,7 @@ export function renderState(view: StateView): string {
       orNone(
         runs.runs.map(
           (run) =>
-            `${run.run_id} story ${run.story} ${run.state} process ${run.source_revision ?? "none"}: ${
+            `${run.run_id} story ${run.story} ${run.state} generation ${run.owner_generation} process ${run.source_revision ?? "none"}: ${
               run.waiting_on.length === 0
                 ? "waiting on nothing"
                 : run.waiting_on.join("; ")

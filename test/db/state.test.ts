@@ -147,6 +147,20 @@ describeDb("pod state", () => {
     return snapshot?.process_revision_id ?? "";
   }
 
+  async function ownerGeneration(): Promise<number> {
+    const [row] = await conn.sql<{ owner_generation: number }[]>`
+      select owner_generation from ledger.run where run_id = 'run_1'`;
+    return row?.owner_generation ?? -1;
+  }
+
+  test("an active Run shows its owner generation as JSON and as text", async () => {
+    await conn.sql`
+      update ledger.run set owner_generation = 4 where run_id = 'run_1'`;
+    const view = await state();
+    expect(view.runs.runs[0]?.owner_generation).toBe(4);
+    expect(renderState(view)).toMatch(/^run_1 story S-1 active generation 4 /m);
+  });
+
   test("every section carries source_revision and observed_at", async () => {
     const view = await state({ project: "pod" }, fakeDocs(roadmapPage));
     for (const name of sections) {
@@ -160,6 +174,7 @@ describeDb("pod state", () => {
         run_id: "run_1",
         story: "S-1",
         state: "active",
+        owner_generation: await ownerGeneration(),
         source_revision: await processRevision(),
         waiting_on: [
           "task_r gate pr keeper human-gatekeeper",

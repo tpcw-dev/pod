@@ -251,6 +251,20 @@ describeDb("pod brief", () => {
     expect(opsAfter?.n).toBe(opsBefore?.n);
   });
 
+  test("each Run in the brief carries its owner generation", async () => {
+    await conn.sql`
+      update ledger.run set owner_generation = 4 where run_id = 'run-1'`;
+    try {
+      const result = runBrief(cwd, ["brief", "story:S-1"]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.result.stories[0].runs[0].owner_generation).toBe(4);
+    } finally {
+      await conn.sql`
+        update ledger.run set owner_generation = 1 where run_id = 'run-1'`;
+    }
+  });
+
   test("a mirror_dir that is a file leaves brief running, with every active Revision mirror stale", () => {
     const file = join(cwd, "not-a-dir");
     writeFileSync(file, "x\n");
@@ -398,7 +412,7 @@ describeDb("pod brief", () => {
         task_id: null,
         decision_id: null,
         run_id: "run-1",
-      owner_host: "local",
+        owner_host: "local",
         seat: `${role}-seat`,
         role,
         requested_launch: {},
