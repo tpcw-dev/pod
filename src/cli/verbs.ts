@@ -135,7 +135,7 @@ import {
   usageRecordVerb,
   usageVerb,
 } from "./usage-verbs.ts";
-import { renderState } from "../core/state/render.ts";
+import { renderState, renderStateGates } from "../core/state/render.ts";
 import {
   DrainInput,
   drainMeta,
@@ -236,7 +236,8 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     evidenceRequired: [
       "a Story whose external_id matches story:<id> when that argument is set",
     ],
-    render: renderState,
+    render: (view) =>
+      "roadmap" in view ? renderState(view) : renderStateGates(view),
   }),
   row({
     name: "config apply",

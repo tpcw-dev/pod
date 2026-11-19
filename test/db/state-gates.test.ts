@@ -5,13 +5,19 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import type { StateView } from "../../src/core/domain/state.ts";
+import type { Repo } from "../../src/core/ports/db.ts";
 import { recordHqa } from "../../src/core/gate/hqa.ts";
 import { postVerdict } from "../../src/core/gate/verdict.ts";
 import { receiptLog } from "../../src/core/ledger/receipts.ts";
 import { fitBudget } from "../../src/core/state/budget.ts";
-import { renderState } from "../../src/core/state/render.ts";
+import { renderState, renderStateGates } from "../../src/core/state/render.ts";
 import { runGates } from "../../src/core/state/sections.ts";
-import { buildState, stateBudget } from "../../src/core/state/view.ts";
+import {
+  buildState,
+  buildStateGates,
+  stateBudget,
+} from "../../src/core/state/view.ts";
+import type { DocsPort } from "../../src/core/ports/docs.ts";
 import { noCalls } from "../orca/temp-fixtures.ts";
 import { fakeTracker } from "./fake-tracker.ts";
 import { deliver, gatedRun, headSha } from "./gate-fixture.ts";
@@ -300,5 +306,67 @@ describeDb("pod state story:<id> gates", () => {
     const text = renderState(fitted);
     expect(text).toContain("review step review AQA");
     expect(text).toContain("merge step ship HQA");
+  });
+
+  function gatesReadsOnly(repo: Repo): Repo {
+    const allowed = new Set(["readBrief", "listGateReceipts", "latestEvent"]);
+    return new Proxy(repo, {
+      get(target, name, receiver) {
+        if (typeof name === "string" && !allowed.has(name))
+          throw new Error(`the gates-only view read ${name}`);
+        return Reflect.get(target, name, receiver);
+      },
+    });
+  }
+
+  const docsUnread = new Proxy({} as DocsPort, {
+    get(_target, name) {
+      throw new Error(`the gates-only view read docs ${String(name)}`);
+    },
+  });
+
+  test("the gates-only view equals the full view's gates and runs and makes no other read", async () => {
+    await gated();
+    await postReview();
+    await recordMerge();
+    const full = await state();
+    const built = await buildStateGates(
+      {
+        repo: gatesReadsOnly(conn.db),
+        host: "local",
+        docs: docsUnread,
+        now: () => now,
+      },
+      { story: "S-1", project: null },
+    );
+    if (!built.ok) throw new Error(built.refusal.message);
+    expect(built.view).toEqual({
+      scope: { story: "S-1", project: null },
+      runs: full.runs,
+      gates: full.gates,
+    });
+    expect(items(full)[1]?.receipt).toMatchObject({ outcome: "PASS" });
+  });
+
+  test("the gates-only view refuses an unknown Story and renders only Active Runs and Gates", async () => {
+    await gated();
+    const ctx = { repo: conn.db, host: "local", docs: null, now: () => now };
+    const missing = await buildStateGates(ctx, {
+      story: "S-404",
+      project: null,
+    });
+    expect(missing).toMatchObject({
+      ok: false,
+      refusal: { code: "story_not_found" },
+    });
+    const built = await buildStateGates(ctx, { story: "S-1", project: null });
+    if (!built.ok) throw new Error(built.refusal.message);
+    const text = renderStateGates(built.view);
+    expect(text.match(/^## .*$/gm)).toEqual(["## Active Runs", "## Gates"]);
+    expect(text).toContain(
+      "review step review AQA keeper rev-1 task task_r delivered: no receipt",
+    );
+    const full = renderState(await state());
+    for (const line of text.split("\n")) expect(full).toContain(line);
   });
 });
