@@ -52,6 +52,27 @@ describe("matching, pure", () => {
     );
   });
 
+  test("a host file ref is not a repo path", () => {
+    expect([...codePaths(["file:~/notes/run.md", "file:/var/log/run.log"])]).toEqual(
+      [],
+    );
+    const rows = [
+      {
+        id: 1,
+        kind: "lead",
+        expected: "check the log first",
+        evidence_refs: ["file:~/notes/run.md", "file:/var/log/run.log"],
+      },
+    ];
+    expect(
+      matchLearning(rows, {
+        kind: "lead",
+        expected: "rerun the step",
+        evidence_refs: ["file:~/notes/run.md", "file:/var/log/run.log"],
+      }),
+    ).toEqual([]);
+  });
+
   test("matchLearning reads kind, expected text, and shared code paths", () => {
     const rows = [
       { id: 1, kind: "lead", expected: "ship it", evidence_refs: ["pr:1"] },

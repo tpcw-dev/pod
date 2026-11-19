@@ -46,6 +46,7 @@ export function codePaths(refs: readonly string[]): Set<string> {
     const repo = found?.[1];
     const path = found?.[2];
     if (repo === undefined || path === undefined) continue;
+    if (path.startsWith("/") || path.startsWith("~")) continue;
     if (path.includes("/") || path.includes(".")) paths.add(`${repo}:${path}`);
   }
   return paths;
