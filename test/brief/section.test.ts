@@ -128,6 +128,26 @@ describeDb("pod brief --section", () => {
     ).toEqual(["projects", "window"]);
   });
 
+  test("the mirror next step comes only with the drift section", () => {
+    const drift = runCli(["brief", "--section", "drift"], env);
+    expect(drift.status, JSON.stringify(drift.json)).toBe(0);
+    expect(drift.json.result?.["drift"]).not.toEqual([]);
+    expect(drift.json.result?.["nextSteps"]).toContain(
+      "pod config export --all",
+    );
+    const usage = runCli(["brief", "--section", "usage"], env);
+    expect(usage.status, JSON.stringify(usage.json)).toBe(0);
+    expect(usage.json.result?.["nextSteps"] ?? []).not.toContain(
+      "pod config export --all",
+    );
+  });
+
+  test("an unknown story is story_not_found with any section", () => {
+    const read = runCli(["brief", "story:missing", "--section", "usage"], env);
+    expect(read.status).toBe(3);
+    expect(read.json.error?.code).toBe("story_not_found");
+  });
+
   test("an unknown section is usage and names every accepted section", () => {
     const read = runCli(["brief", "--section", "bogus"], env);
     expect(read.status).toBe(2);
