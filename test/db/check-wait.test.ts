@@ -221,6 +221,37 @@ describeDb("pod check --wait", () => {
     expect(slept).toEqual([]);
   });
 
+  test("an open question ends the wait on the first pass", async () => {
+    await conn.sql`update ledger.dispatch set activity = 'waiting'`;
+    await conn.db.appendEvent({
+      type: "delivery",
+      ts: new Date(clock),
+      host: "local",
+      run_id: "run_1",
+      task_id: "task_b",
+      dispatch_id: "ctx_1",
+      op_key: null,
+      payload: {
+        message_id: "msg_q",
+        delivery_id: "delivery_q",
+        type: "escalation",
+        outcome: "waiting",
+        subject: "help",
+      },
+      source: { kind: "command", verb: "check" },
+    });
+    const outcome = await wait(quiet);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        nextSteps: expect.arrayContaining([
+          "worker asks on ctx_1 (help): pod reply --message msg_q --generation 1 FILE",
+        ]),
+      },
+    });
+    expect(slept).toEqual([]);
+  });
+
   test("an owed verdict ends the wait on the first pass", async () => {
     await gatedRun(conn, { gates: { pr: { keeper: "rev-1", type: "AQA" } } });
     const { orca, log } = replay(conn, [

@@ -156,6 +156,9 @@ import {
   ReleaseInput,
   ReleaseOutput,
   releaseVerb,
+  ReplyInput,
+  ReplyOutput,
+  replyVerb,
   RetryInput,
   RetryOutput,
   retryVerb,
@@ -431,6 +434,18 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     cancelBy: ["nobody"],
     evidenceRequired: [
       "the Dispatch is settled or the caller gives a retain reason, and this host owns the terminal",
+    ],
+    meta: runMeta,
+  }),
+  row({
+    name: "reply",
+    input: ReplyInput,
+    output: ReplyOutput,
+    handler: replyVerb,
+    sideEffect: "orca",
+    cancelBy: ["nobody"],
+    evidenceRequired: [
+      "a waiting delivery on an open Run Dispatch that is not a decider or auditor, recorded by pod check, and an owner generation that matches its Run",
     ],
     meta: runMeta,
   }),

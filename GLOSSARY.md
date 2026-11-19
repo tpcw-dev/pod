@@ -56,3 +56,4 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Hand-filled entry**: an event whose content a person typed.
 - **Recovery step**: an event that retries, resumes, takes over, or releases work on a Run.
 - **Standup**: the operator's daily sitting. `pod standup` prints its agenda, and `pod standup done` or `pod standup skip` records the one `standup` event of the day, which also ends the attention pause on every host.
+- **Open question**: a worker's `escalation` or `question` delivery, or a runtime notice, on an open Run Dispatch that no `reply` event answers yet. `pod check` names it and `pod reply` answers it.

@@ -13,6 +13,7 @@ const sideEffectVerbs = [
   "check",
   "retry",
   "release",
+  "reply",
   "verdict post",
   "hqa record",
   "decide",
@@ -100,6 +101,7 @@ const extraVerbs = [
   { story: "TPC-1523", name: "standup", sideEffect: "none" },
   { story: "TPC-1523", name: "standup done", sideEffect: "ledger" },
   { story: "TPC-1523", name: "standup skip", sideEffect: "ledger" },
+  { story: "S22o", name: "reply", sideEffect: "orca" },
 ] as const;
 
 function trim(value: string): string {

@@ -18,6 +18,7 @@ import {
 } from "../core/config/service-kinds.ts";
 import { dispatch } from "../core/dispatch/dispatch.ts";
 import { release } from "../core/dispatch/release.ts";
+import { reply } from "../core/check/reply.ts";
 import {
   retry,
   retryPlan,
@@ -461,6 +462,22 @@ const PassOutput = z.object({
   unknown_workers: z.array(z.string()),
   free_slots: z.int(),
   nextSteps: z.array(z.string()),
+  questions: z.array(
+    z.object({
+      message_id: z.string(),
+      dispatch_id: z.string(),
+      task_id: z.string().nullable(),
+      type: z.string(),
+      subject: z.string().nullable(),
+      body: z.string().nullable(),
+      body_truncated: z.boolean(),
+      notice: z.boolean(),
+      folded: z.array(z.string()),
+      unfinished: z
+        .object({ op_key: z.string(), status: z.string() })
+        .nullable(),
+    }),
+  ),
   owner_generation: z.int(),
   orca: z.string().nullable(),
 });
@@ -689,6 +706,55 @@ export async function releaseVerb(input: ReleaseInput): Promise<ReleaseOutput> {
         dispatch: input.dispatch,
         generation: Number(input.generation),
         retain: input.reason ?? null,
+        host: host.hostId,
+        now: () => new Date(),
+      }),
+  );
+  return { ...result, op_key: opKey, orca };
+}
+
+const replyLimit = 100_000;
+
+export const ReplyInput = z.strictObject({
+  args: z.tuple([z.string().min(1)]),
+  message: z.string().min(1),
+  generation: Generation,
+});
+type ReplyInput = z.infer<typeof ReplyInput>;
+
+export const ReplyOutput = z.object({
+  message_id: z.string(),
+  dispatch_id: z.string(),
+  task_id: z.string().nullable(),
+  transport: z.enum(["reply", "thread"]),
+  content_hash: z.string(),
+  sent_message_id: z.string().nullable(),
+  replayed: z.boolean(),
+  answered_elsewhere: z.boolean(),
+  owner_generation: z.int(),
+  op_key: z.string(),
+  orca: z.string(),
+});
+type ReplyOutput = z.infer<typeof ReplyOutput>;
+
+function answerText(path: string): string {
+  const text = readText(path).trimEnd();
+  if (text === "") throw usageError(`${path} holds no answer text`);
+  if (Buffer.byteLength(text, "utf8") > replyLimit)
+    throw usageError(`${path} holds more than ${replyLimit} bytes`, [
+      "shorten the answer, or point the worker to a file",
+    ]);
+  return text;
+}
+
+export async function replyVerb(input: ReplyInput): Promise<ReplyOutput> {
+  const body = answerText(input.args[0]);
+  const { result, opKey, orca } = await withOrca(
+    ({ db, orca: port, log, host }) =>
+      reply(db, port, log, {
+        message: input.message,
+        body,
+        generation: Number(input.generation),
         host: host.hostId,
         now: () => new Date(),
       }),

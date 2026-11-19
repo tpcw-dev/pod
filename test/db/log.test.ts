@@ -292,6 +292,37 @@ describe("groupLog", () => {
       "Decided: receipt run run-1 gate=hqa outcome=FAIL receipt_id=8",
     ]);
   });
+
+  test("a reply is a Decided line that leaves out the answer text", () => {
+    const groups = groupLog(
+      [
+        {
+          ...events[0]!,
+          ...row(
+            "reply",
+            "2026-11-15T12:00:00.000Z",
+            {
+              question_id: "msg_q",
+              transport: "reply",
+              content_hash: "abc",
+              body: "the answer text",
+              body_truncated: false,
+              sent_message_id: null,
+              answered_elsewhere: false,
+            },
+            { run_id: "run-1" },
+          ),
+          id: 44,
+        },
+      ],
+      "local",
+    );
+    expect(
+      groups.flatMap((group) =>
+        group.lines.map((line) => `${group.heading}: ${line.text}`),
+      ),
+    ).toEqual(["Decided: reply run run-1"]);
+  });
 });
 
 describeDb("pod log", () => {

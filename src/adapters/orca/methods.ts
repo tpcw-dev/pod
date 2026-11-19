@@ -38,6 +38,7 @@ export function methods(call: Call): Omit<OrcaPort, "version"> {
       call(argvFor.workerRelease(req), WorkerReleaseResult),
     check: (req) => call(argvFor.check(req), CheckResult),
     send: (req) => call(argvFor.send(req), LooseResult),
+    reply: (req) => call(argvFor.reply(req), LooseResult),
     requestShow: (req) => call(argvFor.requestShow(req), RequestShowResult),
     workerList: (req) => call(argvFor.workerList(req), WorkerListResult),
     terminalShow: (req) => call(argvFor.terminalShow(req), TerminalShowResult),

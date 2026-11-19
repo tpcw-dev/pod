@@ -154,7 +154,57 @@ const sent = {
       run: "run_1",
       ...sender(from),
     }),
+  send: (from?: string) =>
+    argvFor.send({
+      to: "dispatch:ctx_1",
+      subject: "s",
+      body: "b",
+      ...sender(from),
+    }),
+  reply: (from?: string) =>
+    argvFor.reply({ id: "msg_1", body: "b", ...sender(from) }),
 };
+
+test("reply answers a message by id with the body", () => {
+  expect(
+    argvFor.reply({ id: "msg_1", body: "the answer", from: "term_coord" }),
+  ).toEqual([
+    "orchestration",
+    "reply",
+    "--id",
+    "msg_1",
+    "--body",
+    "the answer",
+    "--from",
+    "term_coord",
+    "--json",
+    "--full",
+  ]);
+});
+
+test("send names a thread only when asked, after --run", () => {
+  const base = { to: "dispatch:ctx_1", subject: "s", body: "b", run: "run_1" };
+  expect(argvFor.send(base)).toEqual([
+    "orchestration",
+    "send",
+    "--to",
+    "dispatch:ctx_1",
+    "--subject",
+    "s",
+    "--body",
+    "b",
+    "--run",
+    "run_1",
+    "--json",
+    "--full",
+  ]);
+  expect(argvFor.send({ ...base, threadId: "msg_1" }).slice(8, 12)).toEqual([
+    "--run",
+    "run_1",
+    "--thread-id",
+    "msg_1",
+  ]);
+});
 
 test.each(Object.keys(sent) as (keyof typeof sent)[])(
   "%s names the sender with --from before --json",

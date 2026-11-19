@@ -12,6 +12,7 @@ export interface OrcaPort {
   workerRelease(req: WorkerReleaseRequest): Promise<Receipt<WorkerReleaseResult>>
   check(req: CheckRequest): Promise<Receipt<CheckResult>>      // includes ack
   send(req: SendRequest): Promise<Receipt<SendResult>>
+  reply(req: ReplyRequest): Promise<Receipt<SendResult>>
   requestShow(req: RequestShowRequest): Promise<Receipt<RequestShowResult>>
   workerList(req: WorkerListRequest): Promise<Receipt<WorkerListResult>>
   terminalShow(req: TerminalShowRequest): Promise<Receipt<TerminalShowResult>>
@@ -154,6 +155,15 @@ export interface SendRequest {
   subject: string;
   body: string;
   run?: string;
+  threadId?: string;
+  from?: string;
+  retryRequest?: string;
+}
+
+export interface ReplyRequest {
+  id: string;
+  body: string;
+  from?: string;
   retryRequest?: string;
 }
 
@@ -236,6 +246,8 @@ const Payload = z.preprocess(
       taskId: z.string().optional(),
       outcome: z.string().optional(),
       tests: z.unknown().optional(),
+      stopReason: z.string().optional().catch(undefined),
+      reason: z.string().optional().catch(undefined),
     })
     .catch({}),
 );
@@ -244,6 +256,7 @@ export const OrcaMessage = z.looseObject({
   id: z.string().min(1),
   type: z.string(),
   subject: z.string().nullish(),
+  body: z.string().nullish(),
   from_handle: z.string().nullish(),
   payload: Payload,
 });

@@ -255,7 +255,22 @@ describeDb("dogfood-b", () => {
     expect(await state("integration_review")).toBe("ready");
 
     await launch("integration_review", "integrator");
-    expect((await checked()).unknown_workers).toEqual([]);
+    const integration = await checked();
+    expect(integration.unknown_workers).toEqual([]);
+    expect(integration.questions).toEqual([]);
+    expect(
+      (await events(conn, "delivery"))
+        .filter((row) => row.payload["outcome"] === "waiting")
+        .map((row) => [row.payload["message_id"], row.payload["notice"]]),
+    ).toEqual([
+      ["msg_13a260dd525e", false],
+      ["msg_stop_d2ea1aaf2628d97c3489908d", true],
+      ["msg_a2e631b2ceea", false],
+      ["msg_stop_55e1662b33dec3eccc0c9b47", true],
+      ["msg_c347ce3b30da", false],
+      ["msg_3f2fcef9e5d6", false],
+      ["msg_6ad2280a22c9", false],
+    ]);
     expect(
       (await events(conn, "unknown_launch")).map(
         (row) => row.payload["follow_up_of"],

@@ -93,6 +93,7 @@ test("help lists the verbs sorted by name", () => {
     "plan reset-used",
     "plan stretch",
     "release",
+    "reply",
     "retro",
     "retro record",
     "retry",
