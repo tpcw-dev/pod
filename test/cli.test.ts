@@ -181,7 +181,7 @@ test("a verb's usage error names the flags its input takes", () => {
       error: {
         code: "usage",
         message: "usage: brief",
-        nextSteps: ["pod brief [--project] [--html]", "pod --help"],
+        nextSteps: ["pod brief [--project] [--html] [--section]", "pod --help"],
       },
     });
   }

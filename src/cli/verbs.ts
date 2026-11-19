@@ -17,7 +17,7 @@ import {
   configSet,
   ConfigSetInput,
 } from "./config-verbs.ts";
-import { BriefInput, BriefOutput, brief } from "./brief.ts";
+import { BriefInput, BriefPart, briefVerb } from "./brief.ts";
 import { type PodError, usageError } from "./errors.ts";
 import { LogInput, LogOutput, logVerb, renderLog } from "./log-verbs.ts";
 import {
@@ -218,8 +218,8 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
   row({
     name: "brief",
     input: BriefInput,
-    output: BriefOutput,
-    handler: brief,
+    output: BriefPart,
+    handler: briefVerb,
     sideEffect: "none",
     cancelBy: ["nobody"],
     evidenceRequired: [
