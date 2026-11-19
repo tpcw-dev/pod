@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { noSingleActive } from "../config/active.ts";
 import { activeProfile } from "../config/policy.ts";
-import type { BriefRun, BriefTree } from "../domain/brief.ts";
+import type { BriefTree, GatesRun, GatesTree } from "../domain/brief.ts";
 import type { Revision } from "../domain/config.ts";
 import type { DecisionScope } from "../domain/decision.ts";
 import type { GateReceipt, Task } from "../domain/ledger.ts";
@@ -177,7 +177,7 @@ function liveReceipt(
 
 async function taskWaiting(
   ctx: StateContext,
-  run: BriefRun,
+  run: GatesRun,
   task: Task,
   receipts: readonly GateReceipt[],
 ): Promise<string | null> {
@@ -225,7 +225,7 @@ async function taskWaiting(
 
 export async function runsSection(
   ctx: StateContext,
-  tree: BriefTree,
+  tree: GatesTree,
 ): Promise<RunsSection> {
   const runs: RunsSection["runs"] = [];
   for (const story of tree.stories)
@@ -259,7 +259,7 @@ function newestTask(tasks: readonly Task[], stepId: string): Task | null {
 }
 
 export function runGates(
-  run: Pick<BriefRun, "run" | "snapshot" | "tasks">,
+  run: Pick<GatesRun, "run" | "snapshot" | "tasks">,
   receipts: readonly GateReceipt[],
   observed_at: string,
 ): GatesSection {
@@ -317,7 +317,7 @@ export function runGates(
 
 export async function gatesSection(
   ctx: StateContext,
-  tree: BriefTree,
+  tree: GatesTree,
   scope: StateScope,
 ): Promise<GatesSection | null> {
   if (scope.story === null) return null;

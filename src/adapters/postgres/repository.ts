@@ -36,6 +36,7 @@ import {
   type BriefDispatch,
   type BriefRun,
   type BriefTree,
+  type GatesRun,
 } from "../../core/domain/brief.ts";
 import {
   openStates,
@@ -190,6 +191,21 @@ function toManifest(
     references: json(row.references),
     tests: row.tests === null ? null : StoredTests.parse(row.tests),
     created_at: row.createdAt,
+  };
+}
+
+function toStory(row: typeof story.$inferSelect): Story {
+  return {
+    provider: row.provider,
+    external_id: row.externalId,
+    size: Size.parse(row.size),
+    stage: row.stage,
+    run_id: row.runId,
+    dependencies: json(row.dependencies),
+    synced_at: row.syncedAt,
+    status: row.status,
+    title: row.title,
+    kickoff_line: row.kickoffLine,
   };
 }
 
@@ -741,19 +757,7 @@ function makeRepo(x: Executor): Repo {
         .where(
           and(eq(story.provider, provider), eq(story.externalId, externalId)),
         );
-      if (row === undefined) return null;
-      return {
-        provider: row.provider,
-        external_id: row.externalId,
-        size: Size.parse(row.size),
-        stage: row.stage,
-        run_id: row.runId,
-        dependencies: json(row.dependencies),
-        synced_at: row.syncedAt,
-        status: row.status,
-        title: row.title,
-        kickoff_line: row.kickoffLine,
-      };
+      return row === undefined ? null : toStory(row);
     },
 
     async insertRun(row: Run) {
@@ -1612,18 +1616,7 @@ function makeRepo(x: Executor): Repo {
               .orderBy(asc(story.provider), asc(story.externalId));
       const stories: BriefTree["stories"][number][] = [];
       for (const row of storyRows) {
-        const storyRow: Story = {
-          provider: row.provider,
-          external_id: row.externalId,
-          size: Size.parse(row.size),
-          stage: row.stage,
-          run_id: row.runId,
-          dependencies: json(row.dependencies),
-          synced_at: row.syncedAt,
-          status: row.status,
-          title: row.title,
-          kickoff_line: row.kickoffLine,
-        };
+        const storyRow = toStory(row);
         const runRows = await x
           .select()
           .from(run)
@@ -1685,18 +1678,7 @@ function makeRepo(x: Executor): Repo {
                 start === undefined ? null : startFallbackOf(start.payload),
             });
           }
-          const runRecord: Run = {
-            run_id: runRow.runId,
-            story_provider: runRow.storyProvider,
-            story_external_id: runRow.storyExternalId,
-            host: runRow.host,
-            coordinator: runRow.coordinator,
-            owner_generation: runRow.ownerGeneration,
-            snapshot_hash: runRow.snapshotHash,
-            state: RunState.parse(runRow.state),
-            created_at: runRow.createdAt,
-            coordinator_dispatch_id: runRow.coordinatorDispatchId,
-          };
+          const runRecord = toRun(runRow);
           runs.push({
             run: runRecord,
             snapshot:
@@ -1741,6 +1723,116 @@ function makeRepo(x: Executor): Repo {
         });
       }
       return { stories };
+    },
+
+    async readGates(externalId) {
+      const storyRows = await x
+        .select()
+        .from(story)
+        .where(eq(story.externalId, externalId))
+        .orderBy(asc(story.provider), asc(story.externalId));
+      if (storyRows.length === 0) return { stories: [] };
+      const current = storyRows.flatMap((row) =>
+        row.runId === null ? [] : [row.runId],
+      );
+      const runRows = await x
+        .select()
+        .from(run)
+        .where(
+          and(
+            or(
+              ...storyRows.map((row) =>
+                and(
+                  eq(run.storyProvider, row.provider),
+                  eq(run.storyExternalId, row.externalId),
+                ),
+              ),
+            ),
+            or(
+              inArray(run.state, ["active", "hold"]),
+              inArray(run.runId, current),
+            ),
+          ),
+        )
+        .orderBy(asc(run.runId));
+      const runIds = runRows.map((row) => row.runId);
+      const snapRows =
+        runIds.length === 0
+          ? []
+          : await x
+              .select()
+              .from(snapshot)
+              .where(inArray(snapshot.runId, runIds));
+      const revisionIds = [
+        ...new Set(
+          snapRows.flatMap((row) => [
+            row.processRevisionId,
+            row.policyRevisionId,
+          ]),
+        ),
+      ];
+      const revisionRows =
+        revisionIds.length === 0
+          ? []
+          : await x
+              .select()
+              .from(revision)
+              .where(inArray(revision.id, revisionIds));
+      const taskRows =
+        runIds.length === 0
+          ? []
+          : await x
+              .select()
+              .from(task)
+              .where(inArray(task.runId, runIds))
+              .orderBy(asc(task.taskId));
+      const decisionRows =
+        runIds.length === 0
+          ? []
+          : await x
+              .select()
+              .from(decision)
+              .where(
+                and(
+                  inArray(decision.runId, runIds),
+                  inArray(decision.state, openStates),
+                ),
+              )
+              .orderBy(asc(decision.createdAt), asc(decision.id));
+      const revisions = new Map(
+        revisionRows.map((row) => [row.id, toRevision(row)]),
+      );
+      const snapshots = new Map(snapRows.map((row) => [row.runId, row]));
+      const runs = runRows.map((row): GatesRun => {
+        const snap = snapshots.get(row.runId);
+        return {
+          run: toRun(row),
+          snapshot:
+            snap === undefined
+              ? null
+              : {
+                  process_revision_id: snap.processRevisionId,
+                  process: revisions.get(snap.processRevisionId) ?? null,
+                  policy: revisions.get(snap.policyRevisionId) ?? null,
+                },
+          tasks: taskRows
+            .filter((item) => item.runId === row.runId)
+            .map(toTask),
+          decisions: decisionRows
+            .filter((item) => item.runId === row.runId)
+            .map(toDecision),
+        };
+      });
+      return {
+        stories: storyRows.map((row) => ({
+          story: toStory(row),
+          runs: runs.filter(
+            (item) =>
+              item.run.story_provider === row.provider &&
+              item.run.story_external_id === row.externalId,
+          ),
+        })),
+      };
     },
 
     async appendEvent(row: NewEvent) {
