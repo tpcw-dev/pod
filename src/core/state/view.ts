@@ -33,10 +33,9 @@ async function pendingRequests(
   scopeRef: string,
 ): Promise<Pick<PoliciesSection, "pending_profile" | "pending_requests">> {
   const rows: PoliciesSection["pending_profile"] = [];
-  const requests = (await pendingActivations(repo)).filter(
-    ({ request }) => request.scope === scope && request.scope_ref === scopeRef,
-  );
+  const requests = await pendingActivations(repo);
   for (const { request } of requests) {
+    if (request.scope !== scope || request.scope_ref !== scopeRef) continue;
     if (request.profile === null) continue;
     const revision = await repo.getRevision(request.revision_id);
     rows.push({
