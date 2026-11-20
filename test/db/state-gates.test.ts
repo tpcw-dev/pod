@@ -1,8 +1,11 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
+import { makeDb } from "../../src/adapters/postgres/repository.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import type { StateView } from "../../src/core/domain/state.ts";
 import type { Repo } from "../../src/core/ports/db.ts";
@@ -21,7 +24,8 @@ import type { DocsPort } from "../../src/core/ports/docs.ts";
 import { noCalls } from "../orca/temp-fixtures.ts";
 import { fakeTracker } from "./fake-tracker.ts";
 import { deliver, gatedRun, headSha } from "./gate-fixture.ts";
-import { describeDb, openDb, resetDb } from "./helpers.ts";
+import { dbUrl, describeDb, openDb, resetDb } from "./helpers.ts";
+import { deliveredPlan, opened, planTask } from "./decision-fixture.ts";
 import { dispatched } from "./run-fixture.ts";
 import { processValue } from "./seed.ts";
 
@@ -309,7 +313,7 @@ describeDb("pod state story:<id> gates", () => {
   });
 
   function gatesReadsOnly(repo: Repo): Repo {
-    const allowed = new Set(["readBrief", "listGateReceipts", "latestEvent"]);
+    const allowed = new Set(["readGates", "listGateReceipts", "latestEvent"]);
     return new Proxy(repo, {
       get(target, name, receiver) {
         if (typeof name === "string" && !allowed.has(name))
@@ -323,6 +327,134 @@ describeDb("pod state story:<id> gates", () => {
     get(_target, name) {
       throw new Error(`the gates-only view read docs ${String(name)}`);
     },
+  });
+
+  async function holdShip() {
+    await conn.sql`update ledger.task set state = 'hold' where task_id = 'task_s'`;
+    await conn.sql`insert into ledger.event (type, ts, host, run_id, task_id, payload, source)
+      values ('hold', now(), 'local', 'run_1', 'task_s', '{"reason": "timeout"}', '{}')`;
+  }
+
+  async function longRunAndFinishedRun() {
+    await conn.sql`insert into ledger.event (type, ts, host, run_id, payload, source)
+      select 'tick', now(), 'local', 'run_1', jsonb_build_object('n', n), '{}'
+      from generate_series(1, 300) as n`;
+    await conn.sql`insert into ledger.run (run_id, story_provider, story_external_id, host, coordinator, owner_generation, snapshot_hash, state, created_at)
+      select 'run_0', story_provider, story_external_id, host, coordinator, owner_generation, snapshot_hash, 'done', created_at
+      from ledger.run where run_id = 'run_1'`;
+    await conn.sql`insert into config.snapshot (run_id, crew_revision_id, process_revision_id, policy_revision_id, rate_revision_id, effective_gate_map, hash, pinned_at, project, profile)
+      select 'run_0', crew_revision_id, process_revision_id, policy_revision_id, rate_revision_id, effective_gate_map, hash, pinned_at, project, profile
+      from config.snapshot where run_id = 'run_1'`;
+    await conn.sql`insert into ledger.task (task_id, run_id, step_id, lineage_id, role, deps, spec_revision_id, state, rework_of, created_at)
+      select task_id || '_0', 'run_0', step_id, lineage_id, role, deps, spec_revision_id, 'hold', null, created_at
+      from ledger.task where run_id = 'run_1'`;
+    await conn.sql`insert into ledger.event (type, ts, host, run_id, payload, source)
+      select 'tick', now(), 'local', 'run_0', jsonb_build_object('n', n), '{}'
+      from generate_series(1, 50) as n`;
+  }
+
+  async function gatesStatements(
+    story: string,
+  ): Promise<{ view: unknown; statements: string[] }> {
+    const statements: string[] = [];
+    const sql = postgres(dbUrl(), {
+      onnotice: () => {},
+      debug: (_connection, query) => statements.push(query),
+    });
+    try {
+      const built = await buildStateGates(
+        {
+          repo: gatesReadsOnly(makeDb(drizzle(sql))),
+          host: "local",
+          docs: docsUnread,
+          now: () => now,
+        },
+        { story, project: null },
+      );
+      if (!built.ok) throw new Error(built.refusal.message);
+      return { view: built.view, statements };
+    } finally {
+      await sql.end();
+    }
+  }
+
+  const eventReads = (statements: readonly string[]) =>
+    statements.filter((query) => /from "ledger"\."event"/.test(query));
+
+  test("on a long current Run beside a finished Run, the gates-only view equals the full view's runs and gates", async () => {
+    await gated();
+    await postReview();
+    await holdShip();
+    await longRunAndFinishedRun();
+    const full = await state();
+    const { view } = await gatesStatements("S-1");
+    expect(view).toEqual({
+      scope: { story: "S-1", project: null },
+      runs: full.runs,
+      gates: full.gates,
+    });
+    expect(full.runs.runs.map((row) => row.run_id)).toEqual(["run_1"]);
+    expect(full.runs.runs[0]?.waiting_on).toContain("task_s hold timeout");
+    expect(items(full)[0]?.receipt).toMatchObject({ outcome: "PASS" });
+    await conn.sql`update ledger.run set state = 'done' where run_id = 'run_1'`;
+    const done = await state();
+    expect((await gatesStatements("S-1")).view).toEqual({
+      scope: { story: "S-1", project: null },
+      runs: done.runs,
+      gates: done.gates,
+    });
+    expect(done.gates).toMatchObject({ run_id: "run_1", run_state: "done" });
+  });
+
+  test("the gates-only view names an open decision and drops a closed one, as the full view does", async () => {
+    const id = await opened(conn, await deliveredPlan(conn));
+    const full = async () => {
+      const built = await buildState(
+        { repo: conn.db, host: "local", docs: null, now: () => now },
+        { story: "S-9", project: null },
+      );
+      if (!built.ok) throw new Error(built.refusal.message);
+      return {
+        scope: built.view.scope,
+        runs: built.view.runs,
+        gates: built.view.gates,
+      };
+    };
+    const open = await full();
+    expect(open.runs.runs[0]?.waiting_on).toContain(
+      `${planTask} decision ${id} round 1`,
+    );
+    expect((await gatesStatements("S-9")).view).toEqual(open);
+    await conn.db.updateDecisionState(id, {
+      from: "round:1",
+      to: { kind: "needs_human", reason: "disagreement" },
+      outcome: { result: "needs_human", text: "needs_human: disagreement" },
+      closed_at: new Date(),
+    });
+    const closed = await full();
+    expect(closed.runs.runs[0]?.waiting_on).toContain(
+      `${planTask} decision plan`,
+    );
+    expect((await gatesStatements("S-9")).view).toEqual(closed);
+  });
+
+  test("the gates-only read sends no event list select, only the held Task's one-row hold read", async () => {
+    await gated();
+    await postReview();
+    await longRunAndFinishedRun();
+    const quiet = await gatesStatements("S-1");
+    expect(quiet.statements.length).toBeGreaterThan(0);
+    expect(eventReads(quiet.statements)).toEqual([]);
+    await holdShip();
+    const held = await gatesStatements("S-1");
+    const reads = eventReads(held.statements);
+    expect(reads).toHaveLength(1);
+    expect(reads[0]).toMatch(/"task_id" = \$\d+/);
+    expect(reads[0]).toMatch(/limit \$\d+$/);
+    for (const query of held.statements)
+      expect(query).not.toMatch(
+        /from "ledger"\."(dispatch|operation|evidence_manifest)"/,
+      );
   });
 
   test("the gates-only view equals the full view's gates and runs and makes no other read", async () => {

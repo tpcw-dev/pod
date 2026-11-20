@@ -70,11 +70,10 @@ function pinnedCrews(tree: BriefTree): (Revision | null)[] {
   );
 }
 
-async function readTree(
-  ctx: StateContext,
+function found<T extends { stories: readonly unknown[] }>(
+  tree: T,
   story: string | null,
-): Promise<{ ok: true; tree: BriefTree } | Refused> {
-  const tree = await ctx.repo.readBrief(story);
+): { ok: true; tree: T } | Refused {
   if (story !== null && tree.stories.length === 0)
     return refuse("story_not_found", `no Story has external_id ${story}`, [
       "pod brief",
@@ -86,7 +85,7 @@ export async function buildState(
   ctx: StateContext,
   scope: StateScope,
 ): Promise<{ ok: true; view: StateView } | Refused> {
-  const read = await readTree(ctx, scope.story);
+  const read = found(await ctx.repo.readBrief(scope.story), scope.story);
   if (!read.ok) return read;
   const { tree } = read;
   const [level, ref] =
@@ -125,7 +124,7 @@ export async function buildStateGates(
   ctx: StateContext,
   scope: StateScope & { story: string },
 ): Promise<{ ok: true; view: StateGatesView } | Refused> {
-  const read = await readTree(ctx, scope.story);
+  const read = found(await ctx.repo.readGates(scope.story), scope.story);
   if (!read.ok) return read;
   return {
     ok: true,

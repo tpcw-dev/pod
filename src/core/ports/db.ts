@@ -17,7 +17,7 @@ import type {
   NewLearning,
   NewOccurrence,
 } from "../domain/learning.ts";
-import type { BriefTree } from "../domain/brief.ts";
+import type { BriefTree, GatesTree } from "../domain/brief.ts";
 import type {
   DigestProposal,
   NewDigestProposal,
@@ -173,6 +173,7 @@ export interface Repo {
   getManifest(id: string): Promise<EvidenceManifest | null>;
   setManifestTests(id: string, tests: readonly TestResult[]): Promise<void>;
   readBrief(externalId: string | null): Promise<BriefTree>;
+  readGates(externalId: string): Promise<GatesTree>;
   insertUsageObservation(row: NewUsageObservation): Promise<UsageObservation>;
   latestUsageObservations(
     providers: readonly string[],

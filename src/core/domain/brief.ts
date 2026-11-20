@@ -87,6 +87,27 @@ export interface BriefStory {
   counters: BriefCounters;
 }
 
+export type GatesSnapshot = Pick<
+  BriefSnapshot,
+  "process_revision_id" | "process" | "policy"
+>;
+
+export interface GatesRun extends Pick<
+  BriefRun,
+  "run" | "tasks" | "decisions"
+> {
+  snapshot: GatesSnapshot | null;
+}
+
+export interface GatesStory {
+  story: Story;
+  runs: readonly GatesRun[];
+}
+
+export interface GatesTree {
+  stories: readonly GatesStory[];
+}
+
 export interface DigestBrief {
   cap: number;
   shown: number;
