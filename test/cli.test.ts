@@ -64,6 +64,7 @@ test("help lists the verbs sorted by name", () => {
     "config apply",
     "config export",
     "config get",
+    "config id",
     "config list",
     "config set",
     "db migrate",
@@ -275,5 +276,72 @@ test("tick --agenda takes operate or meta, and --slot needs --agenda meta", () =
     const result = run(args);
     expect(result.status, args.join(" ")).toBe(2);
     expect(JSON.parse(result.stdout).error.code).toBe("usage");
+  }
+});
+
+const processSeed = `kind: process
+name: id-check
+schema_version: 1
+value:
+  summary: one worker step
+  selector:
+    stage: impl
+  roles: [developer]
+  steps:
+    - id: build
+      type: worker
+      role: developer
+  edges:
+    - from: build
+      on: done
+      to: done
+`;
+
+function noDatabase(): Record<string, string> {
+  return {
+    POD_DB_URL: "",
+    POD_HOME: mkdtempSync(join(tmpdir(), "pod-config-id-home-")),
+  };
+}
+
+test("config id prints the id with no database", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pod-config-id-"));
+  const path = join(dir, "process.yaml");
+  writeFileSync(path, processSeed);
+  expect(processSeed).toContain("      on: done\n");
+  const env = noDatabase();
+  const result = run(["config", "id", path], env);
+  expect(result.status).toBe(0);
+  const output = JSON.parse(result.stdout).result;
+  expect(output.revision_id).toMatch(/^[0-9a-f]{64}$/);
+  expect(output).toMatchObject({
+    kind: "process",
+    name: "id-check",
+    schema_version: 1,
+    scope: "global",
+    scope_ref: "",
+    parent: null,
+  });
+  const apply = run(["config", "apply", path], env);
+  expect(apply.status).toBe(2);
+  expect(JSON.parse(apply.stdout).error).toMatchObject({
+    code: "usage",
+    message: "POD_DB_URL is not set",
+  });
+});
+
+test("config id fails a bad file as config apply does", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pod-config-id-bad-"));
+  const invalidYaml = join(dir, "invalid.yaml");
+  writeFileSync(invalidYaml, "kind: [process\n");
+  const noKind = join(dir, "no-kind.yaml");
+  writeFileSync(noKind, processSeed.replace("kind: process\n", ""));
+  const env = noDatabase();
+  for (const path of [join(dir, "missing.yaml"), invalidYaml, noKind]) {
+    const id = run(["config", "id", path], env);
+    const apply = run(["config", "apply", path], env);
+    expect(id.status, path).toBe(2);
+    expect(id.status, path).toBe(apply.status);
+    expect(id.stdout, path).toBe(apply.stdout);
   }
 });

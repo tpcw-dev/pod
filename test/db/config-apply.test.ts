@@ -71,6 +71,15 @@ describeDb("pod config apply and export", () => {
     expect(v1Id).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  test("config id prints the id config apply stored", async () => {
+    const printed = runCli(["config", "id", v1]);
+    expect(printed.status).toBe(0);
+    expect(printed.json.result?.["revision_id"]).toBe(v1Id);
+    const [row] = await db.sql<{ id: string }[]>`
+      select id from config.revision where kind = 'policy' and name = 'demo'`;
+    expect(row?.id).toBe(v1Id);
+  });
+
   test("the same file again returns the same id and rev", () => {
     expect(runCli(["config", "apply", v1]).json.result).toMatchObject({
       id: v1Id,
@@ -605,6 +614,23 @@ describeDb("pod config apply of a process", () => {
       name: "flow",
     });
     expect(active?.revision_id).toBe(id);
+  });
+
+  test("config id prints the id config apply stores for a process whose edges use on", async () => {
+    await clearDb(db);
+    await seedCrewAndPolicy();
+    const path = envelopeFile("on-edges", "process", processValue);
+    expect(readFileSync(path, "utf8")).toContain("    on: done\n");
+    const printed = runCli(["config", "id", path]);
+    expect(printed.status).toBe(0);
+    const applied = activate(path);
+    expect(applied.status).toBe(0);
+    expect(applied.json.result?.["id"]).toBe(
+      printed.json.result?.["revision_id"],
+    );
+    const [row] = await db.sql<{ id: string }[]>`
+      select id from config.revision where kind = 'process' and name = 'on-edges'`;
+    expect(row?.id).toBe(printed.json.result?.["revision_id"]);
   });
 
   test("specs/process/impl-small.yaml applies after a fitting crew and policy", async () => {
