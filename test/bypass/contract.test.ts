@@ -85,6 +85,7 @@ const extraVerbs = [
   { story: "S21c", name: "digest queue", sideEffect: "none" },
   { story: "S21c", name: "digest assign", sideEffect: "ledger" },
   { story: "TPC-1482", name: "config list", sideEffect: "none" },
+  { story: "TPC-1644", name: "config id", sideEffect: "none" },
   { story: "TPC-1518", name: "usage record", sideEffect: "ledger" },
   { story: "S23c", name: "usage", sideEffect: "none" },
   { story: "TPC-1498", name: "plan", sideEffect: "ledger" },
@@ -180,7 +181,7 @@ test("the tick row names --agenda meta and --slot", () => {
 test("the contract copies the bypass paragraphs", () => {
   const spec = readFileSync("docs/tech-spec.md", "utf8").split("\n");
   const contract = readFileSync("docs/contract.md", "utf8").split("\n");
-  for (const lineNumber of [927, 929, 931]) {
+  for (const lineNumber of [930, 932, 934]) {
     const line = spec[lineNumber - 1];
     expect(line?.length).toBeGreaterThan(0);
     expect(contract).toContain(line);

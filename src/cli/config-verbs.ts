@@ -15,6 +15,7 @@ import {
   revisionRef,
   type ApplyOutcome,
 } from "../core/config/apply.ts";
+import { revisionId } from "../core/config/canonical-json.ts";
 import {
   mirrorPath,
   mirrorSet,
@@ -233,6 +234,37 @@ async function configWriter(
   );
   if (activate) needsPerson(identity, activation);
   return identity;
+}
+
+export const ConfigIdInput = z.strictObject({
+  args: z.tuple([z.string()]),
+});
+
+export const ConfigIdOutput = z.object({
+  revision_id: z.string(),
+  kind: z.string(),
+  name: z.string(),
+  schema_version: z.int(),
+  scope: z.string(),
+  scope_ref: z.string(),
+  parent: z.string().nullable(),
+});
+
+export async function configId(
+  input: z.infer<typeof ConfigIdInput>,
+): Promise<z.infer<typeof ConfigIdOutput>> {
+  const [file] = input.args;
+  const envelope = readEnvelope(file);
+  const { kind, name, schema_version, scope, scope_ref, parent } = envelope;
+  return {
+    revision_id: revisionId(envelope),
+    kind,
+    name,
+    schema_version,
+    scope,
+    scope_ref,
+    parent,
+  };
 }
 
 export async function configApply(
