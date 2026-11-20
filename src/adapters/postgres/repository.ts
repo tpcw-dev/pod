@@ -1714,6 +1714,7 @@ function makeRepo(x: Executor): Repo {
               runOperations,
               await repo.listRunDecisions(runRow.runId),
             ),
+            event_count: runEvents.length,
           });
         }
         stories.push({

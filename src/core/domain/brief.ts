@@ -79,6 +79,7 @@ export interface BriefRun {
   decisions: readonly Pick<DecisionRow, "id" | "task_id" | "state">[];
   counters: BriefCounters;
   measurement: BriefMeasurement;
+  event_count: number;
 }
 
 export interface BriefStory {

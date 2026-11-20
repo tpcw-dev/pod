@@ -1151,6 +1151,58 @@ describeDb("pod brief", () => {
     );
     expect(file).toContain('<table id="standup">');
   });
+
+  test("each Run in the brief carries its host and event count", async () => {
+    const old = new Date("2026-01-01T00:00:00.000Z");
+    for (const [runId, host] of [
+      ["run-1-events", "host-a"],
+      ["run-1-quiet", "host-b"],
+    ] as const)
+      await conn.db.insertRun({
+        run_id: runId,
+        story_provider: "tracker",
+        story_external_id: "S-1",
+        host,
+        coordinator: `session-${runId}`,
+        owner_generation: 1,
+        snapshot_hash: "pending",
+        state: "done",
+        created_at: old,
+        coordinator_dispatch_id: null,
+      });
+    for (let n = 0; n < 3; n++)
+      await conn.db.appendEvent({
+        type: "tick",
+        ts: old,
+        host: "host-a",
+        run_id: "run-1-events",
+        task_id: null,
+        dispatch_id: null,
+        op_key: null,
+        payload: { n },
+        source: { kind: "command", verb: "test" },
+      });
+    for (const args of [
+      ["brief", "story:S-1"],
+      ["brief", "story:S-1", "--section", "stories"],
+    ]) {
+      const result = runBrief(cwd, args);
+      expect(result.status).toBe(0);
+      const runs = JSON.parse(result.stdout).result.stories[0].runs as {
+        run_id: string;
+        host: string;
+        event_count: number;
+      }[];
+      expect(
+        runs.filter((run) =>
+          ["run-1-events", "run-1-quiet"].includes(run.run_id),
+        ),
+      ).toMatchObject([
+        { run_id: "run-1-events", host: "host-a", event_count: 3 },
+        { run_id: "run-1-quiet", host: "host-b", event_count: 0 },
+      ]);
+    }
+  });
 });
 
 describe("waiting_on", () => {

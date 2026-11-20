@@ -250,7 +250,9 @@ export const BriefOutput = z.object({
         z.object({
           run_id: z.string(),
           state: z.string(),
+          host: z.string(),
           owner_generation: z.int(),
+          event_count: z.int(),
           created_at: z.string(),
           profile: z.string().nullable(),
           profile_stale: z.boolean(),
@@ -516,7 +518,9 @@ function storiesJson(
     runs: item.runs.map((run) => ({
       run_id: run.run.run_id,
       state: run.run.state,
+      host: run.run.host,
       owner_generation: run.run.owner_generation,
+      event_count: run.event_count,
       created_at: iso(run.run.created_at),
       profile: run.snapshot?.profile ?? null,
       profile_stale:
