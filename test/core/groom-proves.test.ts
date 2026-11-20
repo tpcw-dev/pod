@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { beforeAll, expect, test } from "vitest";
 import { parse } from "yaml";
+import { resolveAt } from "../../src/cli/groom-verbs.ts";
 import { realRepoReader } from "../../src/cli/repo-reader.ts";
 import { parseGroom } from "../../src/core/config/groom.ts";
+import type { GitPort } from "../../src/core/ports/git.ts";
 import {
   checkProposal,
   countersOf,
@@ -182,4 +184,34 @@ test("the self-check refuses points off the scale, points at split_at, and a mal
   expect(code(3, good.replace("origin/main", "origin main"))).toBe(
     "proposal_invalid",
   );
+});
+
+function gitPort(fetched: boolean, integration: string | null): GitPort {
+  const unused = () => Promise.reject(new Error("not used"));
+  return {
+    checkout: unused,
+    integration: () => Promise.resolve(integration),
+    fetch: () => Promise.resolve(fetched),
+    localTip: unused,
+    remoteTip: unused,
+    checkedOut: unused,
+    deleteLocal: unused,
+    deleteRemote: unused,
+  };
+}
+
+test("--at defaults to origin/<integration> after a fetch, and a failed fetch or an unset origin/HEAD refuses usage", async () => {
+  const code = (git: GitPort, at?: string) =>
+    resolveAt(git, realRepoReader, repo, at).then(
+      () => null,
+      (error: { code: string }) => error.code,
+    );
+  expect(await code(gitPort(false, "main"))).toBe("usage");
+  expect(await code(gitPort(true, null))).toBe("usage");
+  expect(await code(gitPort(true, "main"))).toBe("usage");
+  expect(await code(gitPort(false, null), "no-such-ref")).toBe("usage");
+  expect(await resolveAt(gitPort(false, null), realRepoReader, repo, "main")).toEqual({
+    ref: "main",
+    sha,
+  });
 });

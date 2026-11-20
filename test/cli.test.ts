@@ -80,6 +80,7 @@ test("help lists the verbs sorted by name", () => {
     "dispatch",
     "docs read",
     "drain",
+    "groom",
     "hqa record",
     "learning add",
     "learning import",

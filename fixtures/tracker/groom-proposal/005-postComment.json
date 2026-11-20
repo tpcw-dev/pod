@@ -1,0 +1,14 @@
+{
+  "method": "postComment",
+  "match": {
+    "operation": "PostComment",
+    "variables": {
+      "issueId": "TRK-1",
+      "bodyHash": "a085748e2dfb9a9a82f31589bba046e05bdaab2207d51b736c3229a7371b6502"
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"commentCreate\":{\"success\":true,\"comment\":{\"id\":\"00000000-0000-4000-8000-000000000020\",\"body\":\"pod: groom proposal\\nStage: impl\\nPoints: 3\\nSize: m\\nKickoff: impl-medium@1\\nReason: one design choice\\nProved: 1 caller, 0 fakes, 0 asserting tests, 1/1 check fails today, origin/main abc1234 2026-11-20\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"}}}}}",
+  "error": null,
+  "recordedAt": "2026-11-20T18:00:05.000Z"
+}
