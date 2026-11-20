@@ -59,7 +59,6 @@ export interface ProveInput {
   timeoutMs: number;
 }
 
-/** The shop hook's Proved regex, copied so a Pod proposal passes the same check. */
 export const PROVED =
   /^[ \t]*[*_`]*Proved:[*_`]*[ \t]*(\d+) callers?, (\d+) fakes?, (\d+) asserting tests?, (\d+)\/(\d+) checks? fails? today, (\S+) ([0-9a-f]{7,40}) (\d{4}-\d{2}-\d{2})\b/m;
 
@@ -120,7 +119,6 @@ function testName(text: string): string | null {
   return null;
 }
 
-/** The nearest test case that opens at or above the line, or null for a helper. */
 export function enclosingTest(source: string, line: number): string | null {
   const lines = source.split("\n");
   for (let index = Math.min(line, lines.length) - 1; index >= 0; index -= 1) {
@@ -286,8 +284,7 @@ export function checkProposal(
         `split the Story into children of at most ${groom.child_max} points, then groom each child`,
       ],
     };
-  const match = PROVED.exec(proposal.proved);
-  if (match === null || match.index !== 0 || match[0] !== proposal.proved)
+  if (PROVED.exec(proposal.proved)?.[0] !== proposal.proved)
     return {
       code: "proposal_invalid",
       message: `the Proved line does not match the Proved format: ${proposal.proved}`,

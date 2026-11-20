@@ -120,7 +120,6 @@ function toplevel(path: string): string {
   return result.stdout.trim();
 }
 
-/** The commit the counters read: --at as given, else origin/<integration> after a fetch. */
 export async function resolveAt(
   git: GitPort,
   reader: RepoReader,

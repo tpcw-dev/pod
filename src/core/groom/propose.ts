@@ -122,7 +122,9 @@ async function kickoffOf(
   const found = activations.find(
     (active) => active.revisionId === selected.revisionId,
   );
-  return found === undefined ? neverLaunched : `${found.name}@${found.rev}`;
+  if (found === undefined)
+    throw new Error(`selected process ${selected.revisionId} is not active`);
+  return `${found.name}@${found.rev}`;
 }
 
 export function proposalBody(proposal: {

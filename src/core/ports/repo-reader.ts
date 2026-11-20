@@ -14,7 +14,6 @@ export interface CheckRun {
 
 export type GrepPattern = { word: string } | { fixed: string };
 
-/** Reads a repository at a commit; nothing it does changes the checkout. */
 export interface RepoReader {
   resolve(repo: string, ref: string): Promise<string | null>;
   grep(
