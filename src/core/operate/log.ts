@@ -147,11 +147,11 @@ function tick(event: Event): Entry[] {
 
 const quiet: Place = () => [];
 
-/** Groomed has no event type yet; adding one to eventTypes forces its row here. */
 const placement: Record<EventType, Place> = {
   start: under("Launched"),
   retry: under("Launched"),
   close: under("Closed"),
+  groom_proved: under("Groomed"),
   decision: under("Decided"),
   self_decision: under("Decided"),
   ruling: under("Decided"),

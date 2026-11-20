@@ -293,6 +293,37 @@ export function trackerMethods(send: Send, scale: string): TrackerPort {
       );
     },
 
+    async setEstimate(req) {
+      const reply = await send("setEstimate", {
+        operation: "SetEstimate",
+        variables: { id: req.story.external_id, estimate: req.points },
+      });
+      const decoded = decode(reply, (data) => data["issueUpdate"], Updated);
+      const updated = decoded.result;
+      if (
+        decoded.ok &&
+        (updated === null || !updated.success || updated.issue == null)
+      )
+        return receipt<StatusResult>(
+          "setEstimate",
+          false,
+          null,
+          decoded.raw,
+          "not_success",
+          reply.requestId,
+        );
+      return receipt<StatusResult>(
+        "setEstimate",
+        decoded.ok,
+        updated?.issue == null
+          ? null
+          : { story: storyOf(req.story.provider, updated.issue, scale) },
+        decoded.raw,
+        decoded.error,
+        reply.requestId,
+      );
+    },
+
     async readback(ref) {
       if (isCommentRef(ref)) {
         const { reply, decoded, comment } = await readComment("readback", ref);

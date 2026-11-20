@@ -48,6 +48,9 @@ export const RefusalCode = z.enum([
   "attention_paused",
   "usage",
   "failed",
+  "points_invalid",
+  "split_required",
+  "proposal_invalid",
 ]);
 export type RefusalCode = z.infer<typeof RefusalCode>;
 

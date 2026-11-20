@@ -52,6 +52,9 @@ export const errorCodes = [
   "usage_hold",
   "attention_paused",
   "failed",
+  "points_invalid",
+  "split_required",
+  "proposal_invalid",
 ] as const;
 export type ErrorCode = (typeof errorCodes)[number];
 
@@ -112,6 +115,9 @@ export const errorClasses: Record<ErrorCode, ErrorClass> = {
   usage_hold: "guardrail",
   attention_paused: "guardrail",
   failed: "data",
+  points_invalid: "data",
+  split_required: "data",
+  proposal_invalid: "data",
 };
 
 export const guardrailCodes: readonly ErrorCode[] = errorCodes.filter(
