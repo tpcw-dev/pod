@@ -281,13 +281,13 @@ export function checkProposal(
       code: "split_required",
       message: `${points} points is at or above split_at ${groom.split_at}`,
       nextSteps: [
-        `split the Story into children of at most ${groom.child_max} points, then groom each child`,
+        `split the Story into children of at most ${groom.child_max} points`,
       ],
     };
   if (PROVED.exec(proposal.proved)?.[0] !== proposal.proved)
     return {
       code: "proposal_invalid",
-      message: `the Proved line does not match the Proved format: ${proposal.proved}`,
+      message: "the Proved line does not match the Proved format",
       nextSteps: ["pass --at as a ref with no whitespace"],
     };
   return null;

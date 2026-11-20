@@ -68,7 +68,7 @@ export interface GroomProposal {
   delivered: { acked: number; failed: number };
 }
 
-async function activeGroomRevision(
+export async function activeGroomRevision(
   db: Db,
 ): Promise<{ id: string; groom: GroomValue } | null> {
   const id = (await db.getActivation(activeGroom))?.revision_id ?? null;
@@ -127,6 +127,12 @@ async function kickoffOf(
   return `${found.name}@${found.rev}`;
 }
 
+export function noActiveGroom(): Refused {
+  return refuse("config_missing", "no groom Revision is active", [
+    "pod config apply specs/groom/default.yaml",
+  ]);
+}
+
 export function proposalBody(proposal: {
   stage: string;
   points: number;
@@ -164,10 +170,7 @@ export async function proposeGroom(
   input: ProposeInput,
 ): Promise<{ ok: true; result: GroomProposal } | Refused> {
   const active = await activeGroomRevision(db);
-  if (active === null)
-    return refuse("config_missing", "no groom Revision is active", [
-      "pod config apply specs/groom/default.yaml",
-    ]);
+  if (active === null) return noActiveGroom();
   const { groom } = active;
   log.at({ run_id: null, task_id: null, op_key: null });
   const read = await tracker.readStory(input.story);

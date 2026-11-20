@@ -5,7 +5,11 @@ import { connect } from "../adapters/postgres/connection.ts";
 import { serviceKinds } from "../core/config/service-kinds.ts";
 import { Size } from "../core/domain/ledger.ts";
 import type { Refusal } from "../core/domain/outcome.ts";
-import { proposeGroom } from "../core/groom/propose.ts";
+import {
+  activeGroomRevision,
+  noActiveGroom,
+  proposeGroom,
+} from "../core/groom/propose.ts";
 import { receiptLog } from "../core/ledger/receipts.ts";
 import { planHost } from "../core/plan/host.ts";
 import type { GitPort } from "../core/ports/git.ts";
@@ -19,6 +23,7 @@ import {
 } from "./host-profile.ts";
 import { actorOf, writerOf } from "./identity.ts";
 import { realRepoReader } from "./repo-reader.ts";
+import { quote } from "./run-verbs.ts";
 import { trackerFor } from "./tracker.ts";
 
 const checkTimeoutMs = 300_000;
@@ -130,13 +135,14 @@ export async function resolveAt(
   if (ref === undefined) {
     if (!(await git.fetch(repo)))
       throw usageError(`git fetch origin failed in ${repo}`, [
-        "check the origin remote, or pass --at SHA",
+        "check the origin remote",
+        "pass --at SHA",
       ]);
     const integration = await git.integration(repo);
     if (integration === null)
       throw usageError(`origin/HEAD is not set in ${repo}`, [
         `git -C ${repo} remote set-head origin --auto`,
-        "or pass --at SHA",
+        "pass --at SHA",
       ]);
     ref = `origin/${integration}`;
   }
@@ -154,17 +160,25 @@ function inRepo(root: string, path: string): string {
   return inside.startsWith("..") ? path : inside;
 }
 
-function command(input: GroomInput): string {
+export function groomCommand(input: Omit<GroomInput, "json">): string {
   const [story] = input.args;
-  const flags = [
-    ...(input.points === undefined
-      ? []
-      : ["--points", input.points, "--reason", JSON.stringify(input.reason)]),
-    ...(input.stage === undefined ? [] : ["--stage", input.stage]),
-    ...(input.repo === undefined ? [] : ["--repo", input.repo]),
-    ...(input.at === undefined ? [] : ["--at", input.at]),
-  ];
-  return ["pod groom", story, ...flags].join(" ");
+  const one = (flag: string, value: string | undefined) =>
+    value === undefined ? [] : [flag, quote(value)];
+  const many = (flag: string, values: readonly string[] | undefined) =>
+    (values ?? []).flatMap((value) => [flag, quote(value)]);
+  return [
+    "pod groom",
+    story,
+    ...one("--points", input.points),
+    ...one("--reason", input.reason),
+    ...one("--stage", input.stage),
+    ...one("--repo", input.repo),
+    ...one("--at", input.at),
+    ...many("--function", input.function),
+    ...many("--asserts", input.asserts),
+    ...many("--check", input.check),
+    ...many("--files", input.files),
+  ].join(" ");
 }
 
 export async function groomVerb(input: GroomInput): Promise<GroomOutput> {
@@ -188,6 +202,7 @@ export async function groomVerb(input: GroomInput): Promise<GroomOutput> {
       throw usageError(`pod groom needs ${host.trackerTokenEnv}`, [
         credentialStep(host, host.trackerTokenEnv, "tracker token"),
       ]);
+    if ((await activeGroomRevision(db)) === null) failWith(noActiveGroom().refusal);
     const actor = actorOf(await writerOf(db, host, process.env, null));
     const repo = toplevel(resolve(input.repo ?? process.cwd()));
     const { ref, sha } = await resolveAt(
@@ -215,7 +230,7 @@ export async function groomVerb(input: GroomInput): Promise<GroomOutput> {
       timeoutMs: checkTimeoutMs,
       host: host.hostId,
       actor,
-      command: command(input),
+      command: groomCommand(input),
       now: () => new Date(),
     });
     throwRecordRefusal(tracker.recordRefusals());

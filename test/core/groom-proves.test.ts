@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { beforeAll, expect, test } from "vitest";
 import { parse } from "yaml";
-import { resolveAt } from "../../src/cli/groom-verbs.ts";
+import { groomCommand, resolveAt } from "../../src/cli/groom-verbs.ts";
 import { realRepoReader } from "../../src/cli/repo-reader.ts";
 import { parseGroom } from "../../src/core/config/groom.ts";
 import type { GitPort } from "../../src/core/ports/git.ts";
@@ -214,4 +214,25 @@ test("--at defaults to origin/<integration> after a fetch, and a failed fetch or
     ref: "main",
     sha,
   });
+});
+
+test("the printed next step repeats every flag of the call, quoted, so a rerun replays the same op key", () => {
+  expect(
+    groomCommand({
+      args: ["story:TPC-1"],
+      points: "3",
+      reason: "one design choice",
+      stage: "impl",
+      repo: "/r",
+      at: "origin/main",
+      function: ["prove", "parse.it"],
+      asserts: ["2 things"],
+      check: ["exit 1", "pnpm -s vitest run x.test.ts"],
+      files: ["src/a.ts"],
+    }),
+  ).toBe(
+    "pod groom story:TPC-1 --points 3 --reason 'one design choice' --stage impl --repo /r --at origin/main " +
+      "--function prove --function parse.it --asserts '2 things' --check 'exit 1' " +
+      "--check 'pnpm -s vitest run x.test.ts' --files src/a.ts",
+  );
 });
