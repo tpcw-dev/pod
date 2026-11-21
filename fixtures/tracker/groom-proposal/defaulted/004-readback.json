@@ -1,0 +1,14 @@
+{
+  "method": "readback",
+  "match": {
+    "operation": "StoryComments",
+    "variables": {
+      "id": "TRK-1",
+      "after": null
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"issue\":{\"comments\":{\"nodes\":[],\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null}}}}}",
+  "error": null,
+  "recordedAt": "2026-11-20T18:00:12.000Z"
+}

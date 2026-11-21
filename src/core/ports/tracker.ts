@@ -7,6 +7,7 @@ export interface TrackerPort {
   readComment(ref: CommentRef): Promise<TrackerReceipt<TrackerComment>>;
   postComment(req: PostCommentRequest): Promise<TrackerReceipt<CommentRef>>;
   setStatus(req: SetStatusRequest): Promise<TrackerReceipt<StatusResult>>;
+  setEstimate(req: SetEstimateRequest): Promise<TrackerReceipt<StatusResult>>;
   readback(ref: StoryRef | CommentRef): Promise<TrackerReceipt<Readback>>;
 }
 
@@ -16,6 +17,7 @@ export const trackerMethods = [
   "readComment",
   "postComment",
   "setStatus",
+  "setEstimate",
   "readback",
 ] as const;
 export type TrackerMethod = (typeof trackerMethods)[number];
@@ -46,6 +48,7 @@ export interface TrackerStory {
   title: string;
   stageLabel: string | null;
   size: Size | null;
+  points: number | null;
   kickoffLine: ProcessRef | null;
   kickoffText: string | null;
   status: string;
@@ -87,6 +90,11 @@ export interface PostCommentRequest {
 export interface SetStatusRequest {
   story: StoryRef;
   status: string;
+}
+
+export interface SetEstimateRequest {
+  story: StoryRef;
+  points: number;
 }
 
 export interface StatusResult {

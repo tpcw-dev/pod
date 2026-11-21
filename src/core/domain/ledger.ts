@@ -35,6 +35,7 @@ export const eventTypes = [
   "tick",
   "standup",
   "reply",
+  "groom_proved",
 ] as const;
 export const EventType = z.enum(eventTypes);
 export type EventType = z.infer<typeof EventType>;
@@ -64,6 +65,7 @@ export const intents = [
   "standup",
   "task_update",
   "reply",
+  "groom",
 ] as const;
 export const Intent = z.enum(intents);
 export type Intent = z.infer<typeof Intent>;
@@ -142,6 +144,11 @@ export const OutboxPayload = z.discriminatedUnion("kind", [
     kind: z.literal("status"),
     story: OutboxStoryRef,
     status: z.string().min(1),
+  }),
+  z.strictObject({
+    kind: z.literal("estimate"),
+    story: OutboxStoryRef,
+    points: z.int().positive(),
   }),
 ]);
 export type OutboxPayload = z.infer<typeof OutboxPayload>;

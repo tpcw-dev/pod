@@ -214,7 +214,7 @@ export const operation = ledger.table(
   (t) => [
     check(
       "operation_intent_check",
-      sql`${t.intent} in ('run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide', 'config_apply', 'config_activate', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning', 'close', 'retro', 'digest', 'ruling', 'usage', 'plan', 'tick', 'standup', 'task_update', 'reply')`,
+      sql`${t.intent} in ('run_create', 'project', 'dispatch', 'retry', 'decide_seat', 'decide', 'config_apply', 'config_activate', 'verdict', 'hqa', 'release', 'takeover', 'drain', 'learning', 'close', 'retro', 'digest', 'ruling', 'usage', 'plan', 'tick', 'standup', 'task_update', 'reply', 'groom')`,
     ),
     check(
       "operation_status_check",
@@ -393,7 +393,7 @@ export const event = ledger.table(
   (t) => [
     check(
       "event_type_check",
-      sql`${t.type} in ('start', 'delivery', 'receipt', 'activation', 'activation_requested', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'retry', 'ignored', 'unknown_launch', 'learning', 'outcome', 'close', 'retro', 'digest', 'ruling', 'plan', 'trigger', 'tick', 'standup', 'reply')`,
+      sql`${t.type} in ('start', 'delivery', 'receipt', 'activation', 'activation_requested', 'decision', 'self_decision', 'push', 'pr', 'deploy', 'release', 'takeover', 'escalate', 'cancel', 'stop', 'drain', 'hold', 'resume', 'retry', 'ignored', 'unknown_launch', 'learning', 'outcome', 'close', 'retro', 'digest', 'ruling', 'plan', 'trigger', 'tick', 'standup', 'reply', 'groom_proved')`,
     ),
     index("event_run_ts").on(t.runId, t.ts),
     uniqueIndex("event_trigger_source_id")

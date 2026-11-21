@@ -155,6 +155,7 @@ export function storyOf(
     title: issue.title,
     stageLabel: stageOf(issue.labels.nodes.map((label) => label.name)),
     size: sizeOf(issue.estimate ?? null, scale),
+    points: issue.estimate ?? null,
     kickoffLine: kickoffOf(description),
     kickoffText: kickoffLineOf(description),
     status: issue.state.name,

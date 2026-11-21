@@ -17,6 +17,7 @@ export const operations = {
   PostComment: `mutation PostComment($issueId: String!, $body: String!) { commentCreate(input: { issueId: $issueId, body: $body }) { success comment { ${commentFields} } } }`,
   Workspace:
     "query Workspace { organization { urlKey teams { nodes { key } } } }",
+  SetEstimate: `mutation SetEstimate($id: String!, $estimate: Int!) { issueUpdate(id: $id, input: { estimate: $estimate }) { success issue { ${issueFields} } } }`,
   SetStatus: `mutation SetStatus($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success issue { ${issueFields} } } }`,
 } as const;
 export type Operation = keyof typeof operations;

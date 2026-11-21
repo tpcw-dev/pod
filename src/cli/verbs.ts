@@ -95,6 +95,12 @@ import {
   verdictPostVerb,
 } from "./gate-verbs.ts";
 import {
+  GroomInput,
+  GroomOutput,
+  groomVerb,
+  renderGroom,
+} from "./groom-verbs.ts";
+import {
   DecideCancelInput,
   DecideCancelOutput,
   decideCancelVerb,
@@ -507,6 +513,19 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     cancelBy: ["operator"],
     evidenceRequired: ["an owner generation that matches the Run"],
     meta: drainMeta,
+  }),
+  row({
+    name: "groom",
+    input: GroomInput,
+    output: GroomOutput,
+    handler: groomVerb,
+    sideEffect: "tracker",
+    cancelBy: ["operator"],
+    evidenceRequired: [
+      "an active groom Revision, an active host Revision with a timezone for the host, an identity, and a proposal that passes the points rule and the Proved line format",
+    ],
+    render: renderGroom,
+    meta: (output) => ({ opKey: output.op_key }),
   }),
   row({
     name: "takeover",

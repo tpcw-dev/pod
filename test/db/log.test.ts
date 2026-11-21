@@ -248,6 +248,25 @@ describe("groupLog", () => {
     ).toEqual(["Held: drain"]);
   });
 
+  test("a groom proposal is a Groomed line naming its story and reason", () => {
+    const groomed: Event = {
+      ...events[0]!,
+      ...row("groom_proved", "2026-11-15T12:00:00.000Z", {
+        story: "S-4",
+        provider: "linear",
+        points: 3,
+        reason: "one design choice",
+      }),
+      id: 98,
+    };
+    const groups = groupLog([groomed], "local");
+    expect(
+      groups.flatMap((group) =>
+        group.lines.map((line) => `${group.heading}: ${line.text}`),
+      ),
+    ).toEqual(["Groomed: groom_proved story=S-4 reason=one design choice"]);
+  });
+
   test("a long text is cut to 160 characters", () => {
     const [line] = groupLog(
       [{ ...events[6]!, payload: { text: "x".repeat(400) } }],

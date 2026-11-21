@@ -44,6 +44,7 @@ export function trackerStory(over: Partial<TrackerStory> = {}): TrackerStory {
     title: "Story S-1",
     stageLabel: "impl",
     size: "s",
+    points: 2,
     kickoffLine: null,
     kickoffText: null,
     status: "Backlog",
@@ -144,6 +145,15 @@ export function fakeTracker(story: TrackerStory = trackerStory()): FakeTracker {
       fake.calls.push("setStatus:mutation");
       fake.story = { ...fake.story, status: req.status, statusType: "started" };
       return Promise.resolve(receipt("setStatus", { story: fake.story }));
+    },
+    setEstimate(req) {
+      fake.calls.push("setEstimate");
+      if (fake.failRead)
+        return Promise.resolve(
+          receipt<{ story: TrackerStory }>("setEstimate", null, "timeout"),
+        );
+      fake.story = { ...fake.story, points: req.points };
+      return Promise.resolve(receipt("setEstimate", { story: fake.story }));
     },
     readback() {
       fake.calls.push("readback");

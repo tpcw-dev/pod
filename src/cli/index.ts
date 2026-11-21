@@ -111,6 +111,13 @@ const options = {
   "dry-run": { type: "boolean" },
   agenda: { type: "string" },
   slot: { type: "string" },
+  points: { type: "string" },
+  repo: { type: "string" },
+  at: { type: "string" },
+  function: { type: "string", multiple: true },
+  asserts: { type: "string", multiple: true },
+  check: { type: "string", multiple: true },
+  files: { type: "string", multiple: true },
 } satisfies ParseArgsOptionsConfig;
 
 function parse() {

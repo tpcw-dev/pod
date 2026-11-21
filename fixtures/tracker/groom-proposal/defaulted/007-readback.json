@@ -1,0 +1,14 @@
+{
+  "method": "readback",
+  "match": {
+    "operation": "StoryComments",
+    "variables": {
+      "id": "TRK-1",
+      "after": null
+    }
+  },
+  "status": 200,
+  "body": "{\"data\":{\"issue\":{\"comments\":{\"nodes\":[{\"id\":\"00000000-0000-4000-8000-000000000020\",\"body\":\"pod: groom proposal\\nStage: impl\\nPoints: 1 (proposed)\\nSize: xs\\nKickoff: impl-small@1\\nReason: default_points: 1 paths, 1 callers\\nProved: 1 caller, 0 fakes, 0 asserting tests, 1/1 check fails today, origin/main abc1234 2026-11-20\",\"editedAt\":null,\"user\":{\"id\":\"00000000-0000-4000-8000-000000000014\"}}],\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":\"00000000-0000-4000-8000-000000000020\"}}}}}",
+  "error": null,
+  "recordedAt": "2026-11-20T18:00:15.000Z"
+}

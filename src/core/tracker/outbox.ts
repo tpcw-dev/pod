@@ -22,10 +22,11 @@ export function commentPayload(story: StoryRef, body: string): OutboxPayload {
 }
 
 export interface DrainInput {
-  run_id: string;
+  run_id: string | null;
   generation: number;
   host: string;
   now: () => Date;
+  op_keys?: readonly string[];
 }
 
 export interface Drained {
@@ -35,6 +36,7 @@ export interface Drained {
 
 type CommentPayload = Extract<OutboxPayload, { kind: "comment" }>;
 type StatusPayload = Extract<OutboxPayload, { kind: "status" }>;
+type EstimatePayload = Extract<OutboxPayload, { kind: "estimate" }>;
 
 function payloadOf(row: OutboxRow): OutboxPayload | null {
   const parsed = OutboxPayload.safeParse(row.payload);
@@ -84,7 +86,7 @@ async function drainStatus(
   });
   const story = set.result?.story ?? null;
   if (set.error === canceledByHuman && story !== null) {
-    if (runId === input.run_id)
+    if (runId !== null && runId === input.run_id)
       await db.transaction(async (tx) => {
         await fence(tx, runId, input.generation);
         await cancelRun(tx, runId, story.status, input.host, input.now());
@@ -98,6 +100,20 @@ async function drainStatus(
   return { fail: set.error ?? "failed" };
 }
 
+async function drainEstimate(
+  tracker: TrackerPort,
+  payload: EstimatePayload,
+): Promise<{ ack: Json } | { fail: string }> {
+  const set = await tracker.setEstimate({
+    story: payload.story,
+    points: payload.points,
+  });
+  const story = set.result?.story ?? null;
+  if (set.ok && story !== null && story.points === payload.points)
+    return { ack: Json.parse({ kind: "story", story }) };
+  return { fail: set.ok ? "readback_mismatch" : (set.error ?? "failed") };
+}
+
 export async function drainOutbox(
   db: Db,
   tracker: TrackerPort,
@@ -105,7 +121,11 @@ export async function drainOutbox(
   input: DrainInput,
 ): Promise<Drained> {
   const drained: Drained = { acked: [], failed: [] };
-  for (const row of await db.listOutboxPending()) {
+  const pending = await db.listOutboxPending();
+  const only = input.op_keys;
+  for (const row of only === undefined
+    ? pending
+    : pending.filter((row) => only.includes(row.op_key))) {
     const payload = payloadOf(row);
     let outcome: { ack: Json } | { fail: string };
     if (payload === null) outcome = { fail: "payload_invalid" };
@@ -121,7 +141,9 @@ export async function drainOutbox(
       outcome =
         payload.kind === "comment"
           ? await drainComment(tracker, payload)
-          : await drainStatus(db, tracker, payload, runId, input);
+          : payload.kind === "estimate"
+            ? await drainEstimate(tracker, payload)
+            : await drainStatus(db, tracker, payload, runId, input);
     }
     if ("ack" in outcome) {
       await db.ackOutbox(row.id, outcome.ack);
