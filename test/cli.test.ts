@@ -2,7 +2,9 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ZodObject } from "zod";
 import { expect, test } from "vitest";
+import { options } from "../src/cli/options.ts";
 import { usageFor, verbs } from "../src/cli/verbs.ts";
 
 function run(
@@ -124,6 +126,34 @@ test("a flag the verb does not take is usage", () => {
   const result = run(["db", "migrate", "--html", "out.html"]);
   expect(result.status).toBe(2);
   expect(JSON.parse(result.stdout).error.code).toBe("usage");
+});
+
+test("the option table declares every flag a verb's input takes", () => {
+  const missing = verbs.flatMap((verb) =>
+    verb.input instanceof ZodObject
+      ? Object.keys(verb.input.shape)
+          .filter((key) => key !== "args" && !Object.hasOwn(options, key))
+          .map((key) => `${verb.name} --${key}`)
+      : [],
+  );
+  expect(missing).toEqual([]);
+});
+
+test("reply --message reaches the verb with FILE before or after the flags", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pod-reply-"));
+  const file = join(dir, "answer.txt");
+  writeFileSync(file, "the answer\n");
+  const flags = ["--message", "msg_x", "--generation", "1"];
+  for (const args of [
+    ["reply", ...flags, file],
+    ["reply", file, ...flags],
+  ]) {
+    const result = run(args, {
+      POD_HOME: "/nonexistent",
+      POD_DB_URL: "postgres://pod@127.0.0.1:1/pod",
+    });
+    expect(JSON.parse(result.stdout).error.code).toBe("failed");
+  }
 });
 
 test("deploy record takes one JSON deploy line from FILE or --stdin", () => {

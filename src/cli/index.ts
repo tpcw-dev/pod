@@ -1,6 +1,7 @@
-import { type ParseArgsOptionsConfig, parseArgs } from "node:util";
+import { parseArgs } from "node:util";
 import pkg from "../../package.json" with { type: "json" };
 import { PodError, usageError } from "./errors.ts";
+import { options } from "./options.ts";
 import { usageFor, verbs } from "./verbs.ts";
 
 function write(value: unknown): void {
@@ -49,76 +50,6 @@ function verbFrom(
     return { verb: oneVerb, args: positionals.slice(1) };
   return undefined;
 }
-
-const options = {
-  help: { type: "boolean" },
-  activate: { type: "boolean" },
-  accept: { type: "boolean" },
-  reject: { type: "boolean" },
-  scope: { type: "string" },
-  "expected-revision": { type: "string" },
-  "op-key": { type: "string" },
-  reason: { type: "string" },
-  unset: { type: "string", multiple: true },
-  from: { type: "string" },
-  ticket: { type: "string" },
-  string: { type: "boolean" },
-  out: { type: "string" },
-  all: { type: "boolean" },
-  prune: { type: "boolean" },
-  html: { type: "string" },
-  process: { type: "string" },
-  size: { type: "string" },
-  stage: { type: "string" },
-  task: { type: "string" },
-  seat: { type: "string" },
-  generation: { type: "string" },
-  run: { type: "string" },
-  day: { type: "string" },
-  date: { type: "string" },
-  wait: { type: "boolean" },
-  interval: { type: "string" },
-  timeout: { type: "string" },
-  resume: { type: "boolean" },
-  observe: { type: "boolean" },
-  dispatch: { type: "string" },
-  retain: { type: "boolean" },
-  end: { type: "boolean" },
-  "keep-files-reviewed": { type: "boolean" },
-  area: { type: "string" },
-  kind: { type: "string" },
-  reporter: { type: "string" },
-  expected: { type: "string" },
-  "repeat-of": { type: "string" },
-  project: { type: "string" },
-  story: { type: "string" },
-  adoption: { type: "string" },
-  text: { type: "string" },
-  category: { type: "string" },
-  effect: { type: "string" },
-  decision: { type: "string" },
-  note: { type: "string" },
-  supersedes: { type: "string" },
-  page: { type: "string" },
-  heading: { type: "string" },
-  json: { type: "boolean" },
-  stdin: { type: "boolean" },
-  host: { type: "string" },
-  publish: { type: "boolean" },
-  until: { type: "string" },
-  trigger: { type: "string", multiple: true },
-  section: { type: "string", multiple: true },
-  "dry-run": { type: "boolean" },
-  agenda: { type: "string" },
-  slot: { type: "string" },
-  points: { type: "string" },
-  repo: { type: "string" },
-  at: { type: "string" },
-  function: { type: "string", multiple: true },
-  asserts: { type: "string", multiple: true },
-  check: { type: "string", multiple: true },
-  files: { type: "string", multiple: true },
-} satisfies ParseArgsOptionsConfig;
 
 function parse() {
   const args = process.argv.slice(2);
