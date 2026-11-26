@@ -9,7 +9,10 @@ export const PrState = z.object({
 });
 export type PrState = z.infer<typeof PrState>;
 
+export type PrTarget =
+  { number: number; url: string } | { number: number; repo: string };
+
 export interface CodeHostPort {
-  pr(repo: string, number: number): Promise<PrState | null>;
+  pr(target: PrTarget): Promise<PrState | null>;
   openPrs(repo: string, branch: string): Promise<number[] | null>;
 }

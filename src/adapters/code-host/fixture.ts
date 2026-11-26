@@ -19,10 +19,10 @@ export function makeFixtureCodeHost(
   const calls: string[] = [];
   return {
     calls,
-    pr(_repo, number) {
-      calls.push(`pr ${number}`);
+    pr(target) {
+      calls.push(`pr ${target.number}`);
       return Promise.resolve(
-        data.prs.find((row) => row.number === number) ?? null,
+        data.prs.find((row) => row.number === target.number) ?? null,
       );
     },
     openPrs(_repo, branch) {
