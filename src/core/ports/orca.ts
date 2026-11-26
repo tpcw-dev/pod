@@ -310,7 +310,7 @@ export type WorkerReleaseResult = z.infer<typeof WorkerReleaseResult>;
 
 const OrcaRun = z.looseObject({
   id: z.string().min(1),
-  coordinator_handle: z.string().min(1),
+  coordinator_handle: z.string().min(1).nullable(),
   consumer_generation: z.int(),
 });
 
