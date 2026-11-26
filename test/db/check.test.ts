@@ -515,6 +515,156 @@ describeDb("pod check", () => {
     expect(await taskState(conn, "task_b")).toBe("blocked");
   });
 
+  const ended = (over: { terminalState?: string } = {}) =>
+    workers([
+      {
+        dispatchId: "ctx_1",
+        workerState: "abandoned",
+        terminalState: over.terminalState ?? "released",
+      },
+    ]);
+  const question = (id: string) => ({
+    id,
+    type: "question",
+    subject: `subject of ${id}`,
+    body: `body of ${id}`,
+    payload: JSON.stringify({ dispatchId: "ctx_1", taskId: "task_b" }),
+  });
+  const retryLine =
+    "Task task_b is blocked on ended Dispatch ctx_1: pod retry --dispatch ctx_1 --generation 1";
+
+  test("an abandoned worker whose terminal is released settles its Dispatch as stopped and blocks its Task", async () => {
+    const outcome = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", ended(), run),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { stopped: ["ctx_1"], free_slots: 1 },
+    });
+    expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
+      activity: "settled",
+      settlement: "stopped",
+    });
+    expect(await taskState(conn, "task_b")).toBe("blocked");
+    expect(await events(conn, "stop")).toEqual([
+      {
+        task_id: "task_b",
+        dispatch_id: "ctx_1",
+        payload: { worker_state: "abandoned", terminal_state: "released" },
+      },
+    ]);
+  });
+
+  test("an abandoned worker whose terminal is not released changes nothing", async () => {
+    const outcome = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", ended({ terminalState: "retained" }), run),
+    ]);
+    expect(outcome).toMatchObject({ ok: true, result: { stopped: [] } });
+    expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
+      settlement: "open",
+    });
+    expect(await taskState(conn, "task_b")).toBe("dispatched");
+    expect(await events(conn, "stop")).toEqual([]);
+  });
+
+  test("a worker_done read in the same pass wins over an abandoned worker", async () => {
+    const outcome = await pass([
+      ok("check", batch("delivery_1", [done("msg_1", "ctx_1")]), run),
+      ok("check", empty("delivery_1"), ack("delivery_1")),
+      ok("worker-list", ended(), run),
+    ]);
+    expect(outcome).toMatchObject({ ok: true, result: { stopped: [] } });
+    expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
+      settlement: "done",
+    });
+    expect(await events(conn, "stop")).toEqual([]);
+  });
+
+  test("pod check names pod retry for a blocked Task whose latest Dispatch is settled stopped", async () => {
+    const outcome = await pass([
+      ok("check", empty(), run),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_1", workerState: "stopped" }]),
+        run,
+      ),
+    ]);
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(outcome.result.nextSteps).toContain(retryLine);
+  });
+
+  test("the retry line names the question the ended Dispatch left unanswered", async () => {
+    const asked = await pass([
+      ok("check", batch("delivery_1", [question("msg_q")]), run),
+      ok("check", empty("delivery_1"), ack("delivery_1")),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_1", workerState: "ready" }]),
+        run,
+      ),
+    ]);
+    if (!asked.ok) throw new Error(asked.refusal.message);
+    expect(await taskState(conn, "task_b")).toBe("delivered");
+    expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
+      settlement: "open",
+      activity: "waiting",
+    });
+    expect(asked.result.nextSteps).toContain(
+      "worker asks on ctx_1 (subject of msg_q): pod reply --message msg_q --generation 1 FILE",
+    );
+    const outcome = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", ended(), run),
+    ]);
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
+      settlement: "stopped",
+    });
+    expect(await taskState(conn, "task_b")).toBe("blocked");
+    expect(outcome.result.nextSteps).toContain(
+      `${retryLine}; ctx_1 left question msg_q unanswered: answer the new Dispatch's repeat of it with pod reply and the same answer`,
+    );
+    expect(outcome.result.nextSteps.join("\n")).not.toContain(
+      "worker asks on ctx_1",
+    );
+  });
+
+  test("a delivered Task whose question was answered stays delivered when its worker ends", async () => {
+    await pass([
+      ok("check", batch("delivery_1", [question("msg_q")]), run),
+      ok("check", empty("delivery_1"), ack("delivery_1")),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_1", workerState: "ready" }]),
+        run,
+      ),
+    ]);
+    await conn.db.appendEvent({
+      type: "reply",
+      ts: new Date(),
+      host: "local",
+      run_id: "run_1",
+      task_id: "task_b",
+      dispatch_id: "ctx_1",
+      op_key: null,
+      payload: { question_id: "msg_q" },
+      source: { kind: "command", verb: "reply" },
+    });
+    await conn.sql`update ledger.dispatch set activity = 'running' where dispatch_id = 'ctx_1'`;
+    const outcome = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", ended(), run),
+    ]);
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
+      settlement: "stopped",
+    });
+    expect(await taskState(conn, "task_b")).toBe("delivered");
+    expect(outcome.result.nextSteps.join("\n")).not.toContain("pod retry");
+  });
+
   test("an unknown worker records unknown_launch once and holds the Run and its open Tasks", async () => {
     const list = workers([
       { dispatchId: "ctx_1", workerState: "ready" },

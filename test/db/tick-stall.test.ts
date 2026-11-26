@@ -48,7 +48,7 @@ const retryArgv = [
   "ctx_1",
 ];
 
-type Row = { dispatchId: string; workerState: string };
+type Row = { dispatchId: string; workerState: string; terminalState?: string };
 
 describeDb("pod tick attention: stalls and the one automatic retry", () => {
   let conn: Connection;
@@ -271,6 +271,29 @@ describeDb("pod tick attention: stalls and the one automatic retry", () => {
     expect(await taskState(conn, "task_b")).toBe("dispatched");
     expect(kinds(result.needs_human ?? []).join(" ")).not.toContain("ctx_1");
     expect(await events(conn, "takeover")).toEqual([]);
+  });
+
+  test("an abandoned worker is neither settled nor retried by the tick", async () => {
+    await dispatchedAt("ctx_1", minutes(-5));
+    const attention = port([
+      {
+        dispatchId: "ctx_1",
+        workerState: "abandoned",
+        terminalState: "released",
+      },
+    ]);
+    const result = await attend(conn.db, attention, {
+      host: "local",
+      writer: "local",
+      now,
+    });
+    expect(attention.started).toEqual([]);
+    expect(result.detail).toMatchObject({ retried: [] });
+    expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
+      settlement: "open",
+    });
+    expect(await events(conn, "stop")).toEqual([]);
+    expect(await taskState(conn, "task_b")).toBe("dispatched");
   });
 
   test("a crash after worker-start and a re-run of the tick start no second worker", async () => {

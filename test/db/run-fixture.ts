@@ -141,6 +141,7 @@ export function workers(
     dispatchId: string;
     taskId?: string;
     workerState: string;
+    terminalState?: string;
     worktreeId?: string;
     agentTerminalHandle?: string;
     followUpOf?: string;
@@ -152,7 +153,7 @@ export function workers(
       dispatchId: row.dispatchId,
       taskId: row.taskId ?? "task_b",
       workerState: row.workerState,
-      terminalState: "active",
+      terminalState: row.terminalState ?? "active",
       resource: { worktreeId: row.worktreeId ?? worktreeId },
       ...(row.agentTerminalHandle === undefined
         ? {}

@@ -409,6 +409,33 @@ describeDb("pod reply", () => {
     ).toEqual([]);
   });
 
+  test("a question on a Dispatch whose worker is abandoned is not named after pod check settles it", async () => {
+    await check([ask("msg_q", { type: "question" })]);
+    const { orca, log } = replay(conn, [
+      ok("check", empty(), run),
+      ok(
+        "worker-list",
+        workers([
+          {
+            dispatchId: "ctx_1",
+            workerState: "abandoned",
+            terminalState: "released",
+          },
+        ]),
+        run,
+      ),
+    ]);
+    const outcome = await checkPass(conn.db, orca, null, log, checkInput());
+    orca.assertDone();
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(outcome.result.questions).toEqual([]);
+    expect((await conn.db.getTask("task_b"))?.state).toBe("blocked");
+    expect(await quiet("msg_q", "T")).toMatchObject({
+      ok: false,
+      refusal: { code: "task_not_ready" },
+    });
+  });
+
   test("a decision_gate message is not a question", async () => {
     await check([ask("msg_gate", { type: "decision_gate" })]);
     expect(await quiet("msg_gate", "T")).toMatchObject({

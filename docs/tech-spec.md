@@ -1120,11 +1120,12 @@ A dependency is satisfied when it is `passed`, or `done`, which a Task reaches o
 | `ready` | `dispatched` | `pod dispatch` records a start event for a worker step |
 | `ready` | `delivered` | `pod deploy record` appends the `external_action` deploy event, or a `human_wait` Gate receipt arrives |
 | `dispatched` | `delivered` | `pod check` records a delivery that matches the Dispatch and the owner generation |
-| `dispatched` | `blocked` | Orca reports the Task `blocked` after `worker-stop` |
+| `dispatched` | `blocked` | the worker runtime reports the worker `stopped`, or `abandoned` with terminalState `released` |
 | `blocked` | `dispatched` | `pod retry` starts a new Dispatch with `retry_of` |
 | `delivered` | `passed` | a PASS Gate receipt for a gated step, the `decision` event with outcome `agreed` and effect `accept_plan` bound to the plan Revision for a step with a `decision`, or the matching delivery for a step with neither |
 | `delivered` | `hold` | a `cancelled` Decision outcome on a step with a `decision`. The operator resumes after reconcile |
 | `delivered` | `failed` | a FAIL Gate receipt whose edge has `new_task: true` |
+| `delivered` | `blocked` | `pod check` records the worker of the Task's latest Dispatch as ended while that Dispatch waits on an unanswered question |
 | `delivered` | `hold` | a FAIL Gate receipt whose edge targets `hold`. The receipt stays recorded, and the operator resumes after reconcile |
 | `passed` | `done` | the projector records the outgoing edge |
 | `failed` | `failed` | none. A failed Task is terminal. The rework Task in the same lineage replaces it, and the projector repoints the dependents' `deps` to the rework Task |
