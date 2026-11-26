@@ -40,10 +40,11 @@ export async function planWorktrees(
   return plan;
 }
 
-const PrNumber = z.looseObject({ number: z.int() });
+const PrEvent = z.looseObject({ number: z.int(), url: z.unknown().optional() });
 
 interface PrRead {
   number: number;
+  url: string | null;
   repo: string | null;
   state: PrState | null;
 }
@@ -72,16 +73,27 @@ export async function readPrs(
   codeHost: CodeHostPort,
 ): Promise<PrRead[]> {
   const reads: PrRead[] = [];
+  const seen = new Set<string>();
   for (const event of events) {
-    const parsed = PrNumber.safeParse(event.payload);
+    const parsed = PrEvent.safeParse(event.payload);
     if (!parsed.success) continue;
     const number = parsed.data.number;
-    if (reads.some((read) => read.number === number)) continue;
+    const url = typeof parsed.data.url === "string" ? parsed.data.url : null;
+    const key = url ?? `#${number}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     const repo = repoFor(event, dispatches, plan);
+    const state =
+      url !== null
+        ? await codeHost.pr({ number, url })
+        : repo !== null
+          ? await codeHost.pr({ number, repo })
+          : null;
     reads.push({
       number,
+      url,
       repo,
-      state: repo === null ? null : await codeHost.pr(repo, number),
+      state: state?.number === number ? state : null,
     });
   }
   return reads;
@@ -95,14 +107,14 @@ export async function openPrRefusal(
 ): Promise<Refusal | null> {
   const found: string[] = [];
   for (const read of reads) {
-    if (read.repo === null)
+    if (read.state?.state === "open")
+      found.push(`merge or close PR #${read.number}, then run the close again`);
+    else if (read.state === null && read.repo === null && read.url === null)
       found.push(
         `PR #${read.number}: no local repository is recorded for its Dispatch's worktree`,
       );
     else if (read.state === null)
       found.push(`PR #${read.number}: the code host could not be read`);
-    else if (read.state.state === "open")
-      found.push(`merge or close PR #${read.number}, then run the close again`);
   }
   for (const row of plan) {
     if (row.repo === null || row.branch === null) continue;

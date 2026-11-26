@@ -18,8 +18,10 @@ const states = {
 
 const PrList = z.array(z.looseObject({ number: z.int() }));
 
-function gh(repo: string, args: readonly string[]): unknown {
-  const result = spawnSync("gh", [...args], { cwd: repo, encoding: "utf8" });
+const prFields = "number,state,headRefName,headRefOid,mergeCommit";
+
+function gh(cwd: string | undefined, args: readonly string[]): unknown {
+  const result = spawnSync("gh", [...args], { cwd, encoding: "utf8" });
   if (result.status !== 0) return undefined;
   try {
     return JSON.parse(result.stdout) as unknown;
@@ -29,15 +31,19 @@ function gh(repo: string, args: readonly string[]): unknown {
 }
 
 export const realCodeHost: CodeHostPort = {
-  pr(repo, number) {
+  pr(target) {
+    if ("url" in target && !target.url.startsWith("https://"))
+      return Promise.resolve(null);
     const parsed = PrView.safeParse(
-      gh(repo, [
-        "pr",
-        "view",
-        String(number),
-        "--json",
-        "number,state,headRefName,headRefOid,mergeCommit",
-      ]),
+      "url" in target
+        ? gh(undefined, ["pr", "view", target.url, "--json", prFields])
+        : gh(target.repo, [
+            "pr",
+            "view",
+            String(target.number),
+            "--json",
+            prFields,
+          ]),
     );
     if (!parsed.success) return Promise.resolve(null);
     const view = parsed.data;

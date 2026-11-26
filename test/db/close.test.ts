@@ -776,6 +776,40 @@ describeDb("pod run close", () => {
     });
   });
 
+  test("a merged PR in another repository, read by its url, lets the close finish", async () => {
+    await readyToClose();
+    const url = "https://code.example/other/pull/882";
+    await conn.db.appendEvent({
+      type: "pr",
+      ts: new Date(),
+      host: "local",
+      run_id: "run_1",
+      task_id: "task_b",
+      dispatch_id: "ctx_1",
+      op_key: null,
+      payload: { number: 882, url, head: "b".repeat(40) },
+      source: { kind: "command", verb: "check" },
+    });
+    const outcome = await close([shown(term, false), removedWorktree()], {
+      git: fakeGit({ checkout: () => Promise.resolve(checkout) }),
+      codeHost: makeFixtureCodeHost({
+        prs: [
+          {
+            number: 882,
+            state: "merged",
+            head_branch: "other-feature",
+            head_sha: "b".repeat(40),
+            merge_commit: "c".repeat(40),
+          },
+        ],
+      }),
+    });
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { state: "done", pr_events: [{ payload: { number: 882, url } }] },
+    });
+  });
+
   test("an archive step left unknown with its event written reads back without a second event", async () => {
     await readyToClose();
     const key = closeStepKey("run_1", "archive");
