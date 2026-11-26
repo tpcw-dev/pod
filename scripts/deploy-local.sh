@@ -40,7 +40,7 @@ try {
   console.log(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }'
-reason=$(node --no-warnings --experimental-transform-types --input-type=module -e "$db_check") ||
+reason=$(node --no-warnings --import tsx --input-type=module -e "$db_check") ||
   refuse "${reason:-cannot load src/cli/host-profile.ts}"
 
 rm -rf .deploy
