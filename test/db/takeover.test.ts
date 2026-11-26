@@ -45,7 +45,7 @@ const newHandle = "term_new";
 const requestId = "77777777-7777-4777-8777-777777777777";
 const views = mkdtempSync(join(tmpdir(), "pod-restore-"));
 
-function orcaRun(handle: string, generation: number) {
+function orcaRun(handle: string | null, generation: number) {
   return {
     run: {
       id: "run_1",
@@ -69,7 +69,7 @@ const recorded = {
   ),
 };
 
-const runShow = (handle = oldHandle): TempEntry =>
+const runShow = (handle: string | null = oldHandle): TempEntry =>
   handle === oldHandle
     ? { verb: "run-show", argv: ["--id", "run_1"], stdout: recorded.runShow }
     : ok("run-show", orcaRun(handle, 1), ["--id", "run_1"]);
@@ -313,6 +313,35 @@ describeDb("pod takeover", () => {
     expect(
       await run([runShow(newHandle), terminal(oldHandle, false), runUse()]),
     ).toMatchObject({ ok: true, result: { owner_generation: 2 } });
+  });
+
+  test("a Run with no bound coordinator is taken once the ledger's coordinator has stopped", async () => {
+    expect(
+      await run([runShow(null), terminal(oldHandle, false), runUse()]),
+    ).toMatchObject({
+      ok: true,
+      result: { owner_generation: 2, coordinator: newHandle },
+    });
+    expect((await operations()).map((row) => row.status)).toEqual(["done"]);
+    expect(await owner()).toEqual({ generation: 2, coordinator: newHandle });
+  });
+
+  test("a Run with no bound coordinator is takeover_unsafe while the ledger's coordinator is live", async () => {
+    expect(await run([runShow(null), terminal(oldHandle, true)])).toMatchObject(
+      {
+        ok: false,
+        refusal: {
+          code: "takeover_unsafe",
+          message: `the old coordinator ${oldHandle} has not stopped`,
+          nextSteps: [
+            `orca terminal close --terminal ${oldHandle}`,
+            expect.any(String),
+          ],
+        },
+      },
+    );
+    expect((await operations()).map((row) => row.status)).toEqual(["refused"]);
+    expect(await owner()).toEqual({ generation: 1, coordinator: oldHandle });
   });
 
   test("a caller naming the live recorded coordinator is still takeover_unsafe", async () => {
@@ -569,6 +598,21 @@ describeDb("pod takeover", () => {
       result: { owner_generation: 2 },
     });
     expect(retaken.ok && retaken.opKey).not.toBe(open?.op_key);
+  });
+
+  test("pod check closes a takeover with no request id when run-show names no bound handle", async () => {
+    await lostNoId();
+    const [open] = await operations();
+    expect(await pass([runShow(null)])).toMatchObject({
+      ok: true,
+      result: {
+        nextSteps: expect.arrayContaining([
+          "pod takeover story:S-1 --generation 1",
+        ]),
+      },
+    });
+    expect(await reconciledAs(open?.op_key ?? "")).toBe("not_bound");
+    expect(await owner()).toEqual({ generation: 1, coordinator: oldHandle });
   });
 
   test("a run-use that answers after pod check closed its takeover records nothing", async () => {

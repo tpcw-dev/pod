@@ -150,7 +150,9 @@ async function readEvidence(
   const bound = shown.result.run.coordinator_handle;
   const handles = [
     run.coordinator,
-    ...(bound !== run.coordinator && bound !== caller ? [bound] : []),
+    ...(bound !== null && bound !== run.coordinator && bound !== caller
+      ? [bound]
+      : []),
   ];
   const live: string[] = [];
   for (const handle of handles)
