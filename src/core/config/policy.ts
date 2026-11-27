@@ -7,7 +7,7 @@ import {
   reservedOf,
   type ReservedClass,
 } from "../domain/policy.ts";
-import { GateEntry } from "../gate/receipt.ts";
+import { DelegateNames, delegateName, GateEntry } from "../gate/receipt.ts";
 import { LearningKinds } from "./learning-kinds.ts";
 import { AttentionValue, StallMinutes, UsageLimitsValue } from "./limits.ts";
 import {
@@ -395,6 +395,35 @@ function authorizationsProblem(value: unknown): Problem {
   return null;
 }
 
+const reservedDelegates = ["relay", "coordinator"];
+
+function delegatesProblem(value: unknown, crewValue: unknown | null): Problem {
+  const policy = fields(value);
+  const list = policy["delegates"];
+  if (list === undefined) return null;
+  const path = "delegates";
+  const names = DelegateNames.safeParse(list);
+  if (!names.success || new Set(names.data).size !== names.data.length)
+    return {
+      path,
+      message: `${path}: must be a list of distinct names matching ${delegateName.source}`,
+    };
+  const principals = Object.keys(fields(policy["principals"]));
+  const seats = crewValue === null ? [] : seatIds(crewValue);
+  for (const name of names.data) {
+    if (principals.includes(name))
+      return { path, message: `${path}: ${name} is a principal` };
+    if (reservedDelegates.includes(name))
+      return { path, message: `${path}: ${name} is reserved` };
+    if (seats.includes(name))
+      return {
+        path,
+        message: `${path}: ${name} is a Seat id of the active crew`,
+      };
+  }
+  return null;
+}
+
 function escalateProblem(value: unknown): Problem {
   const list = fields(value)["escalate_when"];
   if (list === undefined || z.array(z.string().min(1)).safeParse(list).success)
@@ -469,7 +498,8 @@ export function validatePolicy(
     storyStatusProblem(value) ??
     servicesProblem(value) ??
     learningProblem(value) ??
-    authorizationsProblem(value);
+    authorizationsProblem(value) ??
+    delegatesProblem(value, crewValue);
   return problem === null
     ? null
     : {

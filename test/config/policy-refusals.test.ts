@@ -195,3 +195,62 @@ test.each([
     "attention",
   ]);
 });
+
+const withDelegates = (delegates: unknown) => ({
+  ...defaultValue,
+  principals: { keeper: { tracker_account: "keeper-1" } },
+  delegates,
+});
+const crew = { seats: [{ id: "reviewer" }, { id: "developer" }] };
+
+test("a policy with no delegates key has no delegates and validates", () => {
+  expect("delegates" in defaultValue).toBe(false);
+  expect(validatePolicy(defaultValue, crew)).toBeNull();
+});
+
+test("a policy lists distinct delegate names", () => {
+  expect(validatePolicy(withDelegates(["scribe", "s-2"]), crew)).toBeNull();
+  expect(validatePolicy(withDelegates([]), crew)).toBeNull();
+});
+
+test.each([
+  [
+    "scribe",
+    "delegates: must be a list of distinct names matching ^[a-z][a-z0-9-]*$",
+  ],
+  [
+    { scribe: true },
+    "delegates: must be a list of distinct names matching ^[a-z][a-z0-9-]*$",
+  ],
+  [
+    [1],
+    "delegates: must be a list of distinct names matching ^[a-z][a-z0-9-]*$",
+  ],
+  [
+    ["Scribe"],
+    "delegates: must be a list of distinct names matching ^[a-z][a-z0-9-]*$",
+  ],
+  [
+    ["scribe bot"],
+    "delegates: must be a list of distinct names matching ^[a-z][a-z0-9-]*$",
+  ],
+  [
+    ["9scribe"],
+    "delegates: must be a list of distinct names matching ^[a-z][a-z0-9-]*$",
+  ],
+  [
+    ["scribe", "scribe"],
+    "delegates: must be a list of distinct names matching ^[a-z][a-z0-9-]*$",
+  ],
+  [["keeper"], "delegates: keeper is a principal"],
+  [["relay"], "delegates: relay is reserved"],
+  [["coordinator"], "delegates: coordinator is reserved"],
+  [["reviewer"], "delegates: reviewer is a Seat id of the active crew"],
+])("delegates %j is schema_invalid", (delegates, message) => {
+  const refusal = validatePolicy(withDelegates(delegates), crew);
+  expect(refusal).toEqual({
+    code: "schema_invalid",
+    message,
+    nextSteps: ["delegates"],
+  });
+});

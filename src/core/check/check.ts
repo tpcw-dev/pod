@@ -37,9 +37,10 @@ import { settleRun } from "../process/settle.ts";
 import type { TrackerPort } from "../ports/tracker.ts";
 import { drainOutbox } from "../tracker/outbox.ts";
 import { syncStory } from "../tracker/sync.ts";
-import { voidEditedReceipts } from "../gate/hqa.ts";
+import { recordDelegatedHqa, voidEditedReceipts } from "../gate/hqa.ts";
 import {
   readStoryComments,
+  type StoryComments,
   verifiedActivations,
   verifiedRulings,
   waitingDecisions,
@@ -201,7 +202,26 @@ async function runPass(
         now: input.now,
       });
       tracked.push(...voids.nextSteps);
-      tracked.push(...(await applyRulings(db, tracker, log, run, input)));
+      const story = once(() => readStoryComments(tracker, log, run));
+      tracked.push(
+        ...(await applyRulings(db, tracker, log, run, input, story)),
+      );
+      tracked.push(
+        ...(await recordDelegatedHqa(
+          db,
+          orca,
+          tracker,
+          log,
+          run,
+          {
+            generation: input.generation,
+            host: input.host,
+            now: input.now,
+            version,
+          },
+          story,
+        )),
+      );
     }
     result.nextSteps.unshift(...tracked);
     const read = await readDeliveries(db, orca, log, input, result);
@@ -421,21 +441,25 @@ async function chargeOpenDecisions(
     });
 }
 
+function once<T>(read: () => Promise<T>): () => Promise<T> {
+  let memo: Promise<T> | null = null;
+  return () => (memo ??= read());
+}
+
 async function applyRulings(
   db: Db,
   tracker: TrackerPort,
   log: ReceiptLog,
   run: Run,
   input: CheckInput,
+  story: () => Promise<StoryComments>,
 ): Promise<string[]> {
   const pending = await pendingActivations(db);
   const waiting = await waitingDecisions(db, run.run_id);
   if (waiting.size === 0 && pending.length === 0) return [];
   const needsStory =
     waiting.size > 0 || pending.some((row) => row.request.ticket === null);
-  const read = needsStory
-    ? await readStoryComments(tracker, log, run)
-    : { ok: true as const, comments: [] };
+  const read = needsStory ? await story() : { ok: true as const, comments: [] };
   const storyFailed = read.ok
     ? []
     : [

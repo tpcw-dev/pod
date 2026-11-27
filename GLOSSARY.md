@@ -30,6 +30,7 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Plan override**: a hold, release, project priority, or explicit order an operator or an agent records against a launch plan. Each is one `plan` event that names its actor and expires at the end of the host's day unless `--until` names a later day.
 - **Integration review**: the review of the integrated candidate SHA after each task's review passes.
 - **Candidate SHA**: the commit a gate verdict binds to, the head of the run's newest recorded push.
+- **Delegate**: a name in the global policy's `delegates` that a verdict comment declares on its `delegated-by:` line, quoting the keeper on its `keeper-quote:` line. Pod checks the declared name, not who posted.
 - **Relay principal**: a tracker identity that posts only what the human gatekeeper said, marking each comment with its relay session.
 - **Decision**: a request to choose between options, its rounds, and its outcome. A decision authorizes the next step in a stated scope. It is not a gate verdict.
 - **Round**: one proposal by the decider seat and one audit of it by the auditor seat. A decision runs at most three rounds.

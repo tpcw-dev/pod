@@ -228,7 +228,7 @@ async function gateLines(
     if (gate === null) continue;
     if (gate.type === "HQA")
       lines.push(
-        `waiting on ${step.gate} (${gate.keeper}): ${gate.keeper} runs pod hqa record story:${run.story_external_id} --generation ${generation} after the verdict comment`,
+        `waiting on ${step.gate} (${gate.keeper}): ${gate.keeper} runs pod hqa record story:${run.story_external_id} --generation ${generation} after the verdict comment, or a listed delegate posts the verdict comment with keeper-quote: and delegated-by: lines and pod check records it`,
       );
     else if (step.type === "worker") {
       lines.push(

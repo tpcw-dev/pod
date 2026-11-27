@@ -22,19 +22,26 @@ import {
   type Recorded,
 } from "../process/project.ts";
 import { settleRuntime } from "../process/settle.ts";
+import { singleActive } from "../config/active.ts";
 import { readBypass, type BypassResult } from "./bypass.ts";
 import {
   candidateSha,
+  contentHash,
   decideStep,
+  delegatedTrailer,
+  delegatesOf,
   findVerdictComment,
   gateOf,
   hashOf,
   pinnedConfig,
   principalsOf,
+  verdictComments,
+  verifyDelegated,
   verifySource,
   type GateKeeper,
   type SourceRefusal,
 } from "./receipt.ts";
+import type { StoryComments } from "./ruling.ts";
 
 export class HqaAmbiguous extends Error {
   constructor(readonly waiting: readonly { task: string; gate: string }[]) {
@@ -195,11 +202,22 @@ interface Accepted {
   readback_at: Date;
   deployed: string | null;
   opKey: string;
+  actor: string;
+  verb: "hqa record" | "check";
+  delegated: { delegate: string; keeper_quote: string } | null;
+}
+
+export interface Settle {
+  generation: number;
+  host: string;
+  command: string;
+  now: () => Date;
+  version: string;
 }
 
 async function write(
   tx: Repo,
-  input: HqaInput,
+  input: Pick<Settle, "generation" | "host" | "now">,
   accepted: Accepted,
 ): Promise<Written> {
   const { run, waiting, comment, opKey } = accepted;
@@ -247,6 +265,7 @@ async function write(
       relayed_by: accepted.relayed_by,
       content_hash: accepted.content_hash,
       readback_at: accepted.readback_at.toISOString(),
+      ...accepted.delegated,
     },
     sync_state: "synced",
     created_at: at,
@@ -264,9 +283,10 @@ async function write(
       gate: waiting.gate,
       outcome: accepted.outcome,
       comment_id: comment.ref.comment_id,
-      actor: `person:${input.principal}`,
+      actor: accepted.actor,
+      ...(accepted.delegated === null ? {} : { keeper: waiting.keeper.keeper }),
     },
-    source: { kind: "command", verb: "hqa record" },
+    source: { kind: "command", verb: accepted.verb },
   });
   if (waiting.task.state === "ready")
     await moveTask(tx, waiting.task.task_id, "delivered");
@@ -336,6 +356,12 @@ async function accept(
     return null;
   }
   const { comment } = found;
+  if (delegatedTrailer(comment.body) !== null)
+    return refuse(
+      "receipt_unverified_source",
+      `gate ${gated.gate}: comment ${comment.ref.comment_id} by ${comment.authorId ?? "an unknown author"} is a delegated verdict (delegated_verdict); the Gate stays waiting`,
+      ["the Run's pod check records a delegated verdict"],
+    );
   const bypass = readBypass(input.bypassPath, input.hostName);
   await recordBypass(db, run, input, bypass);
   const source = verifySource(
@@ -365,13 +391,68 @@ async function accept(
     content_hash: source.content_hash,
     readback_at,
     deployed: deployed.revision,
-    opKey: derivedOpKey("hqa", {
-      run_id: run.run_id,
-      task_id: gated.task.task_id,
-      gate: gated.gate,
-      comment_id: comment.ref.comment_id,
-      content_hash: source.content_hash,
-    }),
+    opKey: hqaOpKey(run, gated, comment, source.content_hash),
+    actor: `person:${input.principal}`,
+    verb: "hqa record",
+    delegated: null,
+  };
+}
+
+function hqaOpKey(
+  run: Run,
+  waiting: Waiting,
+  comment: TrackerComment,
+  content_hash: string,
+): string {
+  return derivedOpKey("hqa", {
+    run_id: run.run_id,
+    task_id: waiting.task.task_id,
+    gate: waiting.gate,
+    comment_id: comment.ref.comment_id,
+    content_hash,
+  });
+}
+
+export async function settleAccepted(
+  db: Db,
+  orca: OrcaPort,
+  log: ReceiptLog,
+  accepted: Accepted,
+  ctx: Settle,
+): Promise<
+  Checked<{
+    receipt_id: number;
+    op_key: string;
+    outcome: OutcomeResult;
+    nextSteps: string[];
+  }>
+> {
+  const written = await db.transaction((tx) => write(tx, ctx, accepted));
+  const nextSteps = await settleRuntime(
+    { db, orca, log, now: ctx.now },
+    accepted.run,
+    accepted.waiting.task.task_id,
+  );
+  const followed = await followOutcome(db, orca, log, written.recorded, {
+    task: accepted.waiting.task.task_id,
+    outcome: accepted.outcome,
+    at: ctx.now(),
+    host: ctx.host,
+    source: { kind: "receipt", receipt_id: written.receipt_id },
+    command: ctx.command,
+    now: ctx.now,
+    version: ctx.version,
+  });
+  if (!followed.ok) return followed;
+  return {
+    ok: true,
+    orca: ctx.version,
+    result: {
+      receipt_id: written.receipt_id,
+      op_key: accepted.opKey,
+      outcome: followed.result,
+      nextSteps,
+    },
   };
 }
 
@@ -414,35 +495,133 @@ export async function recordHqa(
   const accepted = await accept(db, tracker, run, input, result);
   if (accepted === null) return { ok: true, orca: version, result };
   if ("ok" in accepted) return accepted;
-  const written = await db.transaction((tx) => write(tx, input, accepted));
-  result.nextSteps.push(
-    ...(await settleRuntime(
-      { db, orca, log, now: input.now },
-      run,
-      accepted.waiting.task.task_id,
-    )),
-  );
-  const followed = await followOutcome(db, orca, log, written.recorded, {
-    task: accepted.waiting.task.task_id,
-    outcome: accepted.outcome,
-    at: input.now(),
+  const settled = await settleAccepted(db, orca, log, accepted, {
+    generation: input.generation,
     host: input.host,
-    source: { kind: "receipt", receipt_id: written.receipt_id },
     command: input.command,
     now: input.now,
     version,
   });
-  if (!followed.ok) return followed;
+  if (!settled.ok) return settled;
+  const { nextSteps, ...recorded } = settled.result;
   return {
     ok: true,
     orca: version,
     result: {
       ...result,
-      receipt_id: written.receipt_id,
-      op_key: accepted.opKey,
-      outcome: followed.result,
+      ...recorded,
+      nextSteps: [...result.nextSteps, ...nextSteps],
     },
   };
+}
+
+const Cited = z.looseObject({ comment_id: z.string() });
+
+export async function recordDelegatedHqa(
+  db: Db,
+  orca: OrcaPort,
+  tracker: TrackerPort,
+  log: ReceiptLog,
+  run: Run,
+  input: { generation: number; host: string; now: () => Date; version: string },
+  story: () => Promise<StoryComments>,
+): Promise<string[]> {
+  const pinned = await pinnedConfig(db, run.run_id);
+  const { waiting } = await waitingTasks(db, run, pinned?.policy);
+  const [gated] = waiting;
+  if (gated === undefined) return [];
+  if (waiting.length > 1) {
+    const { message } = new HqaAmbiguous(
+      waiting.map((row) => ({ task: row.task.task_id, gate: row.gate })),
+    );
+    return [
+      `${message}; a delegated verdict records one gate at a time, settle the other Task first`,
+    ];
+  }
+  const { gate } = gated;
+  const read = await story();
+  if (!read.ok)
+    return [
+      `tracker readback of story:${run.story_external_id} failed: ${read.error}; a delegated HQA verdict waits for the next pod check`,
+    ];
+  const spent = new Set(
+    (await db.listGateReceipts(run.run_id)).flatMap(
+      (row) => Cited.safeParse(row.source).data?.comment_id ?? [],
+    ),
+  );
+  const open = verdictComments(read.comments, gate).filter(
+    (row) =>
+      delegatedTrailer(row.comment.body) !== null &&
+      !spent.has(row.comment.ref.comment_id),
+  );
+  const [found] = open;
+  if (found === undefined) return [];
+  if (open.length > 1) {
+    const ids = open.map((row) => row.comment.ref.comment_id).join(", ");
+    return [
+      `gate ${gate} has more than one unrecorded delegated verdict comment: ${ids}; delete the ones that are not the verdict and run pod check again`,
+    ];
+  }
+  const { comment } = found;
+  const id = comment.ref.comment_id;
+  const unverifiedLine = (reason: string) =>
+    `receipt_unverified_source: gate ${gate} comment ${id} by ${comment.authorId ?? "an unknown author"} is not a verified delegated verdict (${reason}); the Gate stays waiting`;
+  const global = await singleActive(db, "policy", "global", "");
+  const readback_at = input.now();
+  const checked = verifyDelegated(comment, {
+    principals: principalsOf(global?.value),
+    delegates: delegatesOf(global?.value),
+    keeper: gated.keeper.keeper,
+    readbackAt: readback_at,
+  });
+  if (checked === null) return [];
+  if (!checked.ok) return [unverifiedLine(checked.reason)];
+  const { delegate } = checked;
+  const seats = (await db.listDispatches(run.run_id)).map((row) => row.seat);
+  if (delegate === "coordinator" || seats.includes(delegate))
+    return [
+      `activation_needs_person: gate ${gate} comment ${id}: delegate ${delegate} is a Seat of Run ${run.run_id}; the Gate stays waiting`,
+    ];
+  log.at({ run_id: run.run_id, task_id: null, op_key: null });
+  const confirm = await tracker.readComment(comment.ref);
+  if (
+    !confirm.ok ||
+    confirm.result === null ||
+    contentHash(confirm.result.body) !== checked.content_hash
+  )
+    return [unverifiedLine("readback_differs")];
+  const deployed = await deployedRevision(db, run, gate, comment);
+  if ("ok" in deployed)
+    return [
+      `${deployed.refusal.code}: ${deployed.refusal.message}`,
+      ...deployed.refusal.nextSteps,
+    ];
+  const settled = await settleAccepted(
+    db,
+    orca,
+    log,
+    {
+      run,
+      waiting: gated,
+      comment,
+      outcome: found.outcome,
+      relayed_by: null,
+      content_hash: checked.content_hash,
+      readback_at,
+      deployed: deployed.revision,
+      opKey: hqaOpKey(run, gated, comment, checked.content_hash),
+      actor: `delegate:${delegate}`,
+      verb: "check",
+      delegated: { delegate, keeper_quote: checked.keeper_quote },
+    },
+    { ...input, command: "pod check" },
+  );
+  if (!settled.ok)
+    return [settled.refusal.message, ...settled.refusal.nextSteps];
+  return [
+    ...settled.result.nextSteps,
+    `gate ${gate} receipt ${settled.result.receipt_id} recorded from delegate ${delegate}'s verdict comment ${id}`,
+  ];
 }
 
 export interface VoidInput {

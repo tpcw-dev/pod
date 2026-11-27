@@ -9,6 +9,7 @@ import {
   gateOf,
   principalsOf,
   shaMatches,
+  verdictComments,
   verifySource,
   type Principals,
 } from "../../src/core/gate/receipt.ts";
@@ -88,6 +89,26 @@ describe("findVerdictComment", () => {
       "PASS",
     );
   });
+});
+
+test("verdictComments returns every matching comment in input order", () => {
+  const comments = [
+    comment("a", "review FAIL"),
+    comment("b", "notes"),
+    comment("c", "scribe: review PASS"),
+  ];
+  expect(
+    verdictComments(comments, "review").map((row) => [
+      row.comment.ref.comment_id,
+      row.outcome,
+    ]),
+  ).toEqual([
+    ["a", "FAIL"],
+    ["c", "PASS"],
+  ]);
+  expect(findVerdictComment(comments, "review")?.comment.ref.comment_id).toBe(
+    "a",
+  );
 });
 
 describe("verifySource", () => {

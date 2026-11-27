@@ -488,7 +488,7 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     sideEffect: "tracker",
     cancelBy: ["operator"],
     evidenceRequired: [
-      "a source-verified comment by the human gatekeeper, or by the relay principal with a matching content hash, plus a deploy event for `hqa_after_deploy`, run from the operator's shell by the gate's keeper",
+      "a source-verified comment by the human gatekeeper, or by the relay principal with a matching content hash, plus a deploy event for `hqa_after_deploy`, run from the operator's shell by the gate's keeper; a delegated verdict comment is refused `receipt_unverified_source` (`delegated_verdict`), and the Run's `pod check` records it",
     ],
     meta: gateMeta,
   }),
