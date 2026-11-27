@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { memoWorkers } from "../check/workers.ts";
-import { recordStops, workerEnded } from "../check/check.ts";
+import { workerEnded } from "../check/check.ts";
 import { openStates } from "../domain/decision.ts";
 import { Json } from "../domain/json.ts";
 import type { Dispatch, Run, Task } from "../domain/ledger.ts";
 import { refuse, type Refused } from "../domain/outcome.ts";
+import { quote } from "../domain/shell.ts";
 import { openLaunches } from "../dispatch/quota.ts";
 import { stopDispatch } from "../dispatch/stop.ts";
 import { gateOf } from "../gate/receipt.ts";
@@ -28,16 +29,19 @@ export const heldDecisions: readonly string[] = [
   "reserved_needs_human",
 ];
 
-export interface AbandonInput {
+export interface SettleInput {
   story: string;
   generation: number;
   host: string;
   reason: string;
+  now: () => Date;
+}
+
+export interface AbandonInput extends SettleInput {
   person: boolean;
   actor: string;
   policy: unknown;
   process: unknown;
-  now: () => Date;
 }
 
 const Abandoned = z.looseObject({
@@ -68,12 +72,14 @@ function abandonEnded(row: WorkerRow): boolean {
   );
 }
 
-function closeCommand(input: AbandonInput): string {
-  return `pod run close story:${input.story} --generation ${input.generation} --abandon ${JSON.stringify(input.reason)}`;
+function closeCommand(input: SettleInput): string {
+  return `pod run close story:${input.story} --generation ${input.generation} --abandon ${quote(input.reason)}`;
 }
 
 function personGates(tasks: readonly Task[], input: AbandonInput): string[] {
-  const steps = ProcessValue.safeParse(input.process).data?.steps ?? [];
+  const parsed = ProcessValue.safeParse(input.process);
+  if (!parsed.success) return ["the pinned process, which does not parse"];
+  const steps = parsed.data.steps;
   return tasks.flatMap((task) => {
     if (task.state !== "ready" && task.state !== "delivered") return [];
     const step = steps.find((row) => row.id === task.step_id);
@@ -116,29 +122,35 @@ async function held(
 async function foreignHosts(
   db: Repo,
   open: readonly Dispatch[],
-  input: AbandonInput,
+  input: SettleInput,
 ): Promise<Refused | null> {
   const foreign: string[] = [];
+  const hosts = new Set<string>();
   for (const row of open) {
     const host =
       (await db.dispatchEvent(row.dispatch_id, "start"))?.host ??
       row.owner_host;
-    if (host !== input.host)
-      foreign.push(`Dispatch ${row.dispatch_id} started on host ${host}`);
+    if (host === input.host) continue;
+    foreign.push(`Dispatch ${row.dispatch_id} started on host ${host}`);
+    hosts.add(host);
   }
   if (foreign.length === 0) return null;
   return refuse(
     "wrong_host",
     `${foreign.length} open Dispatch(es) started on another host, and this close runs on ${input.host}`,
-    [...foreign, `run the same close on that host`],
+    [
+      ...foreign,
+      ...[...hosts].map((host) => `on host ${host}: ${closeCommand(input)}`),
+    ],
   );
 }
 
-async function settleAbsent(
+async function settleStopped(
   db: Db,
   run: Run,
   row: Dispatch,
-  input: AbandonInput,
+  workerState: Record<string, Json>,
+  input: SettleInput,
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const at = input.now();
@@ -157,21 +169,40 @@ async function settleAbsent(
       task_id: row.task_id,
       dispatch_id: row.dispatch_id,
       op_key: null,
-      payload: { reason: abandonReason, worker_state: "absent" },
+      payload: Json.parse({ reason: abandonReason, ...workerState }),
       source: { kind: "command", verb: "run close" },
     });
   });
 }
 
-async function settle(
+function workerFields(row: WorkerRow | undefined): Record<string, Json> {
+  if (row === undefined) return { worker_state: "absent" };
+  return {
+    worker_state: row.workerState,
+    ...(row.workerState === "abandoned"
+      ? { terminal_state: row.terminalState ?? null }
+      : {}),
+  };
+}
+
+/** Settles each open worker Dispatch of the Run, leaving its Task where it is; a live stop that must wait refuses before an ended or absent one settles. */
+export async function settleOpen(
   db: Db,
   orca: OrcaPort,
   log: ReceiptLog,
   run: Run,
-  open: readonly Dispatch[],
-  input: AbandonInput,
+  input: SettleInput,
 ): Promise<string[] | Refused> {
+  const open = (await db.listDispatches(run.run_id))
+    .filter(
+      (row) =>
+        row.settlement === "open" &&
+        row.dispatch_id !== run.coordinator_dispatch_id,
+    )
+    .sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
   if (open.length === 0) return [];
+  const foreign = await foreignHosts(db, open, input);
+  if (foreign !== null) return foreign;
   const workers = memoWorkers(orca, run.run_id);
   log.at({ run_id: run.run_id, task_id: null, op_key: null });
   const rows = await workers();
@@ -183,17 +214,7 @@ async function settle(
     );
   const rowOf = (row: Dispatch) =>
     rows.find((item) => item.dispatchId === row.dispatch_id);
-  const ended = open.flatMap((row) => {
-    const found = rowOf(row);
-    return found !== undefined && abandonEnded(found) ? [found] : [];
-  });
-  const settled = await db.transaction((tx) =>
-    recordStops(tx, run, ended, input, abandonEnded),
-  );
-  for (const row of open.filter((item) => rowOf(item) === undefined)) {
-    await settleAbsent(db, run, row, input);
-    settled.push(row.dispatch_id);
-  }
+  const settled: string[] = [];
   for (const row of open) {
     const found = rowOf(row);
     if (found === undefined || abandonEnded(found)) continue;
@@ -208,6 +229,12 @@ async function settle(
     });
     if (stopped.kind === "wait")
       return refuse("owed_work", stopped.message, [closeCommand(input)]);
+    settled.push(row.dispatch_id);
+  }
+  for (const row of open) {
+    const found = rowOf(row);
+    if (found !== undefined && !abandonEnded(found)) continue;
+    await settleStopped(db, run, row, workerFields(found), input);
     settled.push(row.dispatch_id);
   }
   return settled;
@@ -289,16 +316,7 @@ export async function abandonRun(
     );
   const owed = await held(db, run, tasks, input);
   if (owed !== null) return owed;
-  const open = (await db.listDispatches(run.run_id))
-    .filter(
-      (row) =>
-        row.settlement === "open" &&
-        row.dispatch_id !== run.coordinator_dispatch_id,
-    )
-    .sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
-  const foreign = await foreignHosts(db, open, input);
-  if (foreign !== null) return foreign;
-  const settled = await settle(db, orca, log, run, open, input);
+  const settled = await settleOpen(db, orca, log, run, input);
   if (!Array.isArray(settled)) return settled;
   return record(db, run, settled, input);
 }

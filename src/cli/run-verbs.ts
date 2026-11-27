@@ -62,6 +62,7 @@ import {
 import { orcaFor } from "./orca.ts";
 import { trackerFor } from "./tracker.ts";
 import { issuesOf, parseYaml, readText } from "./yaml-file.ts";
+import { quote } from "../core/domain/shell.ts";
 
 interface Wiring {
   db: Db;
@@ -117,12 +118,6 @@ export async function withOrca<R extends { ok: true }>(
   } finally {
     await connection.close();
   }
-}
-
-export function quote(value: string): string {
-  return /^[\w@:./=-]+$/.test(value)
-    ? value
-    : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 export const RunCreateInput = z.strictObject({

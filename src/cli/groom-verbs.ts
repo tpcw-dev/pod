@@ -23,7 +23,7 @@ import {
 } from "./host-profile.ts";
 import { actorOf, writerOf } from "./identity.ts";
 import { realRepoReader } from "./repo-reader.ts";
-import { quote } from "./run-verbs.ts";
+import { quote } from "../core/domain/shell.ts";
 import { trackerFor } from "./tracker.ts";
 
 const checkTimeoutMs = 300_000;

@@ -66,6 +66,7 @@ import {
   abandonRun,
   finishedTasks,
   heldDecisions,
+  settleOpen,
 } from "./abandon.ts";
 
 export interface CloseInput {
@@ -936,6 +937,16 @@ export async function closeRun(
       now: input.now,
     });
     if (refused !== null) return refused;
+  }
+  if (abandon !== null) {
+    const settled = await settleOpen(db, orca, log, run, {
+      story: input.story,
+      generation: input.generation,
+      host: input.host,
+      reason: abandon.reason,
+      now: input.now,
+    });
+    if (!Array.isArray(settled)) return settled;
   }
 
   const dispatches = await db.listDispatches(run.run_id);

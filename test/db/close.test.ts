@@ -1212,12 +1212,21 @@ describeDb("pod run close", () => {
       expect(await events(conn, "stop")).toEqual([
         expect.objectContaining({
           dispatch_id: "ctx_1",
-          payload: { worker_state: "succeeded" },
+          payload: { reason: "run_abandoned", worker_state: "succeeded" },
         }),
       ]);
       expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
         settlement: "stopped",
       });
+      expect(await events(conn, "cancel")).toMatchObject([
+        {
+          payload: {
+            tasks: expect.arrayContaining([
+              { task_id: "task_b", from: "dispatched" },
+            ]),
+          },
+        },
+      ]);
     });
 
     test("a Dispatch the worker list does not show settles as absent", async () => {
@@ -1247,7 +1256,7 @@ describeDb("pod run close", () => {
       });
       if (!refused.ok)
         expect(refused.refusal.nextSteps).toEqual([
-          `pod run close story:S-1 --generation 1 --abandon "${reason}"`,
+          `pod run close story:S-1 --generation 1 --abandon '${reason}'`,
         ]);
       expect(await events(conn, "cancel")).toEqual([]);
       expect(await taskState(conn, "task_b")).toBe("dispatched");
@@ -1264,12 +1273,80 @@ describeDb("pod run close", () => {
         {
           payload: {
             tasks: [
-              { task_id: "task_b", from: "blocked" },
+              { task_id: "task_b", from: "dispatched" },
               { task_id: "task_r", from: "pending" },
             ],
             dispatches: ["ctx_1"],
           },
         },
+      ]);
+    });
+
+    test("a live worker whose stop must wait refuses before an absent Dispatch settles", async () => {
+      await dispatched(conn, "ctx_1");
+      await seatDispatch("ctx_2", "id:repo-1::/w/two", "local");
+      const before = await ledger();
+      const refused = await close(
+        [
+          listed([{ dispatchId: "ctx_1", workerState: "running" }]),
+          lost("worker-stop", ["--dispatch", "ctx_1"]),
+        ],
+        abandoning(fakeTracker()),
+      );
+      expect(refused).toMatchObject({
+        ok: false,
+        refusal: { code: "owed_work" },
+      });
+      expect(await events(conn, "stop")).toEqual([]);
+      expect(await conn.db.getDispatch("ctx_2")).toMatchObject({
+        settlement: "open",
+      });
+      expect((await ledger()).tasks).toEqual(before.tasks);
+      expect((await ledger()).dispatches).toEqual(before.dispatches);
+    });
+
+    test("a re-run settles a Dispatch opened after the abandon phase, leaves its Task as it is, and closes", async () => {
+      await launchedRun(conn);
+      const tracker = fakeTracker();
+      tracker.dropPost = true;
+      tracker.postLands = false;
+      await closeRun(
+        conn.db,
+        offline,
+        replay(conn, []).log,
+        input(abandoning(tracker)),
+      );
+      await seatDispatch("ctx_late", "id:repo-1::/w/late", "local");
+      tracker.dropPost = false;
+      tracker.postLands = true;
+      const closed = await close(
+        [listed([{ dispatchId: "ctx_late", workerState: "succeeded" }])],
+        { tracker, git: silentGit(), codeHost: silentCodeHost() },
+      );
+      expect(closed).toMatchObject({
+        ok: true,
+        result: { state: "done", abandoned: reason },
+      });
+      expect(await conn.db.getDispatch("ctx_late")).toMatchObject({
+        settlement: "stopped",
+      });
+      expect(await taskState(conn, "task_r")).toBe("superseded");
+    });
+
+    test("the close command in a refusal single-quotes the reason for the shell", async () => {
+      await dispatched(conn, "ctx_1");
+      const refused = await close(
+        [
+          listed([{ dispatchId: "ctx_1", workerState: "running" }]),
+          lost("worker-stop", ["--dispatch", "ctx_1"]),
+        ],
+        abandoning(fakeTracker(), {
+          abandon: { reason: "$(id) it's `gone`", person: true },
+        }),
+      );
+      if (refused.ok) throw new Error("expected a refusal");
+      expect(refused.refusal.nextSteps).toEqual([
+        `pod run close story:S-1 --generation 1 --abandon '$(id) it'\\''s \`gone\`'`,
       ]);
     });
 
@@ -1308,9 +1385,10 @@ describeDb("pod run close", () => {
         refusal: { code: "wrong_host" },
       });
       if (!outcome.ok)
-        expect(outcome.refusal.nextSteps).toContain(
+        expect(outcome.refusal.nextSteps).toEqual([
           "Dispatch ctx_1 started on host other",
-        );
+          `on host other: pod run close story:S-1 --generation 1 --abandon '${reason}'`,
+        ]);
       expect(await ledger()).toEqual(before);
     });
 
@@ -1418,6 +1496,27 @@ describeDb("pod run close", () => {
       expect(facts.seats.map((seat) => seat.dispatch.dispatch_id)).toContain(
         "ctx_1",
       );
+    });
+
+    test("an agent Seat's --abandon on a Run whose pinned process does not parse is refused before any write", async () => {
+      await conn.sql`update config.snapshot set process_revision_id = policy_revision_id where run_id = 'run_1'`;
+      const before = await ledger();
+      const outcome = await closeRun(
+        conn.db,
+        offline,
+        replay(conn, []).log,
+        input(
+          abandoning(fakeTracker(), {
+            actor: "seat:S-1/coordinator",
+            abandon: { reason, person: false },
+          }),
+        ),
+      );
+      expect(outcome).toMatchObject({
+        ok: false,
+        refusal: { code: "activation_needs_person" },
+      });
+      expect(await ledger()).toEqual(before);
     });
 
     describe("at a person's gate", () => {
