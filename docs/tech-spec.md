@@ -45,7 +45,7 @@ Pod is one npm package named `pod`. It is not a monorepo. Directories carry the 
 
 ```
 pod/
-  package.json            name pod, bin pod, type module, Node 22 LTS, pnpm
+  package.json            name pod, bin pod, type module, Node >=22 <27, pnpm
   tsconfig.json           strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes
   drizzle.config.ts       drizzle-kit config, schema and migrations paths
   src/
@@ -89,7 +89,7 @@ dependency-cruiser runs in CI and refuses an import that crosses a layer the wro
 
 #### Toolchain
 
-Pod runs on Node 22 LTS and TypeScript in strict mode, with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` on. pnpm manages packages. tsx runs sources in development, and tsup builds the single `pod` bin. vitest runs the unit, replay, and contract tests. zod parses every boundary, which covers argv, stdin JSON, YAML, Orca stdout, HTTP bodies, and `jsonb` rows. The Db adapter uses Drizzle over the `postgres` driver. dependency-cruiser enforces the import boundaries, and eslint and prettier lint and format.
+Pod runs on Node >=22 <27 (the `engines.node` range in `package.json`) and TypeScript in strict mode, with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` on. pnpm manages packages. tsx runs sources in development, and tsup builds the single `pod` bin. vitest runs the unit, replay, and contract tests. zod parses every boundary, which covers argv, stdin JSON, YAML, Orca stdout, HTTP bodies, and `jsonb` rows. The Db adapter uses Drizzle over the `postgres` driver. dependency-cruiser enforces the import boundaries, and eslint and prettier lint and format.
 
 Drizzle owns the schema and the migrations. The schema is TypeScript in `src/db/schema/config.ts` and `src/db/schema/ledger.ts`, and it uses Drizzle's `pgSchema` for the two schemas. `drizzle-kit generate` writes the SQL migration files and their journal into `db/migrations/`. Drizzle's migrator runs them over the `postgres` driver and keeps its own applied-migrations table. `pod db migrate` wraps that migrator and stays idempotent. Queries use Drizzle's query builder over the same driver, with raw SQL only for the append-only triggers. zod still parses every boundary. Hand-written numbered SQL with a `config.migration` table was the alternative, and `docs/adr/0001-drizzle-owns-schema-and-migrations.md` records why it lost. The `postgres` driver holds under Drizzle, and `pg` was the alternative.
 
@@ -1392,7 +1392,7 @@ A local deploy is `pnpm deploy:local`, which runs `scripts/deploy-local.sh`. Eve
 
 1. Fetch origin, and refuse unless the tree is clean and HEAD equals `origin/main`.
 2. Read `version` from `package.json`. The tag is `v<version>`. Refuse when the commit a local or origin tag of that name peels to is not HEAD.
-3. Preflight. Refuse unless `pnpm bin --global` prints a directory, and unless the database URL the host profile names (`db.url_env`, default `POD_DB_URL`) can be read from the credentials file, or from the environment when that file is absent. The check runs `src/cli/host-profile.ts`, so a malformed or unreadable `host.yaml` refuses with its own message.
+3. Preflight. Refuse unless `pnpm bin --global` prints a directory, and unless the database URL the host profile names (`db.url_env`, default `POD_DB_URL`) can be read from the credentials file, or from the environment when that file is absent. The check loads `src/cli/host-profile.ts` with `node --import tsx`, which takes no Node flag that only some versions in the `engines.node` range accept, so a malformed or unreadable `host.yaml` refuses with its own message.
 4. `pnpm build` into `.deploy/dist`, then `node .deploy/dist/index.js db migrate` with that build, then move it into `dist`, then `pnpm link --global`. The migrate result goes to stderr. A failed migrate refuses with `db migrate failed` and leaves `dist`, the build the linked `pod` runs, as it was.
 5. Write the annotated tag `v<version>` when it is missing locally, and push it when origin lacks it. A rerun on the same HEAD runs every step again: `db migrate` applies nothing, and the tag step skips a tag that already peels to HEAD.
 6. Print one JSON line, `{"environment":"local","deployment_id":"v<version>","deployed_revision":"<HEAD sha>","source_commit":"<HEAD sha>"}`, which carries the four `event_fields` of the deploy step for the coordinator's deploy delivery.

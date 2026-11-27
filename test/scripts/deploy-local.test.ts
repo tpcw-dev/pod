@@ -18,6 +18,9 @@ const script = fileURLToPath(
   new URL("../../scripts/deploy-local.sh", import.meta.url),
 );
 const src = fileURLToPath(new URL("../../src", import.meta.url));
+const nodeModules = fileURLToPath(
+  new URL("../../node_modules", import.meta.url),
+);
 const deployCalls = [
   "bin --global",
   "build --out-dir .deploy/dist",
@@ -30,6 +33,7 @@ let work: string;
 let calls: string;
 let globalBin: string;
 let migrateFails: string;
+let strictNode: string;
 let env: NodeJS.ProcessEnv;
 
 function git(cwd: string, ...args: string[]): string {
@@ -60,6 +64,7 @@ beforeEach(() => {
   calls = join(root, "calls");
   globalBin = join(root, "global-bin");
   migrateFails = join(root, "migrate-fails");
+  strictNode = join(root, "strict-node");
   mkdirSync(bin);
   mkdirSync(join(root, "pod-home"));
   writeFileSync(calls, "");
@@ -86,6 +91,9 @@ beforeEach(() => {
       `  echo '{"journal":1,"applied":1}'`,
       "  exit 0",
       "fi",
+      `[ -e "${strictNode}" ] && for arg in "$@"; do`,
+      '  case "$arg" in --experimental-*) echo "node: bad option: $arg" >&2; exit 9 ;; esac',
+      "done",
       `exec "${process.execPath}" "$@"`,
       "",
     ].join("\n"),
@@ -112,7 +120,8 @@ beforeEach(() => {
   mkdirSync(join(work, "scripts"));
   copyFileSync(script, join(work, "scripts/deploy-local.sh"));
   symlinkSync(src, join(work, "src"));
-  writeFileSync(join(work, ".gitignore"), "dist/\n");
+  symlinkSync(nodeModules, join(work, "node_modules"));
+  writeFileSync(join(work, ".gitignore"), "dist/\nnode_modules\n");
   writeFileSync(
     join(work, "package.json"),
     JSON.stringify({ name: "pod", version: "1.2.3" }),
@@ -184,6 +193,15 @@ test("a fresh deploy builds, migrates, links, then tags, pushes, and prints the 
     deployed_revision: head,
     source_commit: head,
   });
+});
+
+test("a Node that rejects experimental flags runs the preflight and deploys", () => {
+  writeFileSync(strictNode, "");
+  const result = deploy();
+  expect(result.stderr).not.toContain("bad option");
+  expect(result.status).toBe(0);
+  expect(stubCalls()).toEqual(deployCalls);
+  expect(JSON.parse(result.stdout)).toMatchObject({ deployment_id: "v1.2.3" });
 });
 
 test("a run stopped after the local tag finishes on rerun: it runs every step and pushes the tag", () => {
