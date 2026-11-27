@@ -7,6 +7,7 @@ Terms Pod uses. Orca's words keep Orca's meaning.
 - **Readback**: a tracker read after a write that shows whether the write landed.
 - **Size**: the magnitude of a story, one of xs, s, m, l, xl. The tracker's estimate maps onto it.
 - **Run**: Orca's run for one story. A run pins one revision each of crew, process, and policy.
+- **Abandoned run**: a run closed with `pod run close --abandon`. Its open dispatches are settled, its open tasks are superseded, and one `cancel` event with reason `run_abandoned` records why. It records no gate receipt and counts no points.
 - **Coordinator**: the agent session that runs the `pod` verbs for one run and holds its owner generation. Not Orca's orchestration layer.
 - **Coordinator pair**: the xl coordinator. The decider seat coordinates, the auditor seat is resident and audits, and neither keeps a gate.
 - **Task**: Orca's task. One step of a process for one story. A completed task is never reopened. Rework is a new task.

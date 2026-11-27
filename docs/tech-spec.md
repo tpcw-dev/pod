@@ -193,7 +193,7 @@ create table ledger.story (
 )
 ```
 
-`ledger.run` maps one Story to one Orca Run. Its `state` is `active`, `hold`, `drained`, or `done`. Spec clarification: S18a. `pod run close` sets a Run `done` through its keyed `close` steps, and a Run in `done` with its `close` event is the archive. A Run in `hold` sends every open Task to `hold` and blocks new Dispatches until the operator reconciles and resumes it with `pod check --resume`. Its `coordinator` is the coordinator session, or the decider Dispatch id on an xl Run.
+`ledger.run` maps one Story to one Orca Run. Its `state` is `active`, `hold`, `drained`, or `done`. Spec clarification: S18a. `pod run close` sets a Run `done` through its keyed `close` steps, and a Run in `done` with its `close` event is the archive. TPC-1687: `pod run close --abandon REASON` closes an abandoned Run `done` the same way, after its run-wide `cancel` event with `reason: "run_abandoned"` records the REASON, the actor, the superseded Tasks, and the settled Dispatches. A Run in `hold` sends every open Task to `hold` and blocks new Dispatches until the operator reconciles and resumes it with `pod check --resume`. Its `coordinator` is the coordinator session, or the decider Dispatch id on an xl Run.
 
 ```sql
 create table ledger.run (
@@ -600,7 +600,7 @@ v1 has the PRD's 16 command forms plus `db migrate`. `db migrate` is a setup ver
 | `drain` | optional `--end` | ledger | drain event | operator |
 | `learning add` | `FILE`, `--area A` and `--kind K` (required), optional `--project P`, `--reporter lead\|retro\|healthcheck\|digest`, `--expected TEXT`, `--repeat-of ID` | ledger | `ledger.learning` when nothing matches, one `ledger.learning_occurrence`, learning event | nobody |
 | `learning import` | `FILE` | ledger | per new row: `ledger.learning`, its `ledger.learning_occurrence` rows, learning event | nobody |
-| `run close` | `story:<id>`, `--generation N`, optional `FILE`, optional `--keep-files-reviewed` | tracker | one `close` operation per step, one close event, a `learning` row per learning and per leftover with no `p0`, an `escalate` event per p0 leftover, the Story status and one closing comment through the outbox, `ledger.run.state` `done` | nobody |
+| `run close` | `story:<id>`, `--generation N`, optional `FILE`, optional `--keep-files-reviewed`, optional `--abandon REASON` (TPC-1687) | tracker | one `close` operation per step, one close event, a `learning` row per learning and per leftover with no `p0`, an `escalate` event per p0 leftover, the Story status and one closing comment through the outbox, `ledger.run.state` `done`; with `--abandon`, first a `stop` event per settled Dispatch and one run-wide `cancel` event with `reason: "run_abandoned"` that supersedes every open Task, then no Story status and no worktree or branch removal, and an `Abandoned: <REASON>` comment line | nobody |
 | `retro` | `run:<id>`, `--seat S`, `--generation N`, optional `--op-key K` | orca | the retro `ledger.task`, `ledger.dispatch`, `ledger.evidence_manifest`, Orca `task-create` and `worker-start` | coordinator, operator, by `worker-stop` then `release` |
 | `retro record` | `FILE`, `--run <id>` | ledger | per finding: `ledger.learning` when nothing matches, one `ledger.learning_occurrence`, learning event; then one `retro` operation and `retro` event | nobody |
 | `learning query` | optional `--story`, `--adoption`, `--text`, `--area`, `--project` | none | nothing | not applicable |
@@ -728,7 +728,7 @@ Identifiers and flags come from argv. A body comes from a file path or stdin, as
 | `role_unfilled` | 3 | a process Role has no authorized Seat in the active crew | the Role, and `pod config apply` of a crew that fills it |
 | `reviewer_not_independent` | 3 | the reviewer Seat equals or is not independent of the developer Seat, or a Decision Role repeats on one artifact | the conflicting Seats and Dispatch ids |
 | `takeover_unsafe` | 3 | `pod takeover` has no evidence that the old coordinator stopped | the stop command for the old coordinator, and the evidence `pod takeover` accepts |
-| `owed_work` | 3 | `pod run close` finds a Task not `done`, `superseded`, or `failed`, a running Dispatch other than the coordinator's, or an open or `needs_human` Decision | each owed item, and `pod state story:<id>` |
+| `owed_work` | 3 | `pod run close` finds a Task not `done`, `superseded`, or `failed`, a running Dispatch other than the coordinator's, or an open or `needs_human` Decision. TPC-1687: under `--abandon`, an open or `needs_human` Decision, a `pending` or `unknown` launch reservation of one of the Run's Tasks, an unreadable worker list, or a `worker-stop` with no known outcome | each owed item, and `pod state story:<id>`; under `--abandon`, `pod decide cancel <id>`, `pod check`, or the same close command |
 | `unanswered_question` | 3 | `pod run close` reads text in the composer row of an open Dispatch terminal's rendered screen, or cannot read that screen | `orca terminal read --terminal <handle> --screen` |
 | `needs_file` | 3 | `pod run close` finds an untracked file or a branch ahead of its upstream in a worktree of the Run, and `--keep-files-reviewed` is not passed | each file, each branch ahead, and the close command with `--keep-files-reviewed` |
 | `tracker_unconfirmed` | 4 | `pod run close` has no tracker, or the tracker has not acked the outbox row of its `status` or `comment` step; or `pod groom` has an `estimate` or `comment` row not acked | a parked row and its tries, and the same close or groom command again |
@@ -1136,6 +1136,7 @@ A dependency is satisfied when it is `passed`, or `done`, which a Task reaches o
 | `failed` | `failed` | none. A failed Task is terminal. The rework Task in the same lineage replaces it, and the projector repoints the dependents' `deps` to the rework Task |
 | any state except `done`, `failed`, and `superseded` | `hold` | a `timeout`, `cancel`, or `unknown` outcome, a cancel event, or a lineage at its rework limit |
 | `hold` | `ready` | the operator resumes after reconcile with `pod check --resume`, with no automatic retry |
+| `hold` | `superseded` | TPC-1687: `pod run close --abandon` ends the Run with no replacement Task, after moving each open Task to `hold` |
 | `pending`, `ready`, or `hold` | `superseded` | a `change_spec` Decision outcome applies a new Task spec Revision, and the replacement Task inherits the dependents |
 | `dispatched` or `delivered` | `superseded` | a `change_spec` Decision outcome applies a new Task spec Revision to the escalating Task, or a new plan Revision to a `decision: plan` Task. Pod stops its Dispatch first, so the worker never resumes on the old spec. An `accept_plan` outcome never supersedes |
 

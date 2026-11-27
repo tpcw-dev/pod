@@ -10,7 +10,6 @@ import {
 } from "../domain/close.ts";
 import { storyStatusOf } from "../config/policy.ts";
 import type { Snapshot } from "../domain/config.ts";
-import { openStates } from "../domain/decision.ts";
 import { Json } from "../domain/json.ts";
 import { orchestrationTrigger } from "../domain/tick.ts";
 import {
@@ -62,6 +61,12 @@ import {
   worktreeOutcomes,
 } from "./close-record.ts";
 import { coordinatorStopped } from "./takeover.ts";
+import {
+  abandonRecord,
+  abandonRun,
+  finishedTasks,
+  heldDecisions,
+} from "./abandon.ts";
 
 export interface CloseInput {
   story: string;
@@ -77,6 +82,7 @@ export interface CloseInput {
   codeHost: CodeHostPort;
   git: GitPort;
   actor: string;
+  abandon?: { reason: string; person: boolean };
 }
 
 export type Closed = { ok: true; result: CloseResult; opKey: string } | Refused;
@@ -103,6 +109,12 @@ interface Archive {
   gone: string[];
   worktrees: PlannedWorktree[];
   retro_due: boolean;
+  actor: string;
+  abandon: Abandon | null;
+}
+
+interface Abandon {
+  reason: string;
   actor: string;
 }
 
@@ -282,7 +294,8 @@ const closeSteps: readonly CloseStep[] = [
   },
   {
     name: "worktree",
-    async effect({ db, run, input, orca, own }) {
+    async effect({ db, run, input, orca, own, archive }) {
+      if (archive.abandon !== null) return { worktrees: [] };
       const record = await archivedRecord(db, run.run_id);
       const reviewed = new Set(
         record.keep_files_reviewed?.worktrees.map((row) => row.path) ?? [],
@@ -300,7 +313,8 @@ const closeSteps: readonly CloseStep[] = [
   },
   {
     name: "branches",
-    async effect({ db, run, input, dispatches, own }, partial, save) {
+    async effect({ db, run, input, dispatches, own, archive }, partial, save) {
+      if (archive.abandon !== null) return { branches: [] };
       const record = await archivedRecord(db, run.run_id);
       const reads = await readPrs(
         await db.listEvents(run.run_id, "pr"),
@@ -338,6 +352,7 @@ const closeSteps: readonly CloseStep[] = [
         archive.retro_due,
         await worktreeOutcomes(tx, run.run_id),
         await branchOutcomes(tx, run.run_id),
+        archive.abandon?.reason ?? null,
       );
       return commentPayload(storyRef(run), body);
     },
@@ -354,13 +369,6 @@ const closeSteps: readonly CloseStep[] = [
         : null;
     },
   },
-];
-
-const finishedTasks: readonly string[] = ["done", "superseded", "failed"];
-const heldDecisions: readonly string[] = [
-  ...openStates,
-  "needs_human",
-  "reserved_needs_human",
 ];
 
 async function owedWork(
@@ -538,6 +546,7 @@ async function closedResult(
       worktrees: await worktreeOutcomes(db, run.run_id),
       branches,
       already_closed: alreadyClosed,
+      abandoned: record.abandon?.reason ?? null,
       nextSteps: [
         ...(record.retro_due ? ["retro: required"] : []),
         ...keptLines(branches),
@@ -865,6 +874,16 @@ function retroDue(story: Story, receipts: readonly GateReceipt[]): boolean {
   );
 }
 
+function wrongHost(run: Run, input: CloseInput): Refused {
+  return refuse(
+    "wrong_host",
+    `Run ${run.run_id} belongs to host ${run.host}, and this close runs on ${input.host}`,
+    [
+      `run pod run close story:${input.story} --generation ${input.generation} on host ${run.host}`,
+    ],
+  );
+}
+
 const noTracker: Refusal = {
   code: "tracker_unconfirmed",
   message:
@@ -895,35 +914,53 @@ export async function closeRun(
   if (input.generation !== run.owner_generation)
     return { ok: false, refusal: staleRefusal(run, input.generation) };
 
+  const prior = await abandonRecord(db, run.run_id);
+  const abandon: Abandon | null =
+    prior !== null
+      ? { reason: prior.text, actor: prior.actor }
+      : input.abandon === undefined
+        ? null
+        : { reason: input.abandon.reason, actor: input.actor };
+  if (abandon !== null && run.host !== input.host) return wrongHost(run, input);
+  if (prior === null && input.abandon !== undefined) {
+    const { policy, process } = await pinned(db, run);
+    const refused = await abandonRun(db, orca, log, run, {
+      story: input.story,
+      generation: input.generation,
+      host: input.host,
+      reason: input.abandon.reason,
+      person: input.abandon.person,
+      actor: input.actor,
+      policy,
+      process,
+      now: input.now,
+    });
+    if (refused !== null) return refused;
+  }
+
   const dispatches = await db.listDispatches(run.run_id);
   const owed = await owedWork(db, run, dispatches, input.story);
   if (owed !== null) return { ok: false, refusal: owed };
   log.at({ run_id: run.run_id, task_id: null, op_key: null });
-  const asked = await unansweredQuestion(orca, run, dispatches);
-  if (asked !== null) return { ok: false, refusal: asked };
-
   const own = await launchedWorktrees(db, run);
   const gone: string[] = [];
   const flagged: ReviewedWorktree[] = [];
-  for (const path of await worktreePaths(db, dispatches, own, input.host)) {
-    const status = input.worktreeStatus(path);
-    if (status === null) gone.push(path);
-    else if (status.files.length > 0 || status.ahead > 0)
-      flagged.push({ path, ...status });
+  if (abandon === null) {
+    const asked = await unansweredQuestion(orca, run, dispatches);
+    if (asked !== null) return { ok: false, refusal: asked };
+    for (const path of await worktreePaths(db, dispatches, own, input.host)) {
+      const status = input.worktreeStatus(path);
+      if (status === null) gone.push(path);
+      else if (status.files.length > 0 || status.ahead > 0)
+        flagged.push({ path, ...status });
+    }
+    if (flagged.length > 0 && !input.keepFilesReviewed)
+      return {
+        ok: false,
+        refusal: filesRefusal(flagged, input.story, input.generation),
+      };
+    if (run.host !== input.host) return wrongHost(run, input);
   }
-  if (flagged.length > 0 && !input.keepFilesReviewed)
-    return {
-      ok: false,
-      refusal: filesRefusal(flagged, input.story, input.generation),
-    };
-  if (run.host !== input.host)
-    return refuse(
-      "wrong_host",
-      `Run ${run.run_id} belongs to host ${run.host}, and this close runs on ${input.host}`,
-      [
-        `run pod run close story:${input.story} --generation ${input.generation} on host ${run.host}`,
-      ],
-    );
 
   const archiveKey = closeStepKey(run.run_id, "archive");
   const archiveRow = await db.getOperation(archiveKey);
@@ -941,10 +978,10 @@ export async function closeRun(
 
   const prs = await db.listEvents(run.run_id, "pr");
   const plan =
-    archiveRow?.status === "done"
+    archiveRow?.status === "done" || abandon !== null
       ? []
       : await planWorktrees(db, dispatches, input.host, input.git);
-  if (archiveRow?.status !== "done") {
+  if (archiveRow?.status !== "done" && abandon === null) {
     const open = await openPrRefusal(
       await readPrs(prs, dispatches, plan, input.codeHost),
       plan,
@@ -967,7 +1004,7 @@ export async function closeRun(
     snapshot,
     own,
     status:
-      names === null
+      names === null || abandon !== null
         ? null
         : humanGatePending(policy, process, snapshot.profile, receipts)
           ? names.human_wait
@@ -996,8 +1033,9 @@ export async function closeRun(
           : { actor: "operator", host: input.host, worktrees: flagged },
       gone,
       worktrees: plan,
-      retro_due: retroDue(story, receipts),
+      retro_due: abandon === null && retroDue(story, receipts),
       actor: input.actor,
+      abandon,
     },
   };
   const replayed = new Set<CloseStepName>();

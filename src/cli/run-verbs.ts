@@ -356,6 +356,11 @@ export const RunCloseInput = z.strictObject({
   args: z.union([z.tuple([StoryArg]), z.tuple([StoryArg, z.string().min(1)])]),
   generation: Generation,
   "keep-files-reviewed": z.boolean().optional(),
+  abandon: z
+    .string()
+    .min(1)
+    .regex(/^[^\r\n]*$/)
+    .optional(),
 });
 type RunCloseInput = z.infer<typeof RunCloseInput>;
 
@@ -379,8 +384,9 @@ export async function runCloseVerb(
   const [story, file] = input.args;
   const report = closeReport(file);
   const { result, opKey } = await withOrca(
-    async ({ db, orca, log, host, tracker, kinds }) =>
-      closeRun(db, orca, log, {
+    async ({ db, orca, log, host, tracker, kinds }) => {
+      const identity = await writerOf(db, host, process.env, null);
+      return closeRun(db, orca, log, {
         story: story.slice("story:".length),
         provider: kinds.trackerKind,
         generation: Number(input.generation),
@@ -393,8 +399,17 @@ export async function runCloseVerb(
         tracker,
         codeHost: codeHostFor(),
         git: realGit,
-        actor: actorOf(await writerOf(db, host, process.env, null)),
-      }),
+        actor: actorOf(identity),
+        ...(input.abandon === undefined
+          ? {}
+          : {
+              abandon: {
+                reason: input.abandon,
+                person: identity.kind === "person",
+              },
+            }),
+      });
+    },
   );
   return { ...result, op_key: opKey };
 }

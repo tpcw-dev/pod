@@ -2,7 +2,7 @@ import type { Dispatch } from "../domain/ledger.ts";
 import { pointsOf } from "../domain/points.ts";
 import type { UsageRecord } from "../domain/usage.ts";
 import type { Repo } from "../ports/db.ts";
-import { closeStepKey } from "../run/close-record.ts";
+import { archivedRecord, closeStepKey } from "../run/close-record.ts";
 import { usageCost } from "./cost.ts";
 import { dispatchMinutes } from "./minutes.ts";
 import type {
@@ -85,7 +85,8 @@ async function dayFacts(
   );
   const done: DoneRun[] = [];
   for (const row of await db.listRunsDone(window))
-    done.push(await doneRun(db, row.run_id, row.done_at));
+    if ((await archivedRecord(db, row.run_id)).abandon === null)
+      done.push(await doneRun(db, row.run_id, row.done_at));
   return {
     seats,
     records: await priced(db, [
