@@ -10,6 +10,7 @@ import {
 } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
 import { dispatch } from "../../src/core/dispatch/dispatch.ts";
+import { retry, type RetryInput } from "../../src/core/dispatch/retry.ts";
 import type { Json } from "../../src/core/domain/json.ts";
 import { recordHqa } from "../../src/core/gate/hqa.ts";
 import { candidateSha } from "../../src/core/gate/receipt.ts";
@@ -43,8 +44,10 @@ import {
   freshRun,
   message,
   replay,
+  started,
   taskState,
   workers,
+  worktreeId,
 } from "./run-fixture.ts";
 import { activeRevision, processValue } from "./seed.ts";
 
@@ -629,6 +632,99 @@ describeDb("pod check", () => {
     expect(outcome.result.nextSteps.join("\n")).not.toContain(
       "worker asks on ctx_1",
     );
+  });
+
+  function retryInput(over: Partial<RetryInput> = {}): RetryInput {
+    return {
+      dispatch: "ctx_1",
+      generation: 1,
+      opKey: null,
+      host: "local",
+      capacity: 1,
+      gitStatus: "## main",
+      command: (opKey) => `pod retry --dispatch ctx_1 --op-key ${opKey}`,
+      now: () => new Date(),
+      ...over,
+    };
+  }
+
+  test("pod check names a new op key for a blocked Task whose retry failed", async () => {
+    await pass([ok("check", empty(), run), ok("worker-list", ended(), run)]);
+    const failed = replay(conn, [
+      {
+        verb: "worker-start",
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          error: { code: "task_not_startable", message: "no" },
+        }),
+      },
+    ]);
+    expect(
+      await retry(conn.db, failed.orca, failed.log, retryInput()),
+    ).toMatchObject({ ok: false, refusal: { code: "failed" } });
+    const base = derivedOpKey("retry", {
+      run_id: "run_1",
+      task_id: "task_b",
+      seat: "dev-1",
+      attempt: "2",
+    });
+    const outcome = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", ended(), run),
+    ]);
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(
+      outcome.result.nextSteps.filter((line) => line.startsWith("Task task_b")),
+    ).toEqual([`${retryLine} --op-key ${base}:2`]);
+  });
+
+  test("an abandoned worker's Task gets a new Dispatch from the retry pod check names", async () => {
+    const first = await pass([
+      ok("check", empty(), run),
+      ok("worker-list", ended(), run),
+    ]);
+    if (!first.ok) throw new Error(first.refusal.message);
+    expect(first.result.nextSteps).toContain(retryLine);
+    const named = retryLine.split(": ")[1]?.split(" ") ?? [];
+    const flag = (name: string) => named[named.indexOf(name) + 1] ?? "";
+    const restart = replay(conn, [
+      ok("worker-start", started("ctx_2"), [
+        "--task",
+        "task_b",
+        "--worktree",
+        `id:${worktreeId}`,
+      ]),
+    ]);
+    const retried = await retry(
+      conn.db,
+      restart.orca,
+      restart.log,
+      retryInput({
+        dispatch: flag("--dispatch"),
+        generation: Number(flag("--generation")),
+      }),
+    );
+    restart.orca.assertDone();
+    expect(retried).toMatchObject({
+      ok: true,
+      result: { dispatch_id: "ctx_2", retry_of: "ctx_1" },
+    });
+    const [receipt] = await conn.sql<{ argv: string[] }[]>`
+      select payload -> 'argv' as argv from ledger.event
+      where type = 'receipt' and payload ->> 'verb' = 'worker-start'
+        and op_key like 'retry:%'`;
+    expect(receipt?.argv).not.toContain("--retry-of");
+    const last = await pass([
+      ok("check", empty(), run),
+      ok(
+        "worker-list",
+        workers([{ dispatchId: "ctx_2", workerState: "ready" }]),
+        run,
+      ),
+    ]);
+    if (!last.ok) throw new Error(last.refusal.message);
+    expect(last.result.nextSteps.join("\n")).not.toContain("pod retry");
   });
 
   test("a delivered Task whose question was answered stays delivered when its worker ends", async () => {
