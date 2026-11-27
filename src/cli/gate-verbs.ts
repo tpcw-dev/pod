@@ -96,6 +96,7 @@ const hqaRecording: PersonNeed = {
   what: "an HQA record",
   nextSteps: [
     "the gate's keeper runs pod hqa record from their own shell, with no POD_SEAT and no ORCA_TERMINAL_HANDLE",
+    "a listed delegate posts the verdict comment with keeper-quote: and delegated-by: lines, and the Run's pod check records it",
   ],
 };
 

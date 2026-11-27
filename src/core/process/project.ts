@@ -658,6 +658,35 @@ async function agreedSpec(
   };
 }
 
+function reworkOpKey(runId: string, stepId: string, failedId: string): string {
+  return derivedOpKey("project", {
+    run_id: runId,
+    step_id: stepId,
+    rework: failedId,
+  });
+}
+
+export async function reworkFinished(
+  db: Repo,
+  failed: Task,
+  stepIds: readonly string[],
+): Promise<boolean> {
+  for (const stepId of stepIds) {
+    const operation = await db.getOperation(
+      reworkOpKey(failed.run_id, stepId, failed.task_id),
+    );
+    if (
+      operation?.status !== "done" ||
+      !TaskRef.safeParse(operation.result_ref).success
+    )
+      return false;
+  }
+  return !(await db.listTasks(failed.run_id)).some(
+    (row) =>
+      !terminal.includes(row.state) && depsOf(row).includes(failed.task_id),
+  );
+}
+
 export async function rework(
   ctx: ProjectContext,
   plan: ReworkPlan,
@@ -678,12 +707,7 @@ export async function rework(
   };
   const states = new Map(tasks.map((row) => [row.task_id, row.state]));
   const targetDeps = target.needs.flatMap((need) => newest(need) ?? []);
-  const key = (stepId: string) =>
-    derivedOpKey("project", {
-      run_id: runId,
-      step_id: stepId,
-      rework: failed.task_id,
-    });
+  const key = (stepId: string) => reworkOpKey(runId, stepId, failed.task_id);
   const agreed = await agreedSpec(db, toProjectStep(target), newest(target.id));
   const step =
     plan.note === undefined

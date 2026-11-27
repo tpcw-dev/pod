@@ -18,10 +18,24 @@ import { activeRevision, crewValue, processValue } from "./seed.ts";
 
 const hold = ["timeout", "cancel", "unknown"];
 
+export type ReviewFail = "hold" | "rework" | "rework_self";
+
+const reviewFailEdge = (reviewFail: ReviewFail) =>
+  reviewFail === "hold"
+    ? { from: "review", on: "FAIL", to: "hold" }
+    : {
+        from: "review",
+        on: "FAIL",
+        to: "build",
+        new_task: true,
+        then: reviewFail === "rework" ? "ship" : "review",
+      };
+
 export const gateProcess = (
   gate: string,
   shipGate?: string,
   review: "worker" | "human_wait" = "worker",
+  reviewFail: ReviewFail = "hold",
 ) => ({
   ...processValue,
   steps: [
@@ -48,7 +62,7 @@ export const gateProcess = (
     { from: "build", on: "done", to: "review" },
     { from: "build", on: hold, to: "hold" },
     { from: "review", on: "PASS", to: "ship" },
-    { from: "review", on: "FAIL", to: "hold" },
+    reviewFailEdge(reviewFail),
     { from: "review", on: hold, to: "hold" },
     { from: "ship", on: "done", to: "done" },
     { from: "ship", on: hold, to: "hold" },
@@ -113,10 +127,12 @@ export async function deliver(
 export interface GatedRun {
   gates: Json;
   principals?: Json;
+  delegates?: Json;
   builder?: string;
   gate?: string;
   shipGate?: string;
   review?: "worker" | "human_wait";
+  reviewFail?: ReviewFail;
   reviewFields?: Record<string, unknown>;
 }
 
@@ -125,10 +141,12 @@ export async function gatedRun(
   {
     gates,
     principals,
+    delegates,
     builder = "dev-1",
     gate = "pr",
     shipGate,
     review = "worker",
+    reviewFail = "hold",
     reviewFields = {},
   }: GatedRun,
 ): Promise<void> {
@@ -136,13 +154,14 @@ export async function gatedRun(
   await activeRevision(conn.db, "policy", "default", {
     gates,
     ...(principals === undefined ? {} : { principals }),
+    ...(delegates === undefined ? {} : { delegates }),
   });
   await activeRevision(conn.db, "crew", "default", crewValue);
   await activeRevision(
     conn.db,
     "process",
     "impl",
-    gateProcess(gate, shipGate, review),
+    gateProcess(gate, shipGate, review, reviewFail),
   );
   const { orca, log } = replay(conn, [
     ok("run-create", { run: { id: "run_1" } }),

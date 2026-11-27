@@ -1625,7 +1625,7 @@ describeDb("pod check names the coordinator's next step", () => {
       principals: { human: { tracker_account: "keeper-1" } },
     });
     expect(await quiet()).toContain(
-      "waiting on pr (human): human runs pod hqa record story:S-1 --generation 1 after the verdict comment",
+      "waiting on pr (human): human runs pod hqa record story:S-1 --generation 1 after the verdict comment, or a listed delegate posts the verdict comment with keeper-quote: and delegated-by: lines and pod check records it",
     );
   });
 });

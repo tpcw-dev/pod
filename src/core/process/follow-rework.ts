@@ -9,6 +9,8 @@ import {
   noReworkEdge,
   recordOutcome,
   rework,
+  reworkFinished,
+  type OutcomeInput,
 } from "./project.ts";
 
 export interface ReworkContext {
@@ -54,6 +56,44 @@ async function agreedChange(
   };
 }
 
+const ReceiptFail = z.looseObject({
+  outcome: z.literal("FAIL"),
+  edge: z.looseObject({
+    to: z.string(),
+    new_task: z.literal(true),
+    then: z.string().nullable(),
+  }),
+});
+const ReceiptSource = z.looseObject({
+  kind: z.literal("receipt"),
+  receipt_id: z.number(),
+});
+const HqaReceipt = z.looseObject({ kind: z.literal("tracker_comment") });
+
+async function receiptFail(
+  db: Repo,
+  task: Task,
+): Promise<{ receipt_id: number } | null> {
+  const event = await db.latestEvent(task.run_id, "outcome", {
+    taskId: task.task_id,
+  });
+  const failed = ReceiptFail.safeParse(event?.payload);
+  const cited = ReceiptSource.safeParse(event?.source);
+  if (!failed.success || !cited.success) return null;
+  const { receipt_id } = cited.data;
+  const receipt = (await db.listGateReceipts(task.run_id)).find(
+    (row) => row.id === receipt_id,
+  );
+  if (
+    receipt?.sync_state !== "synced" ||
+    !HqaReceipt.safeParse(receipt.source).success
+  )
+    return null;
+  const { to, then } = failed.data.edge;
+  const steps = then === null ? [to] : [to, then];
+  return (await reworkFinished(db, task, steps)) ? null : { receipt_id };
+}
+
 async function heldStep(db: Repo, task: Task): Promise<string | null> {
   const event = await db.latestEvent(task.run_id, "hold", {
     taskId: task.task_id,
@@ -80,16 +120,29 @@ export async function followReworks(
     if (task.state !== "failed") continue;
     if (tasks.some((row) => row.rework_of === task.task_id)) continue;
     const change = await agreedChange(db, task);
-    if (change === null) continue;
+    const fail = change === null ? await receiptFail(db, task) : null;
+    const replay: OutcomeInput | null =
+      change !== null
+        ? {
+            task: task.task_id,
+            outcome: "rework",
+            at: context.now(),
+            host: context.host,
+            source: { kind: "decision", decision_id: change.decisionId },
+          }
+        : fail !== null
+          ? {
+              task: task.task_id,
+              outcome: "FAIL",
+              at: context.now(),
+              host: context.host,
+              source: { kind: "receipt", receipt_id: fail.receipt_id },
+            }
+          : null;
+    if (replay === null) continue;
     const recorded = await db.transaction(async (tx) => {
       await tx.lockRun(task.run_id);
-      return recordOutcome(tx, {
-        task: task.task_id,
-        outcome: "rework",
-        at: context.now(),
-        host: context.host,
-        source: { kind: "decision", decision_id: change.decisionId },
-      });
+      return recordOutcome(tx, replay);
     });
     if (recorded.kind !== "rework") continue;
     const made = await rework(
@@ -103,7 +156,7 @@ export async function followReworks(
         source,
         now: context.now,
       },
-      { ...recorded.plan, note: change.note },
+      change === null ? recorded.plan : { ...recorded.plan, note: change.note },
     );
     if (!made.ok) steps.push(made.refusal.message, ...made.refusal.nextSteps);
   }
