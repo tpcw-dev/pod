@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import { checkPass } from "../../src/core/check/check.ts";
 import { launchLeaseSeconds } from "../../src/core/check/reconcile.ts";
+import { openLaunches } from "../../src/core/dispatch/quota.ts";
 import {
   retry,
   retryPlan,
@@ -350,6 +351,104 @@ describeDb("pod retry", () => {
       from: "blocked",
     });
     expect((await conn.db.getOperation("k-unknown"))?.status).toBe("unknown");
+  });
+
+  async function abandoned() {
+    await conn.db.appendEvent({
+      type: "stop",
+      ts: new Date(),
+      host: "local",
+      run_id: "run_1",
+      task_id: "task_b",
+      dispatch_id: "ctx_1",
+      op_key: null,
+      payload: { worker_state: "abandoned", terminal_state: "released" },
+      source: { kind: "command", verb: "check" },
+    });
+  }
+  const freshArgv = [...retryArgv.slice(0, -4), "--from", "session-1"];
+  async function startArgvs() {
+    const rows = await conn.sql<{ argv: string[] }[]>`
+      select payload -> 'argv' as argv from ledger.event
+      where type = 'receipt' and payload ->> 'verb' = 'worker-start'
+        and op_key like 'retry:%' order by id`;
+    return rows.map((row) => row.argv);
+  }
+
+  test("a retry of a Dispatch settled from an abandoned worker starts the Task with no --retry-of", async () => {
+    await abandoned();
+    const outcome = await run([
+      ok("worker-start", started("ctx_2"), freshArgv),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: { dispatch_id: "ctx_2", retry_of: "ctx_1" },
+    });
+    const [argv] = await startArgvs();
+    expect(argv).toEqual(
+      expect.arrayContaining([
+        "--task",
+        "task_b",
+        "--worktree",
+        `id:${worktreeId}`,
+      ]),
+    );
+    expect(argv).not.toContain("--retry-of");
+    expect(await conn.db.getDispatch("ctx_2")).toMatchObject({
+      retry_of: "ctx_1",
+    });
+    expect(await taskState(conn, "task_b")).toBe("dispatched");
+  });
+
+  test("a rerun of an abandoned Dispatch's retry under the same op key starts no second worker", async () => {
+    await abandoned();
+    const first = await run([ok("worker-start", started("ctx_2"), freshArgv)]);
+    if (!first.ok) throw new Error(first.refusal.message);
+    const again = await retry(
+      conn.db,
+      noCalls(),
+      receiptLog(conn.db, "local"),
+      input({ opKey: first.opKey }),
+    );
+    expect(again).toEqual(first);
+    const argvs = await startArgvs();
+    expect(argvs).toHaveLength(1);
+    expect(argvs[0]).not.toContain("--retry-of");
+  });
+
+  test("a failed fresh start names the worker-start it sent and leaves the Task blocked", async () => {
+    await abandoned();
+    const failed = await run([
+      {
+        verb: "worker-start",
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          error: { code: "task_not_startable", message: "no" },
+        }),
+      },
+    ]);
+    expect(failed).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "failed",
+        message: "worker-start for Task task_b (retry of ctx_1) failed",
+      },
+    });
+    expect(await taskState(conn, "task_b")).toBe("blocked");
+    expect(await openLaunches(conn.db)).toEqual([]);
+    const unknown = await run(
+      [unknownReply("worker-start", "66666666-6666-4666-8666-666666666666")],
+      { opKey: "k-unknown" },
+    );
+    expect(unknown).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "launch_unknown",
+        message:
+          "worker-start for Task task_b (retry of ctx_1) has no known outcome",
+      },
+    });
   });
 
   test("a retry of a retried Dispatch shows only the newest git status", async () => {

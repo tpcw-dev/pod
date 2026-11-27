@@ -56,6 +56,40 @@ const Placement = z.looseObject({
 
 const References = z.array(ManifestReference);
 
+/**
+ * How `pod retry` starts the Task: `retry_of` sends `--retry-of`, and `fresh`
+ * sends a plain start, because the worker runtime leaves the Task ready after
+ * it abandons a worker whose terminal is gone and refuses `--retry-of` there.
+ */
+export type StartMode = "retry_of" | "fresh";
+
+const StopPayload = z.looseObject({ worker_state: z.unknown() });
+
+async function startMode(db: Repo, dispatchId: string): Promise<StartMode> {
+  const stop = await db.dispatchEvent(dispatchId, "stop");
+  const payload = StopPayload.safeParse(stop?.payload);
+  return payload.success && payload.data.worker_state === "abandoned"
+    ? "fresh"
+    : "retry_of";
+}
+
+/** The op key `pod retry` derives for the Task's next attempt. */
+export function retryOpKey(
+  task: Pick<Task, "run_id" | "task_id">,
+  seat: string,
+  dispatches: readonly Pick<Dispatch, "task_id">[],
+): string {
+  const attempts = dispatches.filter(
+    (row) => row.task_id === task.task_id,
+  ).length;
+  return derivedOpKey("retry", {
+    run_id: task.run_id,
+    task_id: task.task_id,
+    seat,
+    attempt: String(attempts + 1),
+  });
+}
+
 export async function retryPlan(
   db: Repo,
   dispatchId: string,
@@ -146,6 +180,7 @@ export async function supersededWorktree(
 function launchFor(
   dispatch: Dispatch,
   seat: Seat | undefined,
+  start: StartMode,
 ): LaunchArgs | null {
   const placed = Placement.catch({}).parse(dispatch.requested_launch);
   const agent = placed.agent ?? seat?.runtime;
@@ -157,7 +192,7 @@ function launchFor(
     ...(model === undefined ? {} : { model }),
     ...(effort === undefined ? {} : { effort }),
     worktree: placed.worktree,
-    retryOf: dispatch.dispatch_id,
+    ...(start === "retry_of" ? { retryOf: dispatch.dispatch_id } : {}),
   };
 }
 
@@ -186,6 +221,7 @@ export interface RetryGateInput {
   task: Task;
   original: Dispatch;
   seat: Seat | undefined;
+  start: StartMode;
   host: string;
   capacity: number | null;
 }
@@ -253,7 +289,7 @@ export async function retryGate(
     });
   const full = await slotRefusal(tx, gate.host, gate.capacity, launches);
   if (full !== null) return refused(full);
-  const launch = launchFor(original, seat);
+  const launch = launchFor(original, seat, gate.start);
   if (launch === null)
     return refused({
       code: "role_unfilled",
@@ -278,6 +314,7 @@ interface RetrySubject {
   original: Dispatch;
   task: Task;
   seat: Seat | undefined;
+  start: StartMode;
 }
 
 async function retrySubject(
@@ -309,6 +346,7 @@ async function retrySubject(
     original,
     task,
     seat: seats.find((item) => item.id === original.seat),
+    start: await startMode(db, original.dispatch_id),
   };
 }
 
@@ -336,6 +374,7 @@ export async function retryReady(
       task,
       original: subject.original,
       seat: subject.seat,
+      start: "retry_of",
       host,
       capacity,
     });
@@ -353,20 +392,12 @@ export async function retry(
   if ("ok" in plan) return plan;
   const subject = await retrySubject(db, input.dispatch);
   if ("ok" in subject) return subject;
-  const { original, task, seat } = subject;
+  const { original, task, seat, start } = subject;
   const method = await stepMethod(db, task.run_id, task.step_id);
   const { version } = await orca.version();
-  const attempts = (await db.listDispatches(task.run_id)).filter(
-    (row) => row.task_id === task.task_id,
-  ).length;
   const opKey =
     input.opKey ??
-    derivedOpKey("retry", {
-      run_id: task.run_id,
-      task_id: task.task_id,
-      seat: original.seat,
-      attempt: String(attempts + 1),
-    });
+    retryOpKey(task, original.seat, await db.listDispatches(task.run_id));
   const request: LaunchRequest = {
     task_id: task.task_id,
     seat: original.seat,
@@ -414,6 +445,7 @@ export async function retry(
       task: current,
       original,
       seat,
+      start,
       host: input.host,
       capacity: input.capacity,
     });
@@ -506,20 +538,19 @@ export async function retry(
       opKey,
       orca: version,
     };
+  const sent =
+    launch.retryOf === undefined
+      ? `worker-start for Task ${task.task_id} (retry of ${original.dispatch_id})`
+      : `worker-start --retry-of ${original.dispatch_id}`;
   if (recorded.kind === "failed")
-    return refuse(
-      "failed",
-      `worker-start --retry-of ${original.dispatch_id} failed`,
-      [
-        ...(receipt.result?.lastError == null
-          ? []
-          : [receipt.result.lastError]),
-        "pod check",
-      ],
-    );
-  return refuse(
-    "launch_unknown",
-    `worker-start --retry-of ${original.dispatch_id} has no known outcome`,
-    [input.command(opKey), "pod check"],
-  );
+    return refuse("failed", `${sent} failed`, [
+      ...(receipt.result?.lastError == null
+        ? []
+        : [receipt.result.lastError]),
+      "pod check",
+    ]);
+  return refuse("launch_unknown", `${sent} has no known outcome`, [
+    input.command(opKey),
+    "pod check",
+  ]);
 }

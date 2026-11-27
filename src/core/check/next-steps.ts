@@ -2,10 +2,12 @@ import { z } from "zod";
 import { operationStatuses, type Run, type Task } from "../domain/ledger.ts";
 import { nextDispatchCommand } from "../dispatch/next-command.ts";
 import { openLaunches } from "../dispatch/quota.ts";
+import { retryOpKey } from "../dispatch/retry.ts";
 import { readSeats, SeatsInvalid, type Seat } from "../dispatch/seats.ts";
 import { candidateSha, gateOf, pinnedConfig } from "../gate/receipt.ts";
 import { latestDispatch } from "../domain/hold.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
+import { newestAttempt, nextAttempt } from "../ledger/op-key.ts";
 import type { Db } from "../ports/db.ts";
 import { readProcess } from "../process/project.ts";
 import { afterClose, type Step } from "../process/schema.ts";
@@ -196,9 +198,15 @@ async function retryLines(
     const latest = latestDispatch(dispatches, task.task_id);
     if (latest?.settlement !== "stopped") continue;
     const id = latest.dispatch_id;
+    const base = retryOpKey(task, latest.seat, dispatches);
+    const newest = await newestAttempt(db, base);
+    const opKey =
+      newest.operation === null
+        ? ""
+        : ` --op-key ${nextAttempt(base, newest).opKey}`;
     const [question] = await questionsOn(db, run, [latest]);
     lines.push(
-      `Task ${task.task_id} is blocked on ended Dispatch ${id}: pod retry --dispatch ${id} --generation ${generation}${
+      `Task ${task.task_id} is blocked on ended Dispatch ${id}: pod retry --dispatch ${id} --generation ${generation}${opKey}${
         question === undefined
           ? ""
           : `; ${id} left question ${question.message_id} unanswered: answer the new Dispatch's repeat of it with pod reply and the same answer`
