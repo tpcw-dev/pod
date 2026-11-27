@@ -85,6 +85,10 @@ export const ArchiveRecord = z.looseObject({
   gone: z.array(z.string()).catch([]),
   worktrees: z.array(PlannedWorktree).catch([]),
   retro_due: z.boolean().catch(false),
+  abandon: z
+    .object({ reason: z.string(), actor: z.string() })
+    .nullable()
+    .catch(null),
 });
 
 export function commentBody(
@@ -95,9 +99,11 @@ export function commentBody(
   retroDue: boolean,
   worktrees: readonly WorktreeOutcome[],
   branches: readonly BranchOutcome[],
+  abandoned: string | null,
 ): string {
   return [
     `${actor}: closed Run ${runId}`,
+    ...(abandoned === null ? [] : [`Abandoned: ${abandoned}`]),
     "",
     `Worktree: ${worktreeField(worktrees)}`,
     `Branches removed: ${branchesRemovedField(branches)}`,

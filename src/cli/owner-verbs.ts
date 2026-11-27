@@ -9,7 +9,8 @@ import { hostCapacity } from "../core/plan/capacity.ts";
 import { takeover } from "../core/run/takeover.ts";
 import { databaseUrl, podHome, readHostProfile } from "./host-profile.ts";
 import { actorOf, needsPerson, writerOf } from "./identity.ts";
-import { Generation, quote, withOrca } from "./run-verbs.ts";
+import { quote } from "../core/domain/shell.ts";
+import { Generation, withOrca } from "./run-verbs.ts";
 
 export const DrainInput = z
   .strictObject({

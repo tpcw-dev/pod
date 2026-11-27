@@ -6,7 +6,8 @@ import { postVerdict, VerdictFile } from "../core/gate/verdict.ts";
 import { schemaError, usageError } from "./errors.ts";
 import { credentialStep, podHome } from "./host-profile.ts";
 import { needsPerson, writerOf, type PersonNeed } from "./identity.ts";
-import { Generation, quote, withOrca } from "./run-verbs.ts";
+import { quote } from "../core/domain/shell.ts";
+import { Generation, withOrca } from "./run-verbs.ts";
 import { issuesOf, parseYaml, readText } from "./yaml-file.ts";
 
 const Outcome = z.object({

@@ -108,6 +108,11 @@ export const transitions: readonly Transition[] = [
   { from: "pending", to: "superseded", trigger: changeSpec },
   { from: "ready", to: "superseded", trigger: changeSpec },
   { from: "hold", to: "superseded", trigger: changeSpec },
+  {
+    from: "hold",
+    to: "superseded",
+    trigger: "pod run close --abandon ends the Run with no replacement Task",
+  },
   { from: "dispatched", to: "superseded", trigger: changeSpec },
   { from: "delivered", to: "superseded", trigger: changeSpec },
   { from: "hold", to: "dispatched", trigger: resume },

@@ -36,6 +36,7 @@ export const options = {
   retain: { type: "boolean" },
   end: { type: "boolean" },
   "keep-files-reviewed": { type: "boolean" },
+  abandon: { type: "string" },
   area: { type: "string" },
   kind: { type: "string" },
   reporter: { type: "string" },

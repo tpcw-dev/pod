@@ -11,7 +11,8 @@ import { retroRun } from "../core/retro/run.ts";
 import { codeHostFor } from "./code-host.ts";
 import { PodError, exitFor, schemaError } from "./errors.ts";
 import { databaseUrl, readHostProfile } from "./host-profile.ts";
-import { Generation, quote, withOrca } from "./run-verbs.ts";
+import { quote } from "../core/domain/shell.ts";
+import { Generation, withOrca } from "./run-verbs.ts";
 import { issuesOf, parseYaml, readText } from "./yaml-file.ts";
 
 const RunArg = z.string().regex(/^run:.+$/);

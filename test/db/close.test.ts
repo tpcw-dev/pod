@@ -3,7 +3,14 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
 import {
   canonicalJson,
@@ -17,6 +24,16 @@ import {
 import type { OrcaPort } from "../../src/core/ports/orca.ts";
 import { closeRun, type CloseInput } from "../../src/core/run/close.ts";
 import { closeStepKey } from "../../src/core/run/close-record.ts";
+import { dispatch } from "../../src/core/dispatch/dispatch.ts";
+import { hostFreeSlots } from "../../src/core/dispatch/quota.ts";
+import { retry } from "../../src/core/dispatch/retry.ts";
+import { recordHqa } from "../../src/core/gate/hqa.ts";
+import { checkPass } from "../../src/core/check/check.ts";
+import type { CodeHostPort } from "../../src/core/ports/code-host.ts";
+import type { GitPort } from "../../src/core/ports/git.ts";
+import { renderState } from "../../src/core/state/render.ts";
+import { buildState } from "../../src/core/state/view.ts";
+import { usageFacts } from "../../src/core/usage/facts.ts";
 import { launchedWorktrees } from "../../src/core/dispatch/run-worktree.ts";
 import { lost, noCalls, ok, type TempEntry } from "../orca/temp-fixtures.ts";
 import { cliReplay, generation } from "./decision-fixture.ts";
@@ -24,14 +41,19 @@ import { describeDb, openDb, resetDb } from "./helpers.ts";
 import { residentSeat } from "./resident-fixture.ts";
 import {
   dispatched,
+  dispatchInput,
+  empty,
   events,
   freshRun,
   replay,
+  taskState,
+  workers,
   worktreeId,
 } from "./run-fixture.ts";
+import { checkArgs, gatedRun } from "./gate-fixture.ts";
 import { closeBody, closeCommentTracker } from "./close-tracker.ts";
 import { fakeGit, launchedRun, removedWorktree } from "./close-ports.ts";
-import { fakeTracker } from "./fake-tracker.ts";
+import { fakeTracker, type FakeTracker } from "./fake-tracker.ts";
 import { operator } from "./identity-fixture.ts";
 
 let conn: Connection;
@@ -169,7 +191,7 @@ const offline: OrcaPort = {
   version: () => Promise.reject(new Error("no Orca call expected")),
 };
 
-async function seatDispatch(id: string, worktree: string) {
+async function seatDispatch(id: string, worktree: string, host?: string) {
   await conn.db.insertOperation({
     op_key: `seat-${id}`,
     intent: "dispatch",
@@ -190,18 +212,18 @@ async function seatDispatch(id: string, worktree: string) {
     model_attribution: "unknown",
     retry_of: null,
     op_key: `seat-${id}`,
-    settlement: "done",
+    settlement: host === undefined ? "done" : "open",
     terminal_handle: null,
     created_at: new Date(),
-    settled_at: new Date(),
-    activity: "settled",
+    settled_at: host === undefined ? new Date() : null,
+    activity: host === undefined ? "settled" : "running",
     manifest_id: null,
     prompt_bytes: null,
   });
   await conn.db.appendEvent({
     type: "start",
     ts: new Date(),
-    host: "local",
+    host: host ?? "local",
     run_id: "run_1",
     task_id: "task_r",
     dispatch_id: id,
@@ -1033,6 +1055,548 @@ describeDb("pod run close", () => {
           },
         },
       },
+    });
+  });
+
+  describe("--abandon", () => {
+    const reason = "superseded by another story";
+    const runArgv = ["--run", "run_1"];
+    const listed = (rows: Parameters<typeof workers>[0]) =>
+      ok("worker-list", workers(rows), runArgv);
+    const stopped = ok(
+      "worker-stop",
+      { dispatchId: "ctx_1", state: "stopped" },
+      ["--dispatch", "ctx_1"],
+    );
+    let touched: string[];
+
+    function silentGit(): GitPort {
+      const refuse = (name: string) => () => {
+        touched.push(`git.${name}`);
+        return Promise.reject(new Error(`no git ${name} expected`));
+      };
+      return {
+        checkout: refuse("checkout"),
+        integration: refuse("integration"),
+        fetch: refuse("fetch"),
+        localTip: refuse("localTip"),
+        remoteTip: refuse("remoteTip"),
+        checkedOut: refuse("checkedOut"),
+        deleteLocal: refuse("deleteLocal"),
+        deleteRemote: refuse("deleteRemote"),
+      };
+    }
+
+    function silentCodeHost(): CodeHostPort {
+      return {
+        pr: () => {
+          touched.push("codeHost.pr");
+          return Promise.reject(new Error("no PR read expected"));
+        },
+        openPrs: () => {
+          touched.push("codeHost.openPrs");
+          return Promise.reject(new Error("no PR list expected"));
+        },
+      };
+    }
+
+    function abandoning(
+      tracker: FakeTracker,
+      over: Partial<CloseInput> = {},
+    ): Partial<CloseInput> {
+      return {
+        tracker,
+        git: silentGit(),
+        codeHost: silentCodeHost(),
+        abandon: { reason, person: true },
+        ...over,
+      };
+    }
+
+    async function pendingTask(id: string) {
+      const task = await conn.db.getTask("task_r");
+      if (task === null) throw new Error("task_r is missing");
+      await conn.db.insertTask({ ...task, task_id: id, state: "pending" });
+    }
+
+    async function ledger() {
+      return {
+        events:
+          await conn.sql`select type, count(*)::int as n from ledger.event group by type order by type`,
+        tasks:
+          await conn.sql`select task_id, state from ledger.task order by task_id`,
+        dispatches:
+          await conn.sql`select dispatch_id, settlement, activity from ledger.dispatch order by dispatch_id`,
+        operations: await operations(),
+      };
+    }
+
+    beforeEach(() => {
+      touched = [];
+    });
+
+    test("a live Dispatch is stopped, its slot frees, every open Task is superseded, and one cancel event records the abandon", async () => {
+      await launchedRun(conn);
+      await dispatched(conn, "ctx_1");
+      await pendingTask("task_x");
+      const before = await hostFreeSlots(conn.db, "local", 2);
+      const tracker = fakeTracker();
+      const outcome = await close(
+        [listed([{ dispatchId: "ctx_1", workerState: "running" }]), stopped],
+        abandoning(tracker),
+      );
+      expect(outcome).toMatchObject({
+        ok: true,
+        result: {
+          state: "done",
+          abandoned: reason,
+          retro_due: false,
+          worktrees: [],
+          branches: [],
+        },
+      });
+      expect(await hostFreeSlots(conn.db, "local", 2)).toBe(before + 1);
+      expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
+        settlement: "stopped",
+        activity: "settled",
+      });
+      for (const id of ["task_b", "task_r", "task_x"])
+        expect(await taskState(conn, id)).toBe("superseded");
+      expect(await events(conn, "cancel")).toEqual([
+        {
+          task_id: null,
+          dispatch_id: null,
+          payload: {
+            reason: "run_abandoned",
+            text: reason,
+            actor: "person:operator-1",
+            tasks: [
+              { task_id: "task_b", from: "dispatched" },
+              { task_id: "task_r", from: "pending" },
+              { task_id: "task_x", from: "pending" },
+            ],
+            dispatches: ["ctx_1"],
+          },
+        },
+      ]);
+      expect(await events(conn, "stop")).toEqual([
+        expect.objectContaining({
+          dispatch_id: "ctx_1",
+          payload: expect.objectContaining({ reason: "run_abandoned" }),
+        }),
+      ]);
+      expect(touched).toEqual([]);
+      expect(
+        await conn.db.outboxByOpKey(closeStepKey("run_1", "status")),
+      ).toBeNull();
+      expect(tracker.calls).not.toContain("setStatus");
+      expect(tracker.comments).toHaveLength(1);
+      expect(tracker.comments[0]?.body.split("\n")[1]).toBe(
+        `Abandoned: ${reason}`,
+      );
+      const [archive] = await events(conn, "close");
+      expect(archive?.payload).toMatchObject({
+        abandon: { reason, actor: "person:operator-1" },
+        retro_due: false,
+      });
+      expect(await runState()).toBe("done");
+    });
+
+    test("a Dispatch whose worker the list shows succeeded settles with no worker-stop", async () => {
+      await dispatched(conn, "ctx_1");
+      const outcome = await close(
+        [listed([{ dispatchId: "ctx_1", workerState: "succeeded" }])],
+        abandoning(fakeTracker()),
+      );
+      expect(outcome).toMatchObject({ ok: true, result: { state: "done" } });
+      expect(await events(conn, "stop")).toEqual([
+        expect.objectContaining({
+          dispatch_id: "ctx_1",
+          payload: { reason: "run_abandoned", worker_state: "succeeded" },
+        }),
+      ]);
+      expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
+        settlement: "stopped",
+      });
+      expect(await events(conn, "cancel")).toMatchObject([
+        {
+          payload: {
+            tasks: expect.arrayContaining([
+              { task_id: "task_b", from: "dispatched" },
+            ]),
+          },
+        },
+      ]);
+    });
+
+    test("a Dispatch the worker list does not show settles as absent", async () => {
+      await dispatched(conn, "ctx_1");
+      const outcome = await close([listed([])], abandoning(fakeTracker()));
+      expect(outcome).toMatchObject({ ok: true, result: { state: "done" } });
+      expect(await events(conn, "stop")).toEqual([
+        expect.objectContaining({
+          dispatch_id: "ctx_1",
+          payload: { reason: "run_abandoned", worker_state: "absent" },
+        }),
+      ]);
+    });
+
+    test("a worker-stop with no known outcome refuses owed_work, moves no Task, and a re-run settles from the worker list", async () => {
+      await dispatched(conn, "ctx_1");
+      const refused = await close(
+        [
+          listed([{ dispatchId: "ctx_1", workerState: "running" }]),
+          lost("worker-stop", ["--dispatch", "ctx_1"]),
+        ],
+        abandoning(fakeTracker()),
+      );
+      expect(refused).toMatchObject({
+        ok: false,
+        refusal: { code: "owed_work" },
+      });
+      if (!refused.ok)
+        expect(refused.refusal.nextSteps).toEqual([
+          `pod run close story:S-1 --generation 1 --abandon '${reason}'`,
+        ]);
+      expect(await events(conn, "cancel")).toEqual([]);
+      expect(await taskState(conn, "task_b")).toBe("dispatched");
+      expect(await taskState(conn, "task_r")).toBe("pending");
+      expect(await conn.db.getDispatch("ctx_1")).toMatchObject({
+        settlement: "open",
+      });
+      const closed = await close(
+        [listed([{ dispatchId: "ctx_1", workerState: "stopped" }])],
+        abandoning(fakeTracker()),
+      );
+      expect(closed).toMatchObject({ ok: true, result: { abandoned: reason } });
+      expect(await events(conn, "cancel")).toMatchObject([
+        {
+          payload: {
+            tasks: [
+              { task_id: "task_b", from: "dispatched" },
+              { task_id: "task_r", from: "pending" },
+            ],
+            dispatches: ["ctx_1"],
+          },
+        },
+      ]);
+    });
+
+    test("a live worker whose stop must wait refuses before an absent Dispatch settles", async () => {
+      await dispatched(conn, "ctx_1");
+      await seatDispatch("ctx_2", "id:repo-1::/w/two", "local");
+      const before = await ledger();
+      const refused = await close(
+        [
+          listed([{ dispatchId: "ctx_1", workerState: "running" }]),
+          lost("worker-stop", ["--dispatch", "ctx_1"]),
+        ],
+        abandoning(fakeTracker()),
+      );
+      expect(refused).toMatchObject({
+        ok: false,
+        refusal: { code: "owed_work" },
+      });
+      expect(await events(conn, "stop")).toEqual([]);
+      expect(await conn.db.getDispatch("ctx_2")).toMatchObject({
+        settlement: "open",
+      });
+      expect((await ledger()).tasks).toEqual(before.tasks);
+      expect((await ledger()).dispatches).toEqual(before.dispatches);
+    });
+
+    test("a re-run settles a Dispatch opened after the abandon phase, leaves its Task as it is, and closes", async () => {
+      await launchedRun(conn);
+      const tracker = fakeTracker();
+      tracker.dropPost = true;
+      tracker.postLands = false;
+      await closeRun(
+        conn.db,
+        offline,
+        replay(conn, []).log,
+        input(abandoning(tracker)),
+      );
+      await seatDispatch("ctx_late", "id:repo-1::/w/late", "local");
+      tracker.dropPost = false;
+      tracker.postLands = true;
+      const closed = await close(
+        [listed([{ dispatchId: "ctx_late", workerState: "succeeded" }])],
+        { tracker, git: silentGit(), codeHost: silentCodeHost() },
+      );
+      expect(closed).toMatchObject({
+        ok: true,
+        result: { state: "done", abandoned: reason },
+      });
+      expect(await conn.db.getDispatch("ctx_late")).toMatchObject({
+        settlement: "stopped",
+      });
+      expect(await taskState(conn, "task_r")).toBe("superseded");
+    });
+
+    test("the close command in a refusal single-quotes the reason for the shell", async () => {
+      await dispatched(conn, "ctx_1");
+      const refused = await close(
+        [
+          listed([{ dispatchId: "ctx_1", workerState: "running" }]),
+          lost("worker-stop", ["--dispatch", "ctx_1"]),
+        ],
+        abandoning(fakeTracker(), {
+          abandon: { reason: "$(id) it's `gone`", person: true },
+        }),
+      );
+      if (refused.ok) throw new Error("expected a refusal");
+      expect(refused.refusal.nextSteps).toEqual([
+        `pod run close story:S-1 --generation 1 --abandon '$(id) it'\\''s \`gone\`'`,
+      ]);
+    });
+
+    test("an open Decision refuses owed_work naming it, and nothing is written", async () => {
+      await dispatched(conn, "ctx_1");
+      await openDecision("round:1");
+      const before = await ledger();
+      const outcome = await closeRun(
+        conn.db,
+        offline,
+        replay(conn, []).log,
+        input(abandoning(fakeTracker())),
+      );
+      expect(outcome).toMatchObject({
+        ok: false,
+        refusal: { code: "owed_work" },
+      });
+      if (!outcome.ok)
+        expect(outcome.refusal.nextSteps).toContain(
+          "Decision dec_1 is round:1: pod decide cancel dec_1",
+        );
+      expect(await ledger()).toEqual(before);
+    });
+
+    test("a Dispatch that started on another host refuses wrong_host, and nothing is written", async () => {
+      await seatDispatch("ctx_1", "id:repo-1::/w/one", "other");
+      const before = await ledger();
+      const outcome = await closeRun(
+        conn.db,
+        offline,
+        replay(conn, []).log,
+        input(abandoning(fakeTracker())),
+      );
+      expect(outcome).toMatchObject({
+        ok: false,
+        refusal: { code: "wrong_host" },
+      });
+      if (!outcome.ok)
+        expect(outcome.refusal.nextSteps).toEqual([
+          "Dispatch ctx_1 started on host other",
+          `on host other: pod run close story:S-1 --generation 1 --abandon '${reason}'`,
+        ]);
+      expect(await ledger()).toEqual(before);
+    });
+
+    test("an open PR does not refuse open_pr, and the PR is not read", async () => {
+      await launchedRun(conn);
+      await conn.db.appendEvent({
+        type: "pr",
+        ts: new Date(),
+        host: "local",
+        run_id: "run_1",
+        task_id: "task_b",
+        dispatch_id: null,
+        op_key: null,
+        payload: { number: 7, state: "open" },
+        source: { kind: "command", verb: "check" },
+      });
+      const outcome = await closeRun(
+        conn.db,
+        offline,
+        replay(conn, []).log,
+        input(abandoning(fakeTracker())),
+      );
+      expect(outcome).toMatchObject({
+        ok: true,
+        result: { state: "done", abandoned: reason },
+      });
+      expect(touched).toEqual([]);
+    });
+
+    test("a re-run with no --abandon after the abandon phase closes as abandoned", async () => {
+      await launchedRun(conn);
+      const tracker = fakeTracker();
+      tracker.dropPost = true;
+      tracker.postLands = false;
+      const refused = await closeRun(
+        conn.db,
+        offline,
+        replay(conn, []).log,
+        input(abandoning(tracker)),
+      );
+      expect(refused).toMatchObject({
+        ok: false,
+        refusal: { code: "tracker_unconfirmed" },
+      });
+      expect(await events(conn, "cancel")).toHaveLength(1);
+      tracker.dropPost = false;
+      tracker.postLands = true;
+      const closed = await closeRun(
+        conn.db,
+        offline,
+        replay(conn, []).log,
+        input({ tracker, git: silentGit(), codeHost: silentCodeHost() }),
+      );
+      expect(closed).toMatchObject({
+        ok: true,
+        result: { state: "done", abandoned: reason, retro_due: false },
+      });
+      expect(touched).toEqual([]);
+      expect(
+        await conn.db.outboxByOpKey(closeStepKey("run_1", "status")),
+      ).toBeNull();
+      expect(tracker.comments.at(-1)?.body.split("\n")[1]).toBe(
+        `Abandoned: ${reason}`,
+      );
+    });
+
+    test("after an abandoned close, pod dispatch and pod retry on the Run refuse task_not_ready", async () => {
+      await dispatched(conn, "ctx_1");
+      await close([listed([])], abandoning(fakeTracker()));
+      const log = replay(conn, []).log;
+      expect(
+        await dispatch(
+          conn.db,
+          noCalls(),
+          log,
+          dispatchInput({ task: "task_r", seat: "rev-1" }),
+        ),
+      ).toMatchObject({ ok: false, refusal: { code: "task_not_ready" } });
+      expect(
+        await retry(conn.db, noCalls(), log, {
+          dispatch: "ctx_1",
+          generation: 1,
+          opKey: null,
+          host: "local",
+          capacity: 2,
+          gitStatus: "## main",
+          command: (opKey) => `pod retry --op-key ${opKey}`,
+          now: () => new Date(),
+        }),
+      ).toMatchObject({ ok: false, refusal: { code: "task_not_ready" } });
+    });
+
+    test("dayFacts for the close day counts no points for the abandoned Run and keeps its seats", async () => {
+      await dispatched(conn, "ctx_1");
+      await close([listed([])], abandoning(fakeTracker()));
+      const since = new Date(Date.now() - 86_400_000);
+      const until = new Date(Date.now() + 86_400_000);
+      const facts = await usageFacts(
+        conn.db,
+        { kind: "day", day: "today", since, until },
+        "UTC",
+        "fibonacci",
+      );
+      expect(facts.done).toEqual([]);
+      expect(facts.seats.map((seat) => seat.dispatch.dispatch_id)).toContain(
+        "ctx_1",
+      );
+    });
+
+    test("an agent Seat's --abandon on a Run whose pinned process does not parse is refused before any write", async () => {
+      await conn.sql`update config.snapshot set process_revision_id = policy_revision_id where run_id = 'run_1'`;
+      const before = await ledger();
+      const outcome = await closeRun(
+        conn.db,
+        offline,
+        replay(conn, []).log,
+        input(
+          abandoning(fakeTracker(), {
+            actor: "seat:S-1/coordinator",
+            abandon: { reason, person: false },
+          }),
+        ),
+      );
+      expect(outcome).toMatchObject({
+        ok: false,
+        refusal: { code: "activation_needs_person" },
+      });
+      expect(await ledger()).toEqual(before);
+    });
+
+    describe("at a person's gate", () => {
+      const principals = { human: { tracker_account: "keeper-1" } };
+
+      async function atMerge() {
+        await gatedRun(conn, {
+          gates: { merge: { keeper: "human", type: "HQA" } },
+          principals,
+          gate: "merge",
+        });
+      }
+
+      test("a Run abandoned at the merge gate records no receipt, reads abandoned, and a later verdict records nothing", async () => {
+        await atMerge();
+        const outcome = await closeRun(
+          conn.db,
+          offline,
+          replay(conn, []).log,
+          input(abandoning(fakeTracker())),
+        );
+        expect(outcome).toMatchObject({ ok: true, result: { state: "done" } });
+        expect(await conn.db.listGateReceipts("run_1")).toEqual([]);
+        const built = await buildState(
+          { repo: conn.db, host: "local", docs: null, now: () => new Date() },
+          { story: "S-1", project: null },
+        );
+        if (!built.ok) throw new Error(built.refusal.message);
+        expect(renderState(built.view)).toContain(
+          "merge step review HQA keeper human task task_r superseded: abandoned, no receipt",
+        );
+        const tracker = fakeTracker();
+        tracker.comments.unshift({
+          ref: { provider: "linear", external_id: "S-1", comment_id: "c-9" },
+          authorId: "keeper-1",
+          body: "merge PASS",
+          editedAt: null,
+        });
+        await recordHqa(conn.db, noCalls(), tracker, replay(conn, []).log, {
+          story: { provider: "linear", external_id: "S-1" },
+          generation: 1,
+          host: "local",
+          hostName: "h1",
+          bypassPath: join(mkdtempSync(join(tmpdir(), "pod-bypass-")), "b"),
+          principal: "human",
+          command: "pod hqa record story:S-1 --generation 1",
+          now: () => new Date(),
+        });
+        const { orca, log } = replay(conn, [
+          ok("check", empty(null), runArgv),
+          ok("worker-list", workers([]), runArgv),
+        ]);
+        await checkPass(conn.db, orca, tracker, log, checkArgs);
+        expect(await conn.db.listGateReceipts("run_1")).toEqual([]);
+      });
+
+      test("an agent Seat's --abandon on a Run waiting at a person's gate is refused before any write", async () => {
+        await atMerge();
+        const before = await ledger();
+        const outcome = await closeRun(
+          conn.db,
+          offline,
+          replay(conn, []).log,
+          input(
+            abandoning(fakeTracker(), {
+              actor: "seat:S-1/coordinator",
+              abandon: { reason, person: false },
+            }),
+          ),
+        );
+        expect(outcome).toMatchObject({
+          ok: false,
+          refusal: { code: "activation_needs_person" },
+        });
+        if (!outcome.ok)
+          expect(outcome.refusal.message).toContain(
+            "merge (Task task_r, delivered)",
+          );
+        expect(await ledger()).toEqual(before);
+      });
     });
   });
 });

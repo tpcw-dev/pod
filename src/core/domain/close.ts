@@ -125,6 +125,7 @@ export const CloseResult = z.object({
   worktrees: z.array(WorktreeOutcome),
   branches: z.array(BranchOutcome),
   already_closed: z.boolean(),
+  abandoned: z.string().nullable(),
   nextSteps: z.array(z.string()),
 });
 export type CloseResult = z.infer<typeof CloseResult>;

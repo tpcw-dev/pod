@@ -346,7 +346,7 @@ export const verbs: readonly VerbRow<unknown, unknown>[] = [
     sideEffect: "tracker",
     cancelBy: ["nobody"],
     evidenceRequired: [
-      "every Task done, superseded, or failed; no running Dispatch other than the Run's coordinator Dispatch; no open or needs_human Decision; no text in the composer of an open Dispatch terminal other than the coordinator's, read from a rendered screen; and no untracked file and no branch ahead of its upstream in the Run's worktrees, unless `--keep-files-reviewed` is passed",
+      "every Task done, superseded, or failed; no running Dispatch other than the Run's coordinator Dispatch; no open or needs_human Decision; no text in the composer of an open Dispatch terminal other than the coordinator's, read from a rendered screen; and no untracked file and no branch ahead of its upstream in the Run's worktrees, unless `--keep-files-reviewed` is passed; with `--abandon REASON`, the composer, worktree, and open PR checks are skipped and the Run's open Dispatches are settled and its open Tasks superseded first, but an open or needs_human Decision, a pending or unknown launch reservation of one of its Tasks, a Dispatch started on another host, or an unreadable worker list still refuses, and an agent Seat may not abandon a Run waiting at a person's gate",
     ],
     meta: runCloseMeta,
   }),

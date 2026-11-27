@@ -64,7 +64,9 @@ function gateLines(gates: GatesSection): string[] {
       const receipt = item.receipt;
       const outcome =
         receipt === null
-          ? "no receipt"
+          ? gates.run_state === "done" && item.task_state === "superseded"
+            ? "abandoned, no receipt"
+            : "no receipt"
           : `${receipt.outcome} ${receipt.candidate_sha} deployed ${receipt.deployed_revision ?? "none"} at ${receipt.created_at}`;
       return `${item.gate} step ${item.step} ${item.type ?? "untyped"} keeper ${item.keeper ?? "none"} task ${item.task_id ?? "none"} ${item.task_state ?? "none"}: ${outcome}`;
     }),
