@@ -181,6 +181,29 @@ describeDb("pod check advances a Decision", () => {
     expect((await conn.db.getDispatch(auditor))?.activity).toBe("waiting");
   });
 
+  test("a decider whose worker ends while its Decision waits leaves its Task delivered", async () => {
+    const id = await start();
+    await pass(delivery(1, [proposal("p1", id, 1)], opensAuditor));
+    expect((await conn.db.getDispatch(decider))?.activity).toBe("waiting");
+    await pass([
+      ok("check", empty(), run),
+      ok(
+        "worker-list",
+        workers([
+          {
+            dispatchId: decider,
+            taskId: "orca_decider",
+            workerState: "abandoned",
+            terminalState: "released",
+          },
+        ]),
+        run,
+      ),
+    ]);
+    expect((await conn.db.getDispatch(decider))?.settlement).toBe("stopped");
+    expect((await conn.db.getTask(planTask))?.state).toBe("delivered");
+  });
+
   test("escalate below the bound records the round and sends the decider round_next", async () => {
     const id = await start();
     await pass(delivery(1, [proposal("p1", id, 1)], opensAuditor));

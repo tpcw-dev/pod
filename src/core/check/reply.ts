@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { sha256Hex } from "../config/canonical-json.ts";
 import { Json } from "../domain/json.ts";
-import type { Event, OperationStatus, Run } from "../domain/ledger.ts";
+import type {
+  Dispatch,
+  Event,
+  OperationStatus,
+  Run,
+} from "../domain/ledger.ts";
 import { refuse, type Outcome } from "../domain/outcome.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
@@ -128,13 +133,25 @@ function waitingOf(event: Event): Waiting | null {
   return parsed.success ? parsed.data : null;
 }
 
-/** The one reader of the question rules: `pod check` and `pod reply` agree. */
 export async function openQuestions(db: Repo, run: Run): Promise<Question[]> {
+  return questionsOn(
+    db,
+    run,
+    (await db.listDispatches(run.run_id)).filter(
+      (row) => row.settlement === "open",
+    ),
+  );
+}
+
+/** The one reader of the question rules: `pod check` and `pod reply` agree. */
+export async function questionsOn(
+  db: Repo,
+  run: Run,
+  dispatches: readonly Dispatch[],
+): Promise<Question[]> {
   const open = new Set(
-    (await db.listDispatches(run.run_id))
-      .filter(
-        (row) => row.settlement === "open" && !nonAsking.includes(row.role),
-      )
+    dispatches
+      .filter((row) => !nonAsking.includes(row.role))
       .map((row) => row.dispatch_id),
   );
   const answered = await answeredIds(db, run.run_id);

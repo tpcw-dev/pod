@@ -26,6 +26,7 @@ const specRows: [TaskState, TaskState][] = [
   ["delivered", "passed"],
   ["delivered", "hold"],
   ["delivered", "failed"],
+  ["delivered", "blocked"],
   ["passed", "done"],
   ...toHold.map((from): [TaskState, TaskState] => [from, "hold"]),
   ["hold", "ready"],

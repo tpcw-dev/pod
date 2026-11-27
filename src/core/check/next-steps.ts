@@ -4,11 +4,17 @@ import { nextDispatchCommand } from "../dispatch/next-command.ts";
 import { openLaunches } from "../dispatch/quota.ts";
 import { readSeats, SeatsInvalid, type Seat } from "../dispatch/seats.ts";
 import { candidateSha, gateOf, pinnedConfig } from "../gate/receipt.ts";
+import { latestDispatch } from "../domain/hold.ts";
 import { drainInForce } from "../ledger/drain-in-force.ts";
 import type { Db } from "../ports/db.ts";
 import { readProcess } from "../process/project.ts";
 import { afterClose, type Step } from "../process/schema.ts";
-import { openQuestions, questionLine, type Question } from "./reply.ts";
+import {
+  openQuestions,
+  questionLine,
+  questionsOn,
+  type Question,
+} from "./reply.ts";
 
 export interface NextSteps {
   lines: string[];
@@ -56,8 +62,9 @@ export async function nextSteps(
   if (input.freeSlots >= 1 && !(await drainInForce(db, run.run_id))) {
     const keys = await nextKeys(db, context, tasks);
     const ready = await readyLines(db, context, open, keys.tasks, pinned?.crew);
-    lines.push(...keys.lines, ...ready.lines);
-    runnableCount += keys.lines.length + ready.runnableCount;
+    const retries = await retryLines(db, context, tasks);
+    lines.push(...keys.lines, ...ready.lines, ...retries);
+    runnableCount += keys.lines.length + ready.runnableCount + retries.length;
   }
   const gated = await gateLines(db, context, open, pinned?.policy);
   lines.push(...gated.lines);
@@ -171,6 +178,34 @@ async function readyLines(
     runnableCount += 1;
   }
   return { lines, runnableCount };
+}
+
+async function retryLines(
+  db: Db,
+  { run, generation }: Context,
+  tasks: readonly Task[],
+): Promise<string[]> {
+  if (run.state !== "active") return [];
+  const launching = new Set(
+    (await openLaunches(db)).map((launch) => launch.request?.task_id),
+  );
+  const dispatches = await db.listDispatches(run.run_id);
+  const lines: string[] = [];
+  for (const task of tasks) {
+    if (task.state !== "blocked" || launching.has(task.task_id)) continue;
+    const latest = latestDispatch(dispatches, task.task_id);
+    if (latest?.settlement !== "stopped") continue;
+    const id = latest.dispatch_id;
+    const [question] = await questionsOn(db, run, [latest]);
+    lines.push(
+      `Task ${task.task_id} is blocked on ended Dispatch ${id}: pod retry --dispatch ${id} --generation ${generation}${
+        question === undefined
+          ? ""
+          : `; ${id} left question ${question.message_id} unanswered: answer the new Dispatch's repeat of it with pod reply and the same answer`
+      }`,
+    );
+  }
+  return lines;
 }
 
 async function gateLines(

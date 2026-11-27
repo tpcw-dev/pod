@@ -252,6 +252,32 @@ describeDb("pod check --wait", () => {
     expect(slept).toEqual([]);
   });
 
+  test("a blocked Task with a retry line ends the wait on the first pass", async () => {
+    const outcome = await wait([
+      ok("check", empty(), run),
+      ok(
+        "worker-list",
+        workers([
+          {
+            dispatchId: "ctx_1",
+            workerState: "abandoned",
+            terminalState: "released",
+          },
+        ]),
+        run,
+      ),
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        nextSteps: expect.arrayContaining([
+          "Task task_b is blocked on ended Dispatch ctx_1: pod retry --dispatch ctx_1 --generation 1",
+        ]),
+      },
+    });
+    expect(slept).toEqual([]);
+  });
+
   test("an owed verdict ends the wait on the first pass", async () => {
     await gatedRun(conn, { gates: { pr: { keeper: "rev-1", type: "AQA" } } });
     const { orca, log } = replay(conn, [

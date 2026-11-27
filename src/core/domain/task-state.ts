@@ -52,7 +52,8 @@ export const transitions: readonly Transition[] = [
   {
     from: "dispatched",
     to: "blocked",
-    trigger: "Orca reports the Task blocked after worker-stop",
+    trigger:
+      "the worker runtime reports the worker stopped, or abandoned with terminalState released",
   },
   {
     from: "blocked",
@@ -69,6 +70,12 @@ export const transitions: readonly Transition[] = [
     from: "delivered",
     to: "hold",
     trigger: "a cancelled Decision outcome on a step with a decision",
+  },
+  {
+    from: "delivered",
+    to: "blocked",
+    trigger:
+      "pod check records the worker of the Task's latest Dispatch as ended while that Dispatch waits on an unanswered question",
   },
   {
     from: "delivered",

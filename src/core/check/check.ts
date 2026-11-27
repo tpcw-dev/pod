@@ -53,7 +53,7 @@ import {
   type FollowUp,
 } from "./follow-up.ts";
 import { reconcileLaunches, type Reconciled } from "./reconcile.ts";
-import { cut, type Question } from "./reply.ts";
+import { cut, questionsOn, type Question } from "./reply.ts";
 import { reconcileTakeovers } from "./takeover-reconcile.ts";
 import { recordNoSource } from "./usage.ts";
 import { nextSteps } from "./next-steps.ts";
@@ -804,10 +804,19 @@ async function recordWorkers(
   return db.transaction(async (tx) => {
     await fence(tx, run.run_id, input.generation);
     return {
-      stopped: await recordStops(tx, run, rows, input),
+      stopped: await recordStops(tx, run, rows, input, workerEnded, {
+        blockAsking: true,
+      }),
       ...(await recordUnknownWorkers(tx, run, rows, input)),
     };
   });
+}
+
+export function workerEnded(row: WorkerRow): boolean {
+  return (
+    row.workerState === "stopped" ||
+    (row.workerState === "abandoned" && row.terminalState === "released")
+  );
 }
 
 export async function recordStops(
@@ -815,13 +824,22 @@ export async function recordStops(
   run: Run,
   rows: readonly WorkerRow[],
   input: Pick<CheckInput, "host" | "now">,
+  ended: (row: WorkerRow) => boolean = (row) => row.workerState === "stopped",
+  { blockAsking = false }: { blockAsking?: boolean } = {},
 ): Promise<string[]> {
   const stopped: string[] = [];
   for (const row of rows) {
-    if (row.workerState !== "stopped") continue;
+    if (!ended(row)) continue;
     const dispatch = await tx.getDispatch(row.dispatchId);
     if (dispatch?.run_id !== run.run_id || dispatch.settlement !== "open")
       continue;
+    const asking =
+      blockAsking &&
+      dispatch.activity === "waiting" &&
+      dispatch.task_id !== null &&
+      latestDispatch(await tx.listDispatches(run.run_id), dispatch.task_id)
+        ?.dispatch_id === dispatch.dispatch_id &&
+      (await questionsOn(tx, run, [dispatch])).length > 0;
     const at = input.now();
     await tx.settleDispatch(dispatch.dispatch_id, {
       activity: "settled",
@@ -837,12 +855,17 @@ export async function recordStops(
       task_id: dispatch.task_id,
       dispatch_id: dispatch.dispatch_id,
       op_key: null,
-      payload: { worker_state: row.workerState },
+      payload: {
+        worker_state: row.workerState,
+        ...(row.workerState === "abandoned"
+          ? { terminal_state: row.terminalState ?? null }
+          : {}),
+      },
       source: { kind: "command", verb: "check" },
     });
     const task =
       dispatch.task_id === null ? null : await tx.getTask(dispatch.task_id);
-    if (task?.state === "dispatched")
+    if (task?.state === "dispatched" || (asking && task?.state === "delivered"))
       await moveTask(tx, task.task_id, "blocked");
     stopped.push(dispatch.dispatch_id);
   }
