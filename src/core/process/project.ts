@@ -402,6 +402,7 @@ export interface ReworkPlan {
   target: ProcessStep;
   then: ProcessStep | null;
   read: ReadProcess;
+  rearm?: readonly ProcessStep[];
   note?: string;
 }
 
@@ -484,6 +485,51 @@ async function latest(
   });
   const parsed = Latest.safeParse(event?.payload);
   return parsed.success ? (parsed.data[field] ?? null) : null;
+}
+
+function upstream(steps: readonly ProcessStep[], stepId: string): Set<string> {
+  const needs = new Map(steps.map((step) => [step.id, step.needs]));
+  const seen = new Set<string>();
+  const queue = [...(needs.get(stepId) ?? [])];
+  for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    queue.push(...(needs.get(id) ?? []));
+  }
+  return seen;
+}
+
+/**
+ * The steps a rework re-creates after its `made` steps, so the failed gate
+ * waits again for the new candidate: each step on the needs path from the
+ * anchor down to the failed step, in needs order, the failed step last. When
+ * the failed step does not need the anchor, it alone is re-created, after the
+ * last made step.
+ */
+export function reworkPath(
+  steps: readonly ProcessStep[],
+  failedId: string,
+  anchorId: string,
+  made: readonly string[],
+): ProcessStep[] {
+  const failed = steps.find((step) => step.id === failedId);
+  if (failed === undefined || anchorId === failedId || made.includes(failedId))
+    return [];
+  const above = upstream(steps, failedId);
+  if (!above.has(anchorId)) {
+    const last = made.at(-1);
+    return [{ ...failed, needs: last === undefined ? [] : [last] }];
+  }
+  return steps
+    .filter(
+      (step) =>
+        !made.includes(step.id) &&
+        (step.id === failedId || above.has(step.id)) &&
+        upstream(steps, step.id).has(anchorId),
+    )
+    .map((step) => ({ step, depth: upstream(steps, step.id).size }))
+    .sort((a, b) => a.depth - b.depth)
+    .map(({ step }) => step);
 }
 
 export async function recordOutcome(
@@ -569,7 +615,18 @@ export async function recordOutcome(
     const target = stepOf(read, edge.to, task, outcome);
     const then =
       edge.then === undefined ? null : stepOf(read, edge.then, task, outcome);
-    const plan = { failed: task, target, then, read };
+    const plan = {
+      failed: task,
+      target,
+      then,
+      read,
+      rearm: reworkPath(
+        read.value.steps,
+        read.step.id,
+        (then ?? target).id,
+        then === null ? [target.id] : [target.id, then.id],
+      ),
+    };
     if (
       task.state === "failed" &&
       (await latest(tx, task, "outcome", "outcome")) === outcome
@@ -726,27 +783,36 @@ export async function rework(
     state: allSatisfied(targetDeps, states) ? "ready" : "pending",
   });
   if (!made.ok) return made;
-  const created = [made.taskId];
-  let replacement = made.taskId;
-  if (then !== null) {
-    const next = await createTask(ctx, {
+  const ids = new Map([[target.id, made.taskId]]);
+  const following = [
+    ...(then === null ? [] : [{ ...then, needs: [target.id] }]),
+    ...(plan.rearm ?? []),
+  ];
+  for (const next of following) {
+    const deps = next.needs.flatMap(
+      (need) => ids.get(need) ?? newest(need) ?? [],
+    );
+    const created = await createTask(ctx, {
       runId,
-      ...(await agreedSpec(db, toProjectStep(then), newest(then.id))),
-      opKey: key(then.id),
-      deps: [made.taskId],
-      reworkOf: newest(then.id),
-      state: "pending",
+      ...(await agreedSpec(db, toProjectStep(next), newest(next.id))),
+      opKey: key(next.id),
+      deps,
+      reworkOf: newest(next.id),
+      state: allSatisfied(deps, states) ? "ready" : "pending",
     });
-    if (!next.ok) return next;
-    created.push(next.taskId);
-    replacement = next.taskId;
+    if (!created.ok) return created;
+    ids.set(next.id, created.taskId);
   }
+  const created = [...ids.values()];
   await db.transaction(async (tx) => {
     await tx.lockRun(runId);
-    const replaced = (await tx.getTask(made.taskId))?.rework_of ?? null;
-    const map = new Map<string, string>([[failed.task_id, replacement]]);
-    if (replaced !== null && replaced !== failed.task_id)
-      map.set(replaced, made.taskId);
+    const map = new Map<string, string>();
+    for (const taskId of created) {
+      const replaced = (await tx.getTask(taskId))?.rework_of ?? null;
+      if (replaced !== null) map.set(replaced, taskId);
+    }
+    if (!map.has(failed.task_id))
+      map.set(failed.task_id, created.at(-1) ?? made.taskId);
     await rerouteDeps(tx, runId, map, created);
   });
   return { ok: true, created };

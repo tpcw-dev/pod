@@ -8,7 +8,7 @@ import {
 } from "../ledger/launch.ts";
 import { derivedOpKey } from "../ledger/op-key.ts";
 import type { ReceiptLog } from "../ledger/receipts.ts";
-import type { Db } from "../ports/db.ts";
+import type { Db, Repo } from "../ports/db.ts";
 import type { OrcaPort, Receipt } from "../ports/orca.ts";
 import { readProcess } from "./project.ts";
 
@@ -21,8 +21,27 @@ export interface SettleContext {
 
 const runtimeStatus: Partial<Record<Task["state"], string>> = {
   done: "completed",
-  failed: "failed",
+  failed: "completed",
 };
+
+function settleOpKey(run_id: string, task_id: string, status: string) {
+  return derivedOpKey("task_update", { run_id, task_id, status });
+}
+
+/**
+ * A gate Task whose runtime task was once settled failed keeps that settle,
+ * so its dependents stay held in the runtime.
+ */
+export async function settledFailedBefore(
+  db: Repo,
+  task: Pick<Task, "run_id" | "task_id">,
+): Promise<boolean> {
+  return (
+    (await db.getOperation(
+      settleOpKey(task.run_id, task.task_id, "failed"),
+    )) !== null
+  );
+}
 
 const OpenRequest = z.looseObject({ requestId: z.string().nullish() });
 
@@ -49,11 +68,9 @@ export async function settleRuntime(
   if (task === null || status === undefined) return [];
   const { step } = await readProcess(db, task, task.state);
   if (step.type === "worker") return [];
-  const opKey = derivedOpKey("task_update", {
-    run_id: run.run_id,
-    task_id: task.task_id,
-    status,
-  });
+  const failed = task.state === "failed";
+  if (failed && (await settledFailedBefore(db, task))) return [];
+  const opKey = settleOpKey(run.run_id, task.task_id, status);
   const { operation } = await db.insertOperation({
     op_key: opKey,
     intent: "task_update",
@@ -70,6 +87,7 @@ export async function settleRuntime(
   const receipt = await orca.taskUpdate({
     task: task.task_id,
     status,
+    ...(failed ? { result: `${step.gate ?? step.id} FAIL` } : {}),
     run: run.run_id,
     from: run.coordinator,
     ...(retryRequest === undefined ? {} : { retryRequest }),
