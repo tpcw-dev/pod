@@ -46,6 +46,12 @@ import {
   taskState,
   workers,
 } from "./run-fixture.ts";
+import {
+  failMerge,
+  mergeRun,
+  passReworkReview,
+  setState,
+} from "./merge-fixture.ts";
 import { activeRevision, processValue } from "./seed.ts";
 
 const run = ["--run", "run_1"];
@@ -1627,5 +1633,80 @@ describeDb("pod check names the coordinator's next step", () => {
     expect(await quiet()).toContain(
       "waiting on pr (human): human runs pod hqa record story:S-1 --generation 1 after the verdict comment, or a listed delegate posts the verdict comment with keeper-quote: and delegated-by: lines and pod check records it",
     );
+  });
+});
+
+describeDb("pod check after a merge FAIL", () => {
+  let conn: Connection;
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  async function quiet() {
+    const { orca, log } = replay(conn, [
+      ok("check", empty(), run),
+      ok("worker-list", workers([]), run),
+    ]);
+    const outcome = await checkPass(
+      conn.db,
+      orca,
+      null,
+      log,
+      input({ capacity: 2 }),
+    );
+    orca.assertDone();
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    return outcome.result.nextSteps;
+  }
+
+  test("pod check names no land dispatch while the re-armed merge gate waits", async () => {
+    await mergeRun(conn);
+    await failMerge(conn, fakeTracker());
+    await passReworkReview(conn);
+    const steps = await quiet();
+    expect(steps).toContain(
+      "waiting on merge (human): human runs pod hqa record story:S-1 --generation 1 after the verdict comment, or a listed delegate posts the verdict comment with keeper-quote: and delegated-by: lines and pod check records it",
+    );
+    expect(steps.filter((line) => line.includes("task_l"))).toEqual([]);
+    expect(await taskState(conn, "task_l")).toBe("pending");
+  });
+
+  test("pod check sends no new task-update for a failed merge Task already settled failed", async () => {
+    await mergeRun(conn);
+    await setState(conn, "task_m", "delivered");
+    await conn.db.transaction((tx) =>
+      recordOutcome(tx, {
+        task: "task_m",
+        outcome: "FAIL",
+        at: new Date(),
+        host: "local",
+        source: { kind: "command", verb: "hqa record" },
+      }),
+    );
+    const opKey = derivedOpKey("task_update", {
+      run_id: "run_1",
+      task_id: "task_m",
+      status: "failed",
+    });
+    await conn.db.insertOperation({
+      op_key: opKey,
+      intent: "task_update",
+      owner_generation: 1,
+      at: new Date(),
+    });
+    await conn.db.moveOperation(
+      opKey,
+      "done",
+      { task_id: "task_m", status: "failed" },
+      new Date(),
+    );
+    expect(await taskState(conn, "task_m")).toBe("failed");
+    await quiet();
+    expect(
+      await conn.sql`select op_key from ledger.operation where intent = 'task_update'`,
+    ).toEqual([{ op_key: opKey }]);
   });
 });

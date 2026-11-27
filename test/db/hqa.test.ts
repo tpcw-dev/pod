@@ -13,6 +13,16 @@ import { deliveredPlan } from "./decision-fixture.ts";
 import { fakeTracker, type FakeTracker } from "./fake-tracker.ts";
 import { checkArgs, gatedRun, headSha, type GatedRun } from "./gate-fixture.ts";
 import { describeDb, openDb, resetDb } from "./helpers.ts";
+import {
+  failMerge,
+  keeperSays,
+  mergeRun,
+  newHead,
+  oldHead,
+  passReworkReview,
+  recordKeeper,
+  settledPass,
+} from "./merge-fixture.ts";
 import { empty, events, replay, taskState, workers } from "./run-fixture.ts";
 
 const principals = {
@@ -415,5 +425,55 @@ describeDb("pod hqa record on a decision step", () => {
         result: { nextSteps: ["no delivered Task waits on an HQA gate"] },
       });
     }
+  });
+});
+
+describeDb("pod hqa record after a merge FAIL", () => {
+  let conn: Connection;
+
+  beforeAll(async () => {
+    await resetDb();
+    conn = openDb();
+  });
+  afterAll(() => conn.close());
+
+  test("a merge FAIL settles the merge runtime task completed with result FAIL", async () => {
+    await mergeRun(conn);
+    const tracker = fakeTracker();
+    await failMerge(conn, tracker);
+    expect(await taskState(conn, "task_m")).toBe("failed");
+    expect(
+      await conn.sql`select status, result_ref from ledger.operation where intent = 'task_update'`,
+    ).toEqual([
+      {
+        status: "done",
+        result_ref: { task_id: "task_m", status: "completed" },
+      },
+    ]);
+  });
+
+  test("after a merge FAIL rework, the re-armed merge Task takes the next PASS", async () => {
+    await mergeRun(conn);
+    const tracker = fakeTracker();
+    await failMerge(conn, tracker);
+    await passReworkReview(conn);
+    expect(await taskState(conn, "task_m2")).toBe("ready");
+    keeperSays(tracker, "merge PASS");
+    const { orca } = replay(conn, [settledPass("task_m2")]);
+    expect(await recordKeeper(conn, tracker, orca)).toMatchObject({
+      ok: true,
+      result: {
+        gate: "merge",
+        outcome: { task_id: "task_m2", state: "done", promoted: ["task_l"] },
+      },
+    });
+    orca.assertDone();
+    expect(
+      await conn.sql`select task_id, outcome, candidate_sha from ledger.gate_receipt order by id`,
+    ).toEqual([
+      { task_id: "task_m", outcome: "FAIL", candidate_sha: oldHead },
+      { task_id: "task_m2", outcome: "PASS", candidate_sha: newHead },
+    ]);
+    expect(await taskState(conn, "task_l")).toBe("ready");
   });
 });

@@ -26,7 +26,16 @@ import { fakeTracker } from "./fake-tracker.ts";
 import { deliver, gatedRun, headSha } from "./gate-fixture.ts";
 import { dbUrl, describeDb, openDb, resetDb } from "./helpers.ts";
 import { deliveredPlan, opened, planTask } from "./decision-fixture.ts";
-import { dispatched } from "./run-fixture.ts";
+import {
+  failMerge,
+  keeperSays,
+  mergeRun,
+  newHead,
+  passReworkReview,
+  recordKeeper,
+  settledPass,
+} from "./merge-fixture.ts";
+import { dispatched, replay } from "./run-fixture.ts";
 import { processValue } from "./seed.ts";
 
 const now = new Date("2026-11-17T12:00:00.000Z");
@@ -232,6 +241,61 @@ describeDb("pod state story:<id> gates", () => {
       task_id: "task_r2",
       task_state: "pending",
       receipt: null,
+    });
+  });
+
+  test("after a merge FAIL, the merge gate reads the re-armed merge Task with no receipt", async () => {
+    await mergeRun(conn);
+    await failMerge(conn, fakeTracker());
+    await passReworkReview(conn);
+    expect(items(await state())).toEqual([
+      {
+        gate: "review",
+        step: "review",
+        type: "AQA",
+        keeper: "rev-1",
+        task_id: "task_r2",
+        task_state: "done",
+        receipt: null,
+      },
+      {
+        gate: "merge",
+        step: "merge",
+        type: "HQA",
+        keeper: "human",
+        task_id: "task_m2",
+        task_state: "ready",
+        receipt: null,
+      },
+    ]);
+  });
+
+  test("after the keeper's PASS on the new head, the merge gate reads a PASS receipt that names the new head", async () => {
+    await mergeRun(conn);
+    const tracker = fakeTracker();
+    await failMerge(conn, tracker);
+    await passReworkReview(conn);
+    keeperSays(tracker, "merge PASS");
+    const recorded = await recordKeeper(
+      conn,
+      tracker,
+      replay(conn, [settledPass("task_m2")]).orca,
+    );
+    expect(recorded.ok).toBe(true);
+    expect(items(await state())[1]).toEqual({
+      gate: "merge",
+      step: "merge",
+      type: "HQA",
+      keeper: "human",
+      task_id: "task_m2",
+      task_state: "done",
+      receipt: {
+        receipt_id: expect.any(Number),
+        outcome: "PASS",
+        candidate_sha: newHead,
+        deployed_revision: null,
+        created_at: expect.any(String),
+      },
     });
   });
 

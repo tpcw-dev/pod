@@ -7,11 +7,14 @@ import {
   DecisionSource,
   Latest,
   noReworkEdge,
+  readProcess,
   recordOutcome,
   rework,
   reworkFinished,
+  reworkPath,
   type OutcomeInput,
 } from "./project.ts";
+import { settledFailedBefore } from "./settle.ts";
 
 export interface ReworkContext {
   run: Run;
@@ -90,8 +93,18 @@ async function receiptFail(
   )
     return null;
   const { to, then } = failed.data.edge;
-  const steps = then === null ? [to] : [to, then];
-  return (await reworkFinished(db, task, steps)) ? null : { receipt_id };
+  const made = then === null ? [to] : [to, then];
+  const rearmed = (await settledFailedBefore(db, task))
+    ? []
+    : reworkPath(
+        (await readProcess(db, task, "FAIL")).value.steps,
+        task.step_id,
+        then ?? to,
+        made,
+      ).map((step) => step.id);
+  return (await reworkFinished(db, task, [...made, ...rearmed]))
+    ? null
+    : { receipt_id };
 }
 
 async function heldStep(db: Repo, task: Task): Promise<string | null> {
@@ -118,8 +131,8 @@ export async function followReworks(
       continue;
     }
     if (task.state !== "failed") continue;
-    if (tasks.some((row) => row.rework_of === task.task_id)) continue;
-    const change = await agreedChange(db, task);
+    const reworked = tasks.some((row) => row.rework_of === task.task_id);
+    const change = reworked ? null : await agreedChange(db, task);
     const fail = change === null ? await receiptFail(db, task) : null;
     const replay: OutcomeInput | null =
       change !== null

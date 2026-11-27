@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   afterAll,
   beforeAll,
@@ -7,7 +8,9 @@ import {
   test,
 } from "vitest";
 import type { Connection } from "../../src/adapters/postgres/connection.ts";
+import { parseYaml } from "../../src/cli/yaml-file.ts";
 import { revisionId } from "../../src/core/config/canonical-json.ts";
+import { RevisionEnvelope } from "../../src/core/domain/config.ts";
 import { TaskTransitionInvalid } from "../../src/core/domain/task-state.ts";
 import { applyOutcome, recordOutcome } from "../../src/core/process/project.ts";
 import type { Outcome } from "../../src/core/process/schema.ts";
@@ -20,6 +23,7 @@ import {
   type TempEntry,
 } from "../orca/temp-fixtures.ts";
 import { clearDb, describeDb, openDb, resetDb } from "./helpers.ts";
+import { created, mergeRun } from "./merge-fixture.ts";
 import { events, freshRun, replay, taskState } from "./run-fixture.ts";
 import { activeRevision, crewValue } from "./seed.ts";
 
@@ -407,5 +411,235 @@ describeDb("applyOutcome", () => {
       ).toMatchObject({ ok: false, refusal: { code: "launch_unknown" } });
       expect(await conn.db.listTasks("run_1")).toHaveLength(3);
     });
+  });
+
+  describe("on a process whose merge FAIL reworks implement then review", () => {
+    const deps = (ids: string[]) => ["--deps", JSON.stringify(ids)];
+    const mergeCreates = [
+      created("task_i2"),
+      ok("task-create", { task: { id: "task_r2", status: "pending" } }, [
+        ...deps(["task_i2"]),
+        "--task-title",
+        "review",
+      ]),
+      ok("task-create", { task: { id: "task_m2", status: "pending" } }, [
+        ...deps(["task_r2"]),
+        "--task-title",
+        "merge",
+      ]),
+    ];
+
+    test("a merge FAIL re-arms the merge gate after the rework review, and land waits on the new merge Task", async () => {
+      await mergeRun(conn);
+      await setState("task_m", "delivered");
+      expect(await apply(mergeCreates, "task_m", "FAIL")).toMatchObject({
+        ok: true,
+        result: {
+          state: "failed",
+          created: ["task_i2", "task_r2", "task_m2"],
+          replayed: false,
+        },
+      });
+      expect(await conn.db.getTask("task_m2")).toMatchObject({
+        step_id: "merge",
+        lineage_id: "run_1:merge",
+        rework_of: "task_m",
+        deps: ["task_r2"],
+        state: "pending",
+      });
+      expect(await conn.db.getTask("task_l")).toMatchObject({
+        deps: ["task_m2"],
+        state: "pending",
+      });
+    });
+
+    test("a FAIL whose then step is two steps above the failed step re-creates each step between them", async () => {
+      await mergeRun(conn, { withPr: true });
+      await setState("task_m", "delivered");
+      const result = await apply(
+        [
+          ...mergeCreates.slice(0, 2),
+          ok("task-create", { task: { id: "task_p2", status: "pending" } }, [
+            ...deps(["task_r2"]),
+            "--task-title",
+            "pr",
+          ]),
+          ok("task-create", { task: { id: "task_m2", status: "pending" } }, [
+            ...deps(["task_p2"]),
+            "--task-title",
+            "merge",
+          ]),
+        ],
+        "task_m",
+        "FAIL",
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        result: { created: ["task_i2", "task_r2", "task_p2", "task_m2"] },
+      });
+      expect(await conn.db.getTask("task_p2")).toMatchObject({
+        rework_of: "task_p",
+        deps: ["task_r2"],
+      });
+      expect(await conn.db.getTask("task_m2")).toMatchObject({
+        rework_of: "task_m",
+        deps: ["task_p2"],
+      });
+      expect(await conn.db.getTask("task_l")).toMatchObject({
+        deps: ["task_m2"],
+      });
+    });
+
+    test("a replayed merge FAIL creates no Task twice", async () => {
+      await mergeRun(conn);
+      await setState("task_m", "delivered");
+      await apply(mergeCreates, "task_m", "FAIL");
+      expect(await apply([], "task_m", "FAIL")).toMatchObject({
+        ok: true,
+        result: {
+          state: "failed",
+          created: ["task_i2", "task_r2", "task_m2"],
+          replayed: true,
+        },
+      });
+      expect(await conn.db.listTasks("run_1")).toHaveLength(7);
+      expect(await events(conn, "outcome")).toHaveLength(1);
+    });
+
+    test("a merge FAIL at the rework limit holds the merge Task and re-arms nothing", async () => {
+      await mergeRun(conn, { rework: 1 });
+      await conn.sql`
+        insert into ledger.task (task_id, run_id, step_id, lineage_id, role, deps, spec_revision_id, state, rework_of, created_at)
+        select 'task_i1', run_id, step_id, lineage_id, role, deps, spec_revision_id, 'done', 'task_i', created_at
+        from ledger.task where task_id = 'task_i'`;
+      await setState("task_m", "delivered");
+      expect(await apply([], "task_m", "FAIL")).toMatchObject({
+        ok: true,
+        result: { state: "hold", created: [] },
+      });
+      expect(await taskState(conn, "task_m")).toBe("hold");
+      expect(await conn.db.listTasks("run_1")).toHaveLength(5);
+      expect(await conn.db.getTask("task_l")).toMatchObject({
+        deps: ["task_m"],
+      });
+    });
+
+    test("after the rework review passes, land stays pending until the new merge Task passes", async () => {
+      await mergeRun(conn);
+      await setState("task_m", "delivered");
+      await apply(mergeCreates, "task_m", "FAIL");
+      await setState("task_i2", "done");
+      await setState("task_r2", "delivered");
+      expect(await apply([], "task_r2", "PASS")).toMatchObject({
+        ok: true,
+        result: { state: "done", promoted: ["task_m2"] },
+      });
+      expect(await taskState(conn, "task_l")).toBe("pending");
+      await setState("task_m2", "delivered");
+      expect(await apply([], "task_m2", "PASS")).toMatchObject({
+        ok: true,
+        result: { state: "done", promoted: ["task_l"] },
+      });
+      expect(await taskState(conn, "task_l")).toBe("ready");
+    });
+  });
+
+  describe("on a seeded process whose gate sits below its FAIL edge's then step", () => {
+    function seed(name: string) {
+      const path = `specs/process/${name}.yaml`;
+      const envelope = RevisionEnvelope.parse(
+        parseYaml(readFileSync(path, "utf8"), path),
+      );
+      return envelope.value as {
+        steps: { id: string; needs?: string[]; after?: string }[];
+      };
+    }
+
+    test.each([
+      [
+        "impl-small",
+        "hqa",
+        "impl",
+        "s",
+        ["implement", "review", "pr", "merge", "deploy", "hqa"],
+      ],
+      [
+        "impl-large",
+        "integration_review",
+        "impl",
+        "l",
+        ["implement", "review", "integration_review"],
+      ],
+      ["prd", "prd_review", "prd", "s", ["draft", "audit", "prd_review"]],
+      [
+        "design",
+        "design_clickthrough",
+        "design",
+        "s",
+        ["design", "taste_qa", "design_clickthrough"],
+      ],
+    ])(
+      "%s: a %s FAIL re-arms the gate with no receipt, and its dependents wait on it",
+      async (name, failed, stage, size, rearmed) => {
+        const value = seed(name);
+        const steps = value.steps.filter((step) => step.after === undefined);
+        await clearDb(conn);
+        await activeRevision(conn.db, "policy", "default", { gates: [] });
+        await activeRevision(conn.db, "crew", "default", crewValue);
+        await activeRevision(conn.db, "process", name, value);
+        const { orca, log } = replay(conn, [
+          ok("run-create", { run: { id: "run_1" } }),
+          ...steps.map((step) => created(`t_${step.id}`)),
+        ]);
+        const made = await runCreate(conn.db, orca, null, log, {
+          story: "S-1",
+          process: { name, rev: 1 },
+          size: size as "s" | "l",
+          stage,
+          coordinator: "session-1",
+          host: "local",
+          provider: "linear",
+          command: "pod run create story:S-1",
+          now,
+        });
+        if (!made.ok) throw new Error(made.refusal.message);
+        const at = steps.findIndex((step) => step.id === failed);
+        for (const step of steps.slice(0, at))
+          await setState(`t_${step.id}`, "done");
+        await setState(`t_${failed}`, "delivered");
+
+        expect(
+          await apply(
+            rearmed.map((id) => created(`n_${id}`)),
+            `t_${failed}`,
+            "FAIL",
+          ),
+        ).toMatchObject({
+          ok: true,
+          result: { created: rearmed.map((id) => `n_${id}`) },
+        });
+        const gate = await conn.db.getTask(`n_${failed}`);
+        expect(gate).toMatchObject({
+          step_id: failed,
+          rework_of: `t_${failed}`,
+          state: "pending",
+        });
+        expect(
+          await conn.sql`select id from ledger.gate_receipt where task_id = ${`n_${failed}`}`,
+        ).toHaveLength(0);
+        for (const id of rearmed.slice(2)) {
+          const step = steps.find((row) => row.id === id);
+          expect((await conn.db.getTask(`n_${id}`))?.deps).toEqual(
+            (step?.needs ?? []).map((need) => `n_${need}`),
+          );
+        }
+        const live = (await conn.db.listTasks("run_1")).filter(
+          (row) =>
+            !["done", "failed", "superseded"].includes(row.state) &&
+            (row.deps as string[]).includes(`t_${failed}`),
+        );
+        expect(live).toEqual([]);
+      },
+    );
   });
 });

@@ -359,7 +359,9 @@ describeDb("a delegated FAIL on a rework edge", () => {
   });
   afterAll(() => conn.close());
 
-  async function setup(reviewFail: "rework" | "rework_self" = "rework") {
+  async function setup(
+    reviewFail: "rework" | "rework_self" | "rework_to" = "rework",
+  ) {
     await gatedRun(conn, {
       gates: { merge: hqa },
       gate: "merge",
@@ -401,12 +403,15 @@ describeDb("a delegated FAIL on a rework edge", () => {
     "--id",
     "task_r",
     "--status",
-    "failed",
+    "completed",
+    "--result",
+    "merge FAIL",
   ]);
   const created = (id: string, status: string) =>
     ok("task-create", { task: { id, status } });
   const build = created("task_b2", "ready");
   const ship = created("task_s2", "pending");
+  const review = created("task_r3", "pending");
   const checkOnly = ok("check", empty(null), run);
   const list = ok("worker-list", workers([]), run);
 
@@ -435,7 +440,7 @@ describeDb("a delegated FAIL on a rework edge", () => {
   test("one pass creates the build and ship Tasks, and the next pass creates none", async () => {
     await setup();
     say("FAIL");
-    await check([update, build, ship, checkOnly, list]);
+    await check([update, build, ship, review, checkOnly, list]);
     expect(await taskState(conn, "task_r")).toBe("failed");
     expect(await tasks()).toEqual(
       expect.arrayContaining([
@@ -453,11 +458,17 @@ describeDb("a delegated FAIL on a rework edge", () => {
       ]),
     );
     expect((await tasks()).filter((row) => row.rework_of === "task_r")).toEqual(
-      [],
+      [
+        expect.objectContaining({
+          task_id: "task_r3",
+          step_id: "review",
+          deps: ["task_s2"],
+        }),
+      ],
     );
     expect(await liveDependsOnReview()).toEqual([]);
     await check([checkOnly, list]);
-    expect(await tasks()).toHaveLength(5);
+    expect(await tasks()).toHaveLength(6);
   });
 
   test("two unrecorded delegated verdicts record nothing", async () => {
@@ -477,11 +488,11 @@ describeDb("a delegated FAIL on a rework edge", () => {
     await dropPendingProjectOps();
     expect(await taskState(conn, "task_r")).toBe("failed");
     expect(await tasks()).toHaveLength(3);
-    await check([checkOnly, build, ship, list]);
-    expect(await tasks()).toHaveLength(5);
+    await check([checkOnly, build, ship, review, list]);
+    expect(await tasks()).toHaveLength(6);
     expect(await liveDependsOnReview()).toEqual([]);
     await check([checkOnly, list]);
-    expect(await tasks()).toHaveLength(5);
+    expect(await tasks()).toHaveLength(6);
   });
 
   test("a pass stopped between the two taskCreates reuses the build Task", async () => {
@@ -490,22 +501,22 @@ describeDb("a delegated FAIL on a rework edge", () => {
     await stopped([update, build]);
     await dropPendingProjectOps();
     expect(await tasks()).toHaveLength(4);
-    await check([checkOnly, ship, list]);
-    expect(await tasks()).toHaveLength(5);
+    await check([checkOnly, ship, review, list]);
+    expect(await tasks()).toHaveLength(6);
     expect(await liveDependsOnReview()).toEqual([]);
   });
 
   test("a pass stopped before the reroute is rerouted by the next pass", async () => {
     await setup();
     say("FAIL");
-    await check([update, build, ship, checkOnly, list]);
+    await check([update, build, ship, review, checkOnly, list]);
     await conn.sql`update ledger.task set deps = '["task_r"]'::jsonb where task_id = 'task_s'`;
     expect(await liveDependsOnReview()).toHaveLength(1);
     await check([checkOnly, list]);
     expect(await liveDependsOnReview()).toEqual([]);
-    expect(await tasks()).toHaveLength(5);
+    expect(await tasks()).toHaveLength(6);
     await check([checkOnly, list]);
-    expect(await tasks()).toHaveLength(5);
+    expect(await tasks()).toHaveLength(6);
   });
 
   test("a failed build taskCreate is not retried", async () => {
@@ -538,17 +549,32 @@ describeDb("a delegated FAIL on a rework edge", () => {
     say("FAIL");
     const failedUpdate: TempEntry = {
       verb: "task-update",
-      argv: ["--id", "task_r", "--status", "failed"],
+      argv: [
+        "--id",
+        "task_r",
+        "--status",
+        "completed",
+        "--result",
+        "merge FAIL",
+      ],
       exitCode: 1,
       stdout: JSON.stringify({
         ok: false,
         error: { code: "task_not_found", message: "no task" },
       }),
     };
-    await check([failedUpdate, build, ship, checkOnly, failedUpdate, list]);
+    await check([
+      failedUpdate,
+      build,
+      ship,
+      review,
+      checkOnly,
+      failedUpdate,
+      list,
+    ]);
     await check([checkOnly, update, list]);
     await check([checkOnly, list]);
-    expect(await tasks()).toHaveLength(5);
+    expect(await tasks()).toHaveLength(6);
   });
 
   test("a keeper's FAIL whose rework stopped is finished by pod check, and a voided one is not", async () => {
@@ -587,9 +613,55 @@ describeDb("a delegated FAIL on a rework edge", () => {
       await dropPendingProjectOps();
       if (voided)
         await conn.sql`update ledger.gate_receipt set sync_state = 'voided'`;
-      await check(voided ? [checkOnly, list] : [checkOnly, build, ship, list]);
-      expect(await tasks()).toHaveLength(voided ? 3 : 5);
+      await check(
+        voided ? [checkOnly, list] : [checkOnly, build, ship, review, list],
+      );
+      expect(await tasks()).toHaveLength(voided ? 3 : 6);
     }
+  });
+
+  test("a keeper's FAIL rework stopped before the re-armed review is finished by pod check", async () => {
+    await setup("rework_to");
+    say("FAIL");
+    await stopped([update, build]);
+    await dropPendingProjectOps();
+    expect(await tasks()).toHaveLength(4);
+    expect(await liveDependsOnReview()).toHaveLength(1);
+    await check([checkOnly, created("task_r2", "pending"), list]);
+    expect(await tasks()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          task_id: "task_r2",
+          step_id: "review",
+          rework_of: "task_r",
+          deps: ["task_b2"],
+        }),
+      ]),
+    );
+    expect(await liveDependsOnReview()).toEqual([]);
+    await check([checkOnly, list]);
+    expect(await tasks()).toHaveLength(5);
+  });
+
+  test("a keeper's FAIL rework stopped before the reroute is rerouted by pod check, though the re-armed review is rework_of the failed Task", async () => {
+    await setup("rework_to");
+    say("FAIL");
+    await check([
+      update,
+      build,
+      created("task_r2", "pending"),
+      checkOnly,
+      list,
+    ]);
+    expect(await conn.db.getTask("task_s")).toMatchObject({
+      deps: ["task_r2"],
+    });
+    await conn.sql`update ledger.task set deps = '["task_r"]'::jsonb where task_id = 'task_s'`;
+    await check([checkOnly, list]);
+    expect(await conn.db.getTask("task_s")).toMatchObject({
+      deps: ["task_r2"],
+    });
+    expect(await tasks()).toHaveLength(5);
   });
 
   test.each([["newest first"], ["oldest first"]])(

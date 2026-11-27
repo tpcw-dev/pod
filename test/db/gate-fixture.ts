@@ -18,7 +18,7 @@ import { activeRevision, crewValue, processValue } from "./seed.ts";
 
 const hold = ["timeout", "cancel", "unknown"];
 
-export type ReviewFail = "hold" | "rework" | "rework_self";
+export type ReviewFail = "hold" | "rework" | "rework_self" | "rework_to";
 
 const reviewFailEdge = (reviewFail: ReviewFail) =>
   reviewFail === "hold"
@@ -28,7 +28,9 @@ const reviewFailEdge = (reviewFail: ReviewFail) =>
         on: "FAIL",
         to: "build",
         new_task: true,
-        then: reviewFail === "rework" ? "ship" : "review",
+        ...(reviewFail === "rework_to"
+          ? {}
+          : { then: reviewFail === "rework" ? "ship" : "review" }),
       };
 
 export const gateProcess = (
